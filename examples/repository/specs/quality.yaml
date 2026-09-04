@@ -1,0 +1,34 @@
+id: quality
+title: Repository quality
+weight: 100
+description: The repository is documented, type-safe, tested, and buildable.
+scenarios:
+  - id: REPO-S1
+    name: Trace architecture and developer workflow
+    kind: workspace
+    instructions: |
+      Inspect the repository structure, package scripts, configuration, and tests. Trace one important
+      flow from its entry point through the implementation. Run only read-only diagnostic commands.
+    successSignals: [Architecture claims cite files and lines, Developer commands are discoverable]
+rubric:
+  - id: REPO-01
+    criterion: The architecture and developer workflow are documented and agree with the implementation
+    weight: 2
+    tags: [documentation, maintainability]
+    scenarios: [REPO-S1]
+    grader: { type: llm }
+    passCriteria: A contributor can find the architecture, install, test, and build workflow, and evidence shows the docs match source and scripts.
+  - id: REPO-02
+    criterion: Static type checking passes
+    weight: 3
+    tags: [correctness, types]
+    scenarios: []
+    grader: { type: command, command: pnpm typecheck, timeoutSeconds: 180 }
+    passCriteria: The typecheck command exits zero.
+  - id: REPO-03
+    criterion: Automated tests pass
+    weight: 3
+    tags: [correctness, tests]
+    scenarios: []
+    grader: { type: command, command: pnpm test, timeoutSeconds: 300 }
+    passCriteria: The test command exits zero.

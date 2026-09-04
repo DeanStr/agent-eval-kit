@@ -1,0 +1,28 @@
+id: public-site
+title: Public site
+weight: 100
+description: The public site communicates its purpose and has working primary navigation.
+scenarios:
+  - id: SITE-S1
+    name: Understand the landing page and follow its primary navigation
+    kind: browser
+    instructions: |
+      1. Open the target and capture the landing page.
+      2. Identify the primary call to action and follow it.
+      3. Record the destination, whether it loaded, and what the user can do there.
+    successSignals: [A clear product purpose, A working primary call to action]
+rubric:
+  - id: SITE-01
+    criterion: The landing page clearly communicates its purpose
+    weight: 2
+    tags: [content, usability]
+    scenarios: [SITE-S1]
+    grader: { type: llm }
+    passCriteria: A first-time visitor can identify what the site is for from visible content.
+  - id: SITE-02
+    criterion: The primary call to action reaches a working destination
+    weight: 3
+    tags: [navigation, workflow]
+    scenarios: [SITE-S1]
+    grader: { type: llm }
+    passCriteria: Activating the primary call to action loads a relevant, usable destination without an error.

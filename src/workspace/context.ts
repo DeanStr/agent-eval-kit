@@ -1,0 +1,15 @@
+export interface WorkspaceMcpContext {
+  projectRoot: string;
+  evidenceDir: string;
+  /** Codex has no provider turn limit, so its maxTurns is enforced here. */
+  maxToolCalls?: number;
+  /** Config, specs, and other evaluator-only paths hidden from the collector. */
+  evaluatorOnlyPaths?: string[];
+}
+
+export interface WorkspaceResultState {
+  outcome: "completed" | "blocked" | "feature_not_found";
+  summary: string;
+  observations: string[];
+  finishedAt: string;
+}

@@ -1,0 +1,12 @@
+version: 1
+project: { name: Example repository, root: ../.. }
+target: { kind: repository, allowedOrigins: [] }
+agent: { provider: codex, effort: high, maxTurns: 30, timeoutSeconds: 900 }
+judge: { provider: claude, effort: high, timeoutSeconds: 600 }
+paths:
+  specs: examples/repository/specs
+  runs: .agent-eval/runs
+  auth: .agent-eval/auth
+browser: { headless: true, viewport: { width: 1280, height: 800 }, actionTimeoutMs: 10000 }
+scoring: { partialCredit: 0.5, minimumCoverage: 70 }
+variables: {}

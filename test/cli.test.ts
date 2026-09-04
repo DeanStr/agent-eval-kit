@@ -1,0 +1,365 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { writeArtifactIndex } from "../src/integrity.js";
+
+const kitRoot = path.resolve(import.meta.dirname, "..");
+const cli = path.join(kitRoot, "src", "cli.ts");
+const tsxCli = path.join(kitRoot, "node_modules", "tsx", "dist", "cli.mjs");
+const temporary = () => fs.mkdtempSync(path.join(os.tmpdir(), "aek-cli-test-"));
+
+function runCli(cwd: string, args: string[]) {
+  return spawnSync(process.execPath, [tsxCli, cli, ...args], {
+    cwd,
+    encoding: "utf8",
+    env: process.env,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+}
+
+function writeProject(root: string, fixtureLine = ""): void {
+  fs.mkdirSync(path.join(root, "specs"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "evalkit.yaml"),
+    `version: 1
+project: { name: CLI integration, root: . }
+target: { kind: repository }
+agent: { provider: mock }
+judge: { provider: mock }
+paths:
+  specs: specs
+  runs: runs
+  auth: auth
+${fixtureLine}scoring: { partialCredit: 0.5, minimumCoverage: 60 }
+`,
+  );
+  const failingCommand = `${JSON.stringify(process.execPath)} -e "process.exit(1)"`;
+  fs.writeFileSync(
+    path.join(root, "specs", "core.yaml"),
+    `id: core
+title: Core
+weight: 100
+description: CLI integration
+scenarios:
+  - { id: S1, name: Inspect, kind: workspace, instructions: Inspect the project }
+rubric:
+  - id: R1
+    criterion: Deliberate deterministic failure
+    weight: 1
+    gate: true
+    scenarios: []
+    grader: { type: command, command: ${JSON.stringify(failingCommand)} }
+    passCriteria: The command exits successfully.
+`,
+  );
+}
+
+test("CLI doctor checks only capabilities required by the current project", () => {
+  const root = temporary();
+  writeProject(root);
+  const result = runCli(root, ["doctor"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /playwright chromium \(optional\)/);
+  assert.doesNotMatch(result.stdout, /codex binary|claude binary|grok binary|supported subscription provider/);
+
+  const empty = runCli(root, ["doctor", "--providers="]);
+  assert.equal(empty.status, 1);
+  assert.match(empty.stderr, /--providers requires at least one provider/);
+});
+
+test("CLI critical gates preserve run artifacts, and comparison gates preserve comparison artifacts", () => {
+  const root = temporary();
+  writeProject(root);
+  const run = runCli(root, ["run", "--split", "all", "--scenarios", "S1", "--max-turns", "7"]);
+  assert.equal(run.status, 2, run.stderr);
+  assert.match(run.stderr, /CI threshold failed: critical gates not satisfied: core\/R1 \(failed: fail\)/);
+  const candidateDir = path.join(root, "runs", fs.readdirSync(path.join(root, "runs"))[0]);
+  const candidate = JSON.parse(fs.readFileSync(path.join(candidateDir, "report.json"), "utf8"));
+  const verified = runCli(root, ["verify", "--run", candidateDir]);
+  assert.equal(verified.status, 0, verified.stderr);
+  assert.match(verified.stdout, /Verified \d+ artifacts; root [a-f0-9]{64}/);
+  const resumed = runCli(root, ["run", "--resume", candidateDir]);
+  assert.equal(resumed.status, 2, resumed.stderr);
+  assert.match(resumed.stdout, /Resuming CLI integration/);
+  assert.doesNotMatch(resumed.stderr, /changed since this run began/);
+
+  const configFile = path.join(root, "evalkit.yaml");
+  const originalConfig = fs.readFileSync(configFile, "utf8");
+  const reportFile = path.join(candidateDir, "report.json");
+  const reportBeforeRejectedRescore = fs.readFileSync(reportFile);
+  fs.writeFileSync(configFile, originalConfig.replace(
+    "agent: { provider: mock }",
+    "agent: { provider: mock, model: relabeled-model }",
+  ));
+  const relabeledRescore = runCli(root, ["rescore", "--run", candidateDir]);
+  assert.equal(relabeledRescore.status, 1);
+  assert.match(relabeledRescore.stderr, /Resolved config changed outside scoring/);
+  assert.deepEqual(fs.readFileSync(reportFile), reportBeforeRejectedRescore);
+  fs.writeFileSync(configFile, originalConfig);
+
+  const publicOutput = path.join(root, "public-output");
+  const exported = runCli(root, ["export", "--public", "--run", candidateDir, "--output", publicOutput]);
+  assert.equal(exported.status, 0, exported.stderr);
+  assert(fs.existsSync(path.join(publicOutput, "public-report.json")));
+  assert(fs.existsSync(path.join(publicOutput, "privacy-lint.json")));
+  const linted = runCli(root, ["privacy", "lint", "--path", publicOutput]);
+  assert.equal(linted.status, 0, linted.stderr);
+
+  const promoted = runCli(root, [
+    "baseline", "promote", "--run", candidateDir, "--name", "main", "--reviewer", "ci-test",
+  ]);
+  assert.equal(promoted.status, 0, promoted.stderr);
+  const comparedToNamed = runCli(root, [
+    "compare", "--baseline-name", "main", "--candidate", candidateDir,
+    "--output", path.join(root, "named-comparison"),
+  ]);
+  assert.equal(comparedToNamed.status, 0, comparedToNamed.stderr);
+  assert.match(comparedToNamed.stdout, /score \+0 points/);
+
+  const baselineDir = path.join(root, "baseline");
+  fs.mkdirSync(baselineDir);
+  const baseline = structuredClone(candidate);
+  baseline.runId = "baseline";
+  baseline.overallScorePct = 100;
+  baseline.areas[0].scorePct = 100;
+  baseline.areas[0].earned = 1;
+  baseline.areas[0].items[0].verdict = "pass";
+  baseline.byTag.general.scorePct = 100;
+  baseline.byTag.general.earned = 1;
+  fs.writeFileSync(path.join(baselineDir, "report.json"), JSON.stringify(baseline));
+  const baselineState = {
+    schemaVersion: 1,
+    status: "failed",
+    runId: "baseline",
+    pid: 0,
+    configFile: path.join(root, "evalkit.yaml"),
+    startedAt: baseline.startedAt,
+    selectedAreas: ["core"],
+    specHashes: { core: "test" },
+    inputFingerprint: baseline.receipt.inputFingerprint,
+  };
+  fs.writeFileSync(path.join(baselineDir, "run-state.json"), JSON.stringify(baselineState));
+
+  const output = path.join(root, "comparison");
+  const unsealed = runCli(root, [
+    "compare", "--baseline", baselineDir, "--candidate", candidateDir,
+    "--output", output,
+  ]);
+  assert.equal(unsealed.status, 1);
+  assert.match(unsealed.stderr, /Missing artifact-index\.json/);
+  assert.equal(fs.existsSync(output), false);
+  writeArtifactIndex(baselineDir);
+
+  const failedRun = runCli(root, [
+    "compare", "--baseline", baselineDir, "--candidate", candidateDir,
+    "--output", output,
+  ]);
+  assert.equal(failedRun.status, 1);
+  assert.match(failedRun.stderr, /Only complete runs can be compared; baseline run status is failed/);
+  assert.equal(fs.existsSync(output), false);
+  baselineState.status = "complete";
+  fs.writeFileSync(path.join(baselineDir, "run-state.json"), JSON.stringify(baselineState));
+
+  const compared = runCli(root, [
+    "compare", "--baseline", baselineDir, "--candidate", candidateDir,
+    "--output", output, "--fail-on-regression",
+  ]);
+  assert.equal(compared.status, 2, compared.stderr);
+  assert.match(compared.stderr, /CI comparison failed/);
+  assert(fs.existsSync(path.join(output, "comparison.json")));
+  assert(fs.existsSync(path.join(output, "comparison.html")));
+
+  const unsafeOutput = path.join(candidateDir, "custom-comparison");
+  const rejectedOutput = runCli(root, [
+    "compare", "--baseline", baselineDir, "--candidate", candidateDir,
+    "--output", unsafeOutput,
+  ]);
+  assert.equal(rejectedOutput.status, 1);
+  assert.match(rejectedOutput.stderr, /inside a sealed run must be beneath its comparisons directory/);
+  assert.equal(fs.existsSync(unsafeOutput), false);
+  const verifiedAfterRejectedOutput = runCli(root, ["verify", "--run", candidateDir]);
+  assert.equal(verifiedAfterRejectedOutput.status, 0, verifiedAfterRejectedOutput.stderr);
+
+  const safeInRunOutput = path.join(candidateDir, "comparisons", "custom");
+  const acceptedInRunOutput = runCli(root, [
+    "compare", "--baseline", baselineDir, "--candidate", candidateDir,
+    "--output", safeInRunOutput,
+  ]);
+  assert.equal(acceptedInRunOutput.status, 0, acceptedInRunOutput.stderr);
+  assert(fs.existsSync(path.join(safeInRunOutput, "comparison.json")));
+  const verifiedAfterAcceptedOutput = runCli(root, ["verify", "--run", candidateDir]);
+  assert.equal(verifiedAfterAcceptedOutput.status, 0, verifiedAfterAcceptedOutput.stderr);
+
+  const specFile = path.join(root, "specs", "core.yaml");
+  const originalSpec = fs.readFileSync(specFile, "utf8");
+  fs.writeFileSync(specFile, originalSpec.replace(
+    "Deliberate deterministic failure",
+    "A materially different criterion",
+  ));
+  const incompatibleRescore = runCli(root, ["rescore", "--run", candidateDir]);
+  assert.equal(incompatibleRescore.status, 1);
+  assert.match(incompatibleRescore.stderr, /changed in judgement-relevant fields/i);
+});
+
+test("CLI campaign runs repeated subscription-compatible evaluations and writes stability artifacts", () => {
+  const root = temporary();
+  writeProject(root);
+  const specFile = path.join(root, "specs", "core.yaml");
+  fs.writeFileSync(specFile, fs.readFileSync(specFile, "utf8").replace("process.exit(1)", "process.exit(0)"));
+  const output = path.join(root, "campaign-output");
+  const result = runCli(root, ["campaign", "--repetitions", "2", "--output", output]);
+  assert.equal(result.status, 0, result.stderr);
+  const campaign = JSON.parse(fs.readFileSync(path.join(output, "campaign.json"), "utf8"));
+  assert.equal(campaign.status, "complete");
+  assert.equal(campaign.coverage.completedRuns, 2);
+  assert.equal(campaign.compatibility.status, "compatible");
+  assert.equal(campaign.scorePct.value.mean, 100);
+  assert(fs.existsSync(path.join(output, "campaign.html")));
+  assert.equal(fs.readdirSync(path.join(root, "runs")).length, 2);
+
+  const originalSpec = fs.readFileSync(specFile, "utf8");
+  const configFile = path.join(root, "evalkit.yaml");
+  const originalConfig = fs.readFileSync(configFile, "utf8");
+  const runDir = path.join(root, "runs", fs.readdirSync(path.join(root, "runs"))[0]);
+  const beforeRescore = JSON.parse(fs.readFileSync(path.join(runDir, "report.json"), "utf8"));
+  fs.writeFileSync(specFile, originalSpec.replace("\n    weight: 1\n", "\n    weight: 2\n"));
+  const renamedSpecFile = path.join(root, "specs", "renamed.yaml");
+  fs.renameSync(specFile, renamedSpecFile);
+  fs.writeFileSync(configFile, originalConfig.replace("partialCredit: 0.5", "partialCredit: 0.25"));
+  const runStateFile = path.join(runDir, "run-state.json");
+  const mutableRunState = JSON.parse(fs.readFileSync(runStateFile, "utf8"));
+  mutableRunState.selectedSplit = "evaluation";
+  fs.writeFileSync(runStateFile, JSON.stringify(mutableRunState));
+  const rescored = runCli(root, ["rescore", "--run", runDir]);
+  assert.equal(rescored.status, 0, rescored.stderr);
+  assert.match(rescored.stdout, /Rescored:/);
+  const afterRescore = JSON.parse(fs.readFileSync(path.join(runDir, "report.json"), "utf8"));
+  assert.deepEqual(afterRescore.receipt.target, beforeRescore.receipt.target);
+  assert.deepEqual(afterRescore.receipt.providers, beforeRescore.receipt.providers);
+  assert.deepEqual(afterRescore.receipt.inputs.fixtures, beforeRescore.receipt.inputs.fixtures);
+  assert.deepEqual(afterRescore.receipt.inputs.selection, beforeRescore.receipt.inputs.selection);
+  assert.deepEqual(afterRescore.receipt.inputs.config, beforeRescore.receipt.inputs.config);
+  assert.equal(afterRescore.receipt.inputs.specs.core.file, beforeRescore.receipt.inputs.specs.core.file);
+  assert.notEqual(afterRescore.receipt.inputs.methodSha256, beforeRescore.receipt.inputs.methodSha256);
+  assert.notEqual(afterRescore.receipt.inputs.specs.core.sha256, beforeRescore.receipt.inputs.specs.core.sha256);
+  assert.notEqual(afterRescore.receipt.evaluationFingerprint, beforeRescore.receipt.evaluationFingerprint);
+  assert.notEqual(afterRescore.receipt.inputFingerprint, beforeRescore.receipt.inputFingerprint);
+  const rescoredAgain = runCli(root, ["rescore", "--run", runDir]);
+  assert.equal(rescoredAgain.status, 0, rescoredAgain.stderr);
+  fs.renameSync(renamedSpecFile, specFile);
+  fs.writeFileSync(specFile, originalSpec);
+  fs.writeFileSync(configFile, originalConfig);
+
+  const secondOutput = path.join(root, "campaign-output-two");
+  const repeated = runCli(root, ["campaign", "--repetitions", "2", "--output", secondOutput]);
+  assert.equal(repeated.status, 0, repeated.stderr);
+  const comparisonOutput = path.join(root, "campaign-comparison");
+  const compared = runCli(root, ["campaign", "compare", "--baseline", output, "--candidate", secondOutput, "--output", comparisonOutput]);
+  assert.equal(compared.status, 0, compared.stderr);
+  assert(fs.existsSync(path.join(comparisonOutput, "campaign-comparison.json")));
+  assert(fs.existsSync(path.join(comparisonOutput, "campaign-comparison.html")));
+});
+
+test("CLI validate rejects a missing fixture path before creating a run", () => {
+  const root = temporary();
+  writeProject(root, "  fixtures: fixtures.yaml\n");
+  fs.writeFileSync(path.join(root, "fixtures.yaml"), "files: { import: ./missing.csv }\n");
+  const result = runCli(root, ["validate"]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /files\.import does not exist/);
+  assert.equal(fs.existsSync(path.join(root, "runs")), false);
+});
+
+test("CLI rejects typoed flags and values passed to booleans", () => {
+  const root = temporary();
+  writeProject(root);
+  const typo = runCli(root, ["run", "--fail-under-scor", "90"]);
+  assert.equal(typo.status, 1);
+  assert.match(typo.stderr, /Unknown flag: --fail-under-scor/);
+  const falseBoolean = runCli(root, ["run", "--dry-run=false"]);
+  assert.equal(falseBoolean.status, 1);
+  assert.match(falseBoolean.stderr, /--dry-run does not take a value/);
+  assert.equal(fs.existsSync(path.join(root, "runs")), false);
+  const subcommandTypo = runCli(root, ["campaign", "compara"]);
+  assert.equal(subcommandTypo.status, 1);
+  assert.match(subcommandTypo.stderr, /Unknown campaign subcommand compara/);
+  assert.equal(fs.existsSync(path.join(root, "runs")), false);
+});
+
+test("CLI supports successive integrity-checked manual finalizations", () => {
+  const root = temporary();
+  writeProject(root);
+  fs.writeFileSync(
+    path.join(root, "specs", "core.yaml"),
+    `id: core
+title: Core
+weight: 100
+description: Manual revision integration
+scenarios:
+  - { id: S1, name: Inspect, kind: workspace, instructions: Inspect the project }
+rubric:
+  - id: MANUAL-1
+    criterion: A reviewer verifies the external result
+    weight: 1
+    scenarios: []
+    grader: { type: manual }
+    passCriteria: The external result is correct.
+    manualInstructions: Inspect the external result.
+`,
+  );
+
+  const run = runCli(root, ["run", "--split", "all"]);
+  assert.equal(run.status, 0, run.stderr);
+  const runDir = path.join(root, "runs", fs.readdirSync(path.join(root, "runs"))[0]);
+  const lockFile = path.join(runDir, ".run.lock");
+  fs.writeFileSync(lockFile, `${JSON.stringify({ schemaVersion: 1, pid: process.pid, token: "test-owner" })}\n`);
+  for (const command of ["rescore", "finalize"]) {
+    const locked = runCli(root, [command, "--run", runDir]);
+    assert.equal(locked.status, 1);
+    assert.match(locked.stderr, /locked by active process/);
+  }
+  fs.unlinkSync(lockFile);
+  const runStateFile = path.join(runDir, "run-state.json");
+  const completeState = JSON.parse(fs.readFileSync(runStateFile, "utf8"));
+  fs.writeFileSync(runStateFile, `${JSON.stringify({ ...completeState, status: "failed" })}\n`);
+  for (const command of ["rescore", "finalize"]) {
+    const incomplete = runCli(root, [command, "--run", runDir]);
+    assert.equal(incomplete.status, 1);
+    assert.match(incomplete.stderr, new RegExp(`Only complete runs can be ${command === "rescore" ? "rescored" : "finalized"}`));
+  }
+  fs.writeFileSync(runStateFile, `${JSON.stringify(completeState)}\n`);
+  const indexFile = path.join(runDir, "artifact-index.json");
+  const indexBackup = path.join(root, "artifact-index.backup.json");
+  fs.renameSync(indexFile, indexBackup);
+  const withoutIndex = runCli(root, ["rescore", "--run", runDir]);
+  assert.equal(withoutIndex.status, 1);
+  assert.match(withoutIndex.stderr, /Missing artifact-index\.json/);
+  fs.renameSync(indexBackup, indexFile);
+  const configFile = path.join(root, "evalkit.yaml");
+  fs.writeFileSync(configFile, fs.readFileSync(configFile, "utf8").replace("partialCredit: 0.5", "partialCredit: 0.25"));
+  const rescored = runCli(root, ["rescore", "--run", runDir]);
+  assert.equal(rescored.status, 0, rescored.stderr);
+  const manualFile = path.join(runDir, "manual-results.json");
+  fs.writeFileSync(manualFile, JSON.stringify({ "MANUAL-1": { verdict: "partial", notes: "Partly verified" } }));
+  const first = runCli(root, ["finalize", "--run", runDir, "--reviewer", "alice"]);
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(runDir, "report.json"), "utf8")).overallScorePct, 25);
+
+  fs.writeFileSync(manualFile, JSON.stringify({ "MANUAL-1": { verdict: "fail", notes: "Corrected" } }));
+  const second = runCli(root, ["finalize", "--run", runDir, "--reviewer", "bob"]);
+  assert.equal(second.status, 0, second.stderr);
+  const revisions = fs.readFileSync(path.join(runDir, "manual-revisions.ndjson"), "utf8")
+    .trim().split(/\r?\n/).map((line) => JSON.parse(line));
+  assert.equal(revisions.length, 2);
+  assert.equal(revisions[1].previousHash, revisions[0].revisionHash);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(runDir, "report.json"), "utf8")).areas[0].items[0].verdict, "fail");
+
+  fs.writeFileSync(path.join(runDir, "inputs", "config.resolved.yaml"), "version: 1\nscoring: { partialCredit: 0.5 }\n");
+  writeArtifactIndex(runDir);
+  const invalidOriginalScoring = runCli(root, ["rescore", "--run", runDir]);
+  assert.equal(invalidOriginalScoring.status, 1);
+  assert.match(invalidOriginalScoring.stderr, /Original resolved config snapshot has invalid scoring settings/);
+});

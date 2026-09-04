@@ -1,0 +1,4 @@
+**/.agent-eval/
+**/*.log
+.env
+evalkit.local.yaml

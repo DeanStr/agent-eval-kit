@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.agent-eval/
+evalkit.local.yaml
+*.log
+.env
