@@ -84,7 +84,7 @@ function validateCliShape(args: Args): void {
   ];
   let allowed: string[] = [];
   switch (args.command) {
-    case "init": allowed = []; break;
+    case "init": allowed = ["kind"]; break;
     case "validate":
     case "list": allowed = ["config"]; break;
     case "doctor": allowed = ["config", "providers"]; break;
@@ -139,7 +139,8 @@ const help = `aek — Agent Eval Kit v${KIT_VERSION}
 
 Usage: aek <command> [flags]
 
-  init [directory]                 Create a starter config, spec, and fixtures
+  init [directory] [--kind web|repository|command|artifact]
+                                   Create a starter kit and onboarding guide
   validate [--config file]         Validate configuration, specs, and fixture paths
   list [--config file]             List areas, scenarios, graders, weights, and tags
   doctor [--config file] [--providers a,b]
@@ -251,9 +252,10 @@ function configFor(
   return { file, config: loadConfig(file, overrides), overrides };
 }
 
-function init(directory: string): void {
-  const files = initializeProject(directory);
+function init(directory: string, kind: string = "web"): void {
+  const files = initializeProject(directory, kind);
   console.log(`Created ${files.map((file) => path.relative(process.cwd(), file)).join(", ")}`);
+  console.log(`Next: follow ${path.join(directory, "evals", "ONBOARDING.md")} to customize, pilot, and calibrate this kit before promoting a baseline.`);
 }
 
 function enforceRunThresholds(args: Args, report: RunReport): void {
@@ -370,7 +372,7 @@ async function main(): Promise<void> {
   if (args.flags.help) { console.log(help); return; }
   if (args.command === "run" || args.command === "auth" ||
       (args.command === "campaign" && args.positionals[0] !== "compare")) assertEvaluationPlatform();
-  if (args.command === "init") { init(args.positionals[0] ?? "."); return; }
+  if (args.command === "init") { init(args.positionals[0] ?? ".", stringFlag(args, "kind")); return; }
 
   if (args.command === "verify") {
     const runDir = path.resolve(stringFlag(args, "run") ?? (() => { throw new Error("verify requires --run <directory>"); })());

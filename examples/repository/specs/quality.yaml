@@ -8,7 +8,7 @@ scenarios:
     kind: workspace
     instructions: |
       Inspect the repository structure, package scripts, configuration, and tests. Trace one important
-      flow from its entry point through the implementation. Run only read-only diagnostic commands.
+      flow from its entry point through the implementation. Use only workspace listing, reading, and searching tools. Executable checks run separately through command graders.
     successSignals: [Architecture claims cite files and lines, Developer commands are discoverable]
 rubric:
   - id: REPO-01

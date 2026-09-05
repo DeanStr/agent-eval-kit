@@ -100,4 +100,4 @@ The comparison also exits 2. Open the printed `comparison.html`: `QUANTITY` regr
 
 ## Evaluate your project next
 
-Use [the main quick start](../README.md#quick-start) to initialize your own kit. Replace command graders with checks relevant to your project, choose real providers for LLM-graded scenarios, and retain manual review only where a person must supply evidence. See [grader types](../README.md#grader-types), [CI thresholds](../README.md#ci-thresholds), and [manual finalization](../README.md#run-resume-rescore-finalize) for the next steps.
+Use [onboarding your project](onboarding.md) to choose a target-specific starter and repeat this good-versus-broken calibration with a requirement from your own project. The generated `evals/ONBOARDING.md` includes preparation steps and a completion checklist. Replace command graders with checks relevant to your project, choose real providers for LLM-graded scenarios, and retain manual review only where a person must supply evidence. See [grader types](../README.md#grader-types), [CI thresholds](../README.md#ci-thresholds), and [manual finalization](../README.md#run-resume-rescore-finalize) for the next steps.

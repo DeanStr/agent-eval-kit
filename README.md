@@ -88,8 +88,14 @@ pnpm build
 pnpm link --global
 
 cd /path/to/your/project
-aek init
+aek init --kind web
 ```
+
+Choose `--kind web`, `repository`, `command`, or `artifact` (default: `web`).
+Initialization writes an editable starter, not a discovered evaluation of your project.
+Follow the generated `evals/ONBOARDING.md` to define one measurable requirement,
+prepare test state, and calibrate it on known-good and deliberately broken behavior.
+See [onboarding your project](docs/onboarding.md) for the complete workflow.
 
 Edit `evalkit.yaml`, `evals/specs/core.yaml`, and `evals/fixtures.yaml`, then:
 
@@ -123,7 +129,7 @@ aek run --split evaluation
 
 Artifacts go to `.agent-eval/runs/<timestamp>/`. Open `report.html` for the evidence-backed report and keep `report.json` as the stable machine-readable result.
 
-`aek init` stages the complete starter kit and publishes it without overwriting existing files. It preflights every destination and rolls back files it published if initialization fails, so a conflict cannot leave a half-created kit.
+`aek init` includes an onboarding guide and, for command/artifact starters, a checker or collector script. It stages the complete starter kit and publishes it without overwriting existing files. It preflights every destination and rolls back files it published if initialization fails, so a conflict cannot leave a half-created kit.
 
 ## Configuration
 
