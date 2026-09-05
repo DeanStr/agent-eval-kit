@@ -36,7 +36,7 @@ test("public export keeps aggregate and case results while excluding raw evidenc
     providers: { agent: { provider: "mock" }, judge: { provider: "mock" } },
     areas: [{
       id: "core", title: "Core", weight: 100, optional: false, earned: 1, judgeable: 1, total: 1, scorePct: 100, coveragePct: 100,
-      items: [{ id: "R1", verdict: "pass", confidence: "high", reasoning: "secret internal reasoning", evidenceRefs: ["private/evidence"], source: "llm" }],
+      items: [{ id: "R1", verdict: "pass", confidence: "high", reasoning: "secret internal reasoning", evidenceRefs: ["private/evidence"], source: "llm", score: { total: 1, earned: 1, judgeable: 1, scorePct: 100, coveragePct: 100 } }],
       caseResults: [{ areaId: "core", rubricId: "R1", caseId: "annual", scenarioIds: ["S--annual"], strata: ["plan=annual"], split: "evaluation", verdict: "pass", confidence: "high", reasoning: "private case reasoning", evidenceRefs: ["private/evidence"], source: "llm", points: 1 }],
       defects: [], notes: "private note", scenarios: [], pendingManual: [], unproven: [], byTag: {}, byStratum: {}, gates: [],
     }],

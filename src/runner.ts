@@ -105,6 +105,25 @@ function processIsAlive(pid: number): boolean {
 }
 
 function acquireRunLock(runDir: string): () => void {
+  // Serialize acquisition, including stale-owner recovery. Without this guard,
+  // a contender that read an old lock can unlink another contender's new lock.
+  // Never reclaim this guard automatically: a crash during this very short
+  // section requires explicit cleanup, rather than another stale-lock race.
+  const guard = path.join(runDir, ".run.lock-acquisition");
+  try {
+    fs.mkdirSync(guard, { mode: 0o700 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    throw new Error(`Run lock acquisition is in progress: ${guard}. Retry after the other process exits. If acquisition was interrupted, remove this empty directory only after confirming no process is acquiring this run.`);
+  }
+  try {
+    return acquireGuardedRunLock(runDir);
+  } finally {
+    fs.rmdirSync(guard);
+  }
+}
+
+function acquireGuardedRunLock(runDir: string): () => void {
   const file = path.join(runDir, ".run.lock");
   const token = crypto.randomUUID();
   for (;;) {

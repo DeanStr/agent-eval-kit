@@ -11,6 +11,7 @@ import type {
   Verdict,
 } from "./types.js";
 import { KIT_VERSION } from "./version.js";
+import { calculateScoreSlice } from "./score-slice.js";
 
 function verdictPoints(verdict: Verdict, partialCredit: number): number | null {
   switch (verdict) {
@@ -38,13 +39,7 @@ class Slice {
   }
 
   finish(): ScoreSlice {
-    return {
-      earned: round(this.earned),
-      judgeable: round(this.judgeable),
-      total: round(this.total),
-      scorePct: this.judgeable > 0 ? round((this.earned / this.judgeable) * 100) : null,
-      coveragePct: this.total > 0 ? round((this.judgeable / this.total) * 100) : 0,
-    };
+    return calculateScoreSlice(this);
   }
 }
 
@@ -84,7 +79,7 @@ export function scoreArea(options: {
   // Rescores also rebuild aggregates under the current configured shares.
   const normalizedJudgements = judgements.map((item) => {
     const rubric = spec.rubric.find((candidate) => candidate.id === item.id);
-    if (rubric?.grader.type !== "hybrid") return item;
+    if (rubric?.grader.type !== "hybrid") return { ...item };
     const components = item.components ?? (item.source === "manual"
       ? { manual: item.verdict }
       : { automatic: item.verdict });
@@ -171,6 +166,11 @@ export function scoreArea(options: {
     }
 
     judgeableByRubric.set(rubric.id, judgeable);
+    if (item) {
+      const measurement = new Slice();
+      measurement.add(rubric.weight, judgeable, earned);
+      item.score = measurement.finish();
+    }
     total.add(rubric.weight, judgeable, earned);
     for (const tag of new Set(rubric.tags)) {
       let slice = byTag.get(tag);

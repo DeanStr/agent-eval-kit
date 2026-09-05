@@ -191,10 +191,13 @@ test("CLI critical gates preserve run artifacts, and comparison gates preserve c
   baseline.runId = "baseline";
   baseline.overallScorePct = 100;
   baseline.areas[0].scorePct = 100;
-  baseline.areas[0].earned = 1;
+  baseline.areas[0].earned = baseline.areas[0].judgeable;
   baseline.areas[0].items[0].verdict = "pass";
+  baseline.areas[0].items[0].score = { total: 1, judgeable: 1, earned: 1, scorePct: 100, coveragePct: 100 };
   baseline.byTag.general.scorePct = 100;
-  baseline.byTag.general.earned = 1;
+  baseline.byTag.general.earned = baseline.byTag.general.judgeable;
+  baseline.areas[0].byTag.general.scorePct = 100;
+  baseline.areas[0].byTag.general.earned = baseline.areas[0].byTag.general.judgeable;
   fs.writeFileSync(path.join(baselineDir, "report.json"), JSON.stringify(baseline));
   const baselineState = {
     schemaVersion: 1,

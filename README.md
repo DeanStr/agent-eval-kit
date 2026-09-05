@@ -428,6 +428,8 @@ aek compare \
 
 This writes `comparison.json` and a standalone `comparison.html` below the candidate run's `comparisons/vs-<baseline-run-id>/` directory. The report includes overall, area, tag, and rubric-item deltas; item changes distinguish improvements, regressions, gained/lost coverage, additions, and removals.
 
+Rubric items retain weighted score and coverage measurements, so hybrid regressions are detected even when both aggregate verdicts are `partial`. Campaign case coverage is judgeable repetitions divided by all attempted repetitions, including failed runs; pending runs are excluded. `--fail-on-regression` detects partial case coverage loss and decreases in campaign mean evidence coverage. See [release validation](docs/release-validation.md#comparison-and-recovery-corrections-013) for artifact regeneration and interrupted-lock recovery.
+
 Comparisons require current, receipt-bearing reports and a valid `artifact-index.json` for both direct inputs. They verify that both have the same evaluator fingerprint: kit version, provider versions/configuration, scoring method, variables/instructions, selected inputs, exact specs, and exact fixtures. Incompatible reports still produce an audit report, but numeric deltas are withheld and the command exits with status `2`. Use `--allow-incompatible` only for exploratory analysis; it records the override and enables deltas explicitly.
 
 Promote a reviewed run to a named baseline, then compare against that name:

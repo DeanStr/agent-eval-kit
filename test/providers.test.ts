@@ -42,14 +42,16 @@ const path = require('node:path');
 const file = path.join(process.env.CLAUDE_CONFIG_DIR, '.credentials.json');
 const { generation } = JSON.parse(fs.readFileSync(file, 'utf8'));
 fs.writeFileSync(file, JSON.stringify({ generation: generation + 1 }));
-console.log(JSON.stringify({ type: 'result', result: JSON.stringify({ generation }), structured_output: { generation } }));
+console.log(JSON.stringify({ type: 'result', result: JSON.stringify({ generation }), structured_output: { generation }, usage: { input_tokens: 12, output_tokens_details: { reasoning_tokens: 4 }, service_tier: 'standard', iterations: [{ tokens: 3 }] } }));
 `, { mode: 0o755 });
   const originalPath = process.env.PATH;
   const originalConfig = process.env.CLAUDE_CONFIG_DIR;
   process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
   process.env.CLAUDE_CONFIG_DIR = config;
   try {
-    assert.deepEqual((await runClaude(providerInvocation(root))).structured, { generation: 0 });
+    const first = await runClaude(providerInvocation(root));
+    assert.deepEqual(first.structured, { generation: 0 });
+    assert.deepEqual(first.usage, { input_tokens: 12, output_tokens_details: { reasoning_tokens: 4 }, service_tier: "standard", iterations: [{ tokens: 3 }] });
     assert.deepEqual((await runClaude(providerInvocation(root))).structured, { generation: 1 });
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(config, ".credentials.json"), "utf8")), { generation: 2 });
   } finally {

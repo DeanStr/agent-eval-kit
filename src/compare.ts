@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import { runReportSchema } from "./artifact-schemas.js";
+import { scoreRatios } from "./score-slice.js";
 import { readJson, safeName, writeJson } from "./io.js";
 import type { AreaResult, JudgedItem, RunReceipt, RunReport, ScoreSlice, Verdict } from "./types.js";
 
@@ -8,6 +10,7 @@ export type ItemChange =
   | "regressed"
   | "unchanged"
   | "changed"
+  | "unavailable"
   | "gained_coverage"
   | "lost_coverage"
   | "added"
@@ -57,6 +60,8 @@ export interface ItemComparison {
   id: string;
   baselineVerdict?: Verdict;
   candidateVerdict?: Verdict;
+  scorePct: MetricComparison;
+  coveragePct: MetricComparison;
   change: ItemChange;
 }
 
@@ -136,22 +141,29 @@ function tagComparison(tag: string, baseline: ScoreSlice | undefined, candidate:
   };
 }
 
-function verdictPoints(verdict?: Verdict): number | null {
-  if (!verdict || verdict === "cannot_judge") return null;
-  if (verdict === "pass") return 1;
-  if (verdict === "partial") return 0.5;
-  return 0;
-}
-
 function itemChange(baseline?: JudgedItem, candidate?: JudgedItem): ItemChange {
   if (!baseline) return "added";
   if (!candidate) return "removed";
-  const before = verdictPoints(baseline.verdict);
-  const after = verdictPoints(candidate.verdict);
-  if (before === null && after !== null) return "gained_coverage";
-  if (before !== null && after === null) return "lost_coverage";
-  if (before !== null && after !== null && after > before) return "improved";
+  if (!baseline.score || !candidate.score) {
+    throw new Error(`Item ${baseline.id} is missing required scored measurements.`);
+  }
+  const beforeRatios = scoreRatios(baseline.score);
+  const afterRatios = scoreRatios(candidate.score);
+  if (afterRatios.coverage < beforeRatios.coverage) return "lost_coverage";
+  const before = beforeRatios.score;
+  const after = afterRatios.score;
   if (before !== null && after !== null && after < before) return "regressed";
+  if (afterRatios.coverage > beforeRatios.coverage) return "gained_coverage";
+  if (before !== null && after !== null && after > before) return "improved";
+  // Verdict ordering is semantic, independent of configurable partial credit.
+  // A pass -> partial transition still loses a critical gate at partialCredit=1.
+  const rank: Partial<Record<Verdict, number>> = { pass: 2, partial: 1, fail: 0, not_found: 0 };
+  const beforeRank = rank[baseline.verdict];
+  const afterRank = rank[candidate.verdict];
+  if (beforeRank !== undefined && afterRank !== undefined) {
+    if (afterRank < beforeRank) return "regressed";
+    if (afterRank > beforeRank) return "improved";
+  }
   return baseline.verdict === candidate.verdict ? "unchanged" : "changed";
 }
 
@@ -215,7 +227,7 @@ export function compareReports(
     const candidateArea = candidateAreas.get(areaId);
     const unavailableIfUnproven = (item: JudgedItem, area: AreaResult | undefined): JudgedItem =>
       area?.unproven.includes(item.id)
-        ? { ...item, verdict: "cannot_judge", confidence: "low" }
+        ? { ...item, verdict: "cannot_judge", confidence: "low", score: item.score && !item.components ? { ...item.score, earned: 0, judgeable: 0, scorePct: null, coveragePct: 0 } : item.score }
         : item;
     const beforeItems = (baselineArea?.items ?? []).map((item) => unavailableIfUnproven(item, baselineArea));
     const afterItems = (candidateArea?.items ?? []).map((item) => unavailableIfUnproven(item, candidateArea));
@@ -229,13 +241,15 @@ export function compareReports(
         id,
         baselineVerdict: before?.verdict,
         candidateVerdict: after?.verdict,
-        change: itemChange(before, after),
+        scorePct: metric(before?.score?.scorePct ?? null, after?.score?.scorePct ?? null, metricsComparable),
+        coveragePct: metric(before?.score?.coveragePct ?? null, after?.score?.coveragePct ?? null, metricsComparable),
+        change: before && after && !metricsComparable ? "unavailable" : itemChange(before, after),
       });
     }
   }
 
   const changes: ItemChange[] = [
-    "improved", "regressed", "unchanged", "changed", "gained_coverage", "lost_coverage", "added", "removed",
+    "improved", "regressed", "unchanged", "changed", "unavailable", "gained_coverage", "lost_coverage", "added", "removed",
   ];
   const summary = Object.fromEntries(changes.map((change) => [change, 0])) as ComparisonReport["summary"];
   for (const item of items) summary[item.change]++;
@@ -320,26 +334,6 @@ function resolveReportFile(input: string): string {
   return file;
 }
 
-const reportVerdicts = new Set<Verdict>(["pass", "partial", "fail", "not_found", "cannot_judge"]);
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  Boolean(value) && typeof value === "object" && !Array.isArray(value);
-
-function validReportArea(area: unknown): boolean {
-  if (!isRecord(area)) return false;
-  return (
-    typeof area.id === "string" &&
-    Array.isArray(area.items) &&
-    area.items.every((item) =>
-      isRecord(item) && typeof item.id === "string" && reportVerdicts.has(item.verdict as Verdict)
-    ) &&
-    Array.isArray(area.unproven) &&
-    Array.isArray(area.gates) &&
-    Array.isArray(area.caseResults) &&
-    isRecord(area.byTag) &&
-    isRecord(area.byStratum)
-  );
-}
-
 function reportContainsSelectedAreas(report: RunReport, allowPartial: boolean): boolean {
   const selected = report.receipt.inputs.selection.areas;
   const reported = report.areas.map((area) => area.id);
@@ -353,42 +347,12 @@ function reportContainsSelectedAreas(report: RunReport, allowPartial: boolean): 
 function loadReport(input: string, allowPartial: boolean): { file: string; report: RunReport } {
   const file = resolveReportFile(input);
   const report = readJson<RunReport>(file);
-  if (
-    report?.schemaVersion !== 1 ||
-    typeof report.runId !== "string" ||
-    typeof report.project !== "string" ||
-    typeof report.finishedAt !== "string" ||
-    !Array.isArray(report.areas) ||
-    report.areas.some((area) => !validReportArea(area)) ||
-    (report.overallScorePct !== null && typeof report.overallScorePct !== "number") ||
-    typeof report.overallCoveragePct !== "number" ||
-    typeof report.scoreWithheld !== "boolean" ||
-    report.byTag === null ||
-    typeof report.byTag !== "object" ||
-    Array.isArray(report.byTag) ||
-    !isRecord(report.byStratum) ||
-    !report.receipt ||
-    report.receipt.schemaVersion !== 1 ||
-    typeof report.receipt.evaluationFingerprint !== "string" ||
-    typeof report.receipt.inputFingerprint !== "string" ||
-    !isRecord(report.receipt.inputs) ||
-    typeof report.receipt.inputs.methodSha256 !== "string" ||
-    !Array.isArray(report.receipt.inputs.selection?.areas) ||
-    !isRecord(report.receipt.inputs.specs) ||
-    !isRecord(report.receipt.target) ||
-    !isRecord(report.receipt.providers) ||
-    typeof report.receipt.providers.agent?.provider !== "string" ||
-    typeof report.receipt.providers.agent?.cliVersion !== "string" ||
-    !report.receipt.providers.agent.cliVersion ||
-    typeof report.receipt.providers.judge?.provider !== "string" ||
-    typeof report.receipt.providers.judge?.cliVersion !== "string" ||
-    !report.receipt.providers.judge.cliVersion ||
-    !report.gates ||
-    typeof report.gates.passed !== "boolean" ||
-    !Array.isArray(report.gates.blocking) ||
-    !reportContainsSelectedAreas(report, allowPartial)
-  ) {
-    throw new Error(`Invalid Agent Eval Kit report: ${file}`);
+  const parsed = runReportSchema.safeParse(report);
+  if (!parsed.success) {
+    throw new Error(`Invalid Agent Eval Kit report: ${file}: ${parsed.error.message}`);
+  }
+  if (!reportContainsSelectedAreas(report, allowPartial)) {
+    throw new Error(`Invalid Agent Eval Kit report: ${file}: selected areas do not match reported areas`);
   }
   return { file, report };
 }
@@ -418,16 +382,16 @@ export function comparisonHtml(comparison: ComparisonReport): string {
   const warnings = comparison.warnings.length
     ? `<div class="warn"><strong>Notes</strong><ul>${comparison.warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></div>`
     : "";
-  const itemRows = changed.map((item) => `<tr><td>${escapeHtml(item.areaId)}</td><td>${escapeHtml(item.id)}</td><td>${escapeHtml(item.baselineVerdict ?? "—")}</td><td>${escapeHtml(item.candidateVerdict ?? "—")}</td><td class="${item.change === "regressed" || item.change === "lost_coverage" || item.change === "removed" ? "bad" : item.change === "improved" || item.change === "gained_coverage" ? "good" : ""}">${escapeHtml(item.change)}</td></tr>`).join("");
+  const itemRows = changed.map((item) => `<tr><td>${escapeHtml(item.areaId)}</td><td>${escapeHtml(item.id)}</td><td>${escapeHtml(item.baselineVerdict ?? "—")}</td><td>${escapeHtml(item.candidateVerdict ?? "—")}</td><td>${display(item.scorePct.baseline)} → ${display(item.scorePct.candidate)}</td><td>${display(item.coveragePct.baseline)} → ${display(item.coveragePct.candidate)}</td><td class="${item.change === "regressed" || item.change === "lost_coverage" || item.change === "removed" ? "bad" : item.change === "improved" || item.change === "gained_coverage" ? "good" : ""}">${escapeHtml(item.change)}</td></tr>`).join("");
   const compatibilityHtml = `<p class="${comparison.compatibility.status === "compatible" ? "good" : "bad"}"><strong>Evaluation inputs:</strong> ${escapeHtml(comparison.compatibility.status)}${comparison.compatibility.overridden ? " (override enabled)" : ""}</p>`;
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(comparison.candidate.project)} comparison</title><style>
 body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;color:#1f2328;max-width:1120px;margin:2rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #d0d7de;padding:.45rem .65rem;text-align:left}th{background:#f6f8fa}.headline{font-size:1.6rem;font-weight:750}.good{color:#1a7f37;font-weight:650}.bad{color:#cf222e;font-weight:650}.warn{background:#fff8c5;border:1px solid #d4a72c;border-radius:6px;padding:.6rem 1rem}code{font-size:.9em}</style></head><body>
 <h1>${escapeHtml(comparison.candidate.project)} evaluation comparison</h1><p><code>${escapeHtml(comparison.baseline.runId)}</code> → <code>${escapeHtml(comparison.candidate.runId)}</code></p>${compatibilityHtml}${warnings}
 <p class="headline">Score ${display(comparison.overall.scorePct.candidate)} <span class="${(comparison.overall.scorePct.delta ?? 0) < 0 ? "bad" : "good"}">(${delta(comparison.overall.scorePct.delta)} points)</span> · Coverage ${display(comparison.overall.coveragePct.candidate)} <span class="${(comparison.overall.coveragePct.delta ?? 0) < 0 ? "bad" : "good"}">(${delta(comparison.overall.coveragePct.delta)} points)</span></p>
-<p>${comparison.summary.improved} improved · ${comparison.summary.regressed} regressed · ${comparison.summary.gained_coverage} gained coverage · ${comparison.summary.lost_coverage} lost coverage · ${comparison.summary.added} added · ${comparison.summary.removed} removed</p>
+<p>${comparison.summary.improved} improved · ${comparison.summary.regressed} regressed · ${comparison.summary.gained_coverage} gained coverage · ${comparison.summary.lost_coverage} lost coverage · ${comparison.summary.added} added · ${comparison.summary.removed} removed · ${comparison.summary.unavailable} unavailable</p>
 <h2>Areas</h2><table><thead><tr><th>Area</th><th>Status</th><th>Base score</th><th>Candidate</th><th>Δ score</th><th>Base coverage</th><th>Candidate</th><th>Δ coverage</th></tr></thead><tbody>${metricRows(comparison.areas.map((area) => ({ ...area, name: area.title })))}</tbody></table>
 <h2>Tags</h2><table><thead><tr><th>Tag</th><th>Status</th><th>Base score</th><th>Candidate</th><th>Δ score</th><th>Base coverage</th><th>Candidate</th><th>Δ coverage</th></tr></thead><tbody>${metricRows(comparison.tags.map((tag) => ({ ...tag, name: tag.tag })))}</tbody></table>
-<h2>Changed rubric items</h2>${changed.length ? `<table><thead><tr><th>Area</th><th>Item</th><th>Baseline</th><th>Candidate</th><th>Change</th></tr></thead><tbody>${itemRows}</tbody></table>` : "<p>No rubric item changed.</p>"}</body></html>`;
+<h2>Changed rubric items</h2>${changed.length ? `<table><thead><tr><th>Area</th><th>Item</th><th>Baseline</th><th>Candidate</th><th>Score</th><th>Coverage</th><th>Change</th></tr></thead><tbody>${itemRows}</tbody></table>` : "<p>No rubric item changed.</p>"}</body></html>`;
 }
 
 export function writeComparisonArtifacts(

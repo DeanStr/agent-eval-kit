@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ProviderInvocation, ProviderResult } from "../types.js";
+import type { ProviderInvocation, ProviderResult, ProviderUsage } from "../types.js";
 import { stageCredentials } from "./credentials.js";
 import {
   assertSafeProviderExtraArgs,
@@ -87,7 +87,7 @@ async function runIsolatedClaude(
   let finalText = "";
   let structured: unknown;
   let sessionId: string | undefined;
-  let usage: Record<string, number> | undefined;
+  let usage: ProviderUsage | undefined;
   let eventLine = 0;
   let malformedEventLine: number | undefined;
   const policyViolations = new Set<string>();

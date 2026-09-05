@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { readJson, safeName, writeJson } from "./io.js";
-import { assertCampaignRunRecords, type CampaignReport } from "./campaign.js";
+import { campaignReportSchema } from "./artifact-schemas.js";
+import { readJson, safeName, stableJson, writeJson } from "./io.js";
+import { assertCampaignRunRecords, buildCampaignReport, type CampaignReport } from "./campaign.js";
 
 export interface CampaignCaseComparison {
   areaId: string;
@@ -11,6 +12,9 @@ export interface CampaignCaseComparison {
   split?: "development" | "evaluation";
   baselineRuns: number;
   candidateRuns: number;
+  baselineTotalRuns: number;
+  candidateTotalRuns: number;
+  coverage: { baseline: number | null; candidate: number | null; delta: number | null };
   baselineMean: number | null;
   candidateMean: number | null;
   delta: number | null;
@@ -26,6 +30,7 @@ export interface CampaignComparisonReport {
   overall: {
     scoreMeanPct: { baseline: number | null; candidate: number | null; delta: number | null };
     criticalGatePassRate: { baseline: number | null; candidate: number | null; delta: number | null };
+    evidenceCoverageMeanPct: { baseline: number | null; candidate: number | null; delta: number | null };
   };
   pairedCases: {
     common: number;
@@ -127,6 +132,17 @@ function evaluationFingerprint(campaign: CampaignReport): string | undefined {
   return campaign.compatibility.evaluationFingerprint;
 }
 
+function headlineMetrics(campaign: CampaignReport): { score: number | null; coverage: number | null; gates: number | null } {
+  if (campaign.compatibility.status !== "compatible") return { score: null, coverage: null, gates: null };
+  const complete = campaign.runs.filter(run => run.status === "complete");
+  const mean = (values: number[]) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+  return {
+    score: mean(complete.flatMap(run => !run.scoreWithheld && run.scorePct !== null ? [run.scorePct] : [])),
+    coverage: mean(complete.map(run => run.coveragePct)),
+    gates: mean(complete.flatMap(run => typeof run.gatesPassed === "boolean" ? [Number(run.gatesPassed)] : [])),
+  };
+}
+
 export function compareCampaigns(
   baseline: CampaignReport,
   candidate: CampaignReport,
@@ -147,29 +163,33 @@ export function compareCampaigns(
   const before = aggregateCases(baseline);
   const after = aggregateCases(candidate);
   const allKeys = [...new Set([...before.keys(), ...after.keys()])].sort();
-  const cases: CampaignCaseComparison[] = allKeys.map((key) => {
+  const measurements = allKeys.map((key) => {
     const left = before.get(key);
     const right = after.get(key);
-    const baselineMean = left?.values.length ? round(left.values.reduce((sum, value) => sum + value, 0) / left.values.length) : null;
-    const candidateMean = right?.values.length ? round(right.values.reduce((sum, value) => sum + value, 0) / right.values.length) : null;
-    const delta = numericAllowed && baselineMean !== null && candidateMean !== null ? round(candidateMean - baselineMean) : null;
-    const change = !left
-      ? "added" as const
-      : !right
-        ? "removed" as const
-        : !numericAllowed
-          ? "unavailable" as const
-          : baselineMean === null && candidateMean !== null
-            ? "gained_coverage" as const
-            : baselineMean !== null && candidateMean === null
-              ? "lost_coverage" as const
-              : delta === null
-                ? "unavailable" as const
-                : delta > 0
-                  ? "improved" as const
-                  : delta < 0
-                    ? "regressed" as const
-                    : "unchanged" as const;
+    const baselineMean = left?.values.length ? left.values.reduce((sum, value) => sum + value, 0) / left.values.length : null;
+    const candidateMean = right?.values.length ? right.values.reduce((sum, value) => sum + value, 0) / right.values.length : null;
+    const rawDelta = numericAllowed && baselineMean !== null && candidateMean !== null ? candidateMean - baselineMean : null;
+    // Every attempted repetition belongs in the denominator, including failed
+    // runs and complete runs that omitted this case. Abstentions never score 0.
+    // With identical definitions an omitted case is expected but unobserved.
+    // Different definitions cannot establish membership on the missing side.
+    const sameDefinitions = status === "compatible";
+    const baselineCoverage = (left || sameDefinitions) && baseline.runs.length ? (left?.values.length ?? 0) / baseline.runs.length : null;
+    const candidateCoverage = (right || sameDefinitions) && candidate.runs.length ? (right?.values.length ?? 0) / candidate.runs.length : null;
+    const coverageDelta = numericAllowed && baselineCoverage !== null && candidateCoverage !== null
+      ? candidateCoverage - baselineCoverage : null;
+    const change: CampaignCaseComparison["change"] = (() => {
+      if (!sameDefinitions) {
+        if (!left) return "added";
+        if (!right) return "removed";
+      }
+      if (!numericAllowed) return "unavailable";
+      if (coverageDelta !== null && coverageDelta < 0) return "lost_coverage";
+      if (rawDelta !== null && rawDelta < 0) return "regressed";
+      if (coverageDelta !== null && coverageDelta > 0) return "gained_coverage";
+      if (rawDelta === null) return "unavailable";
+      return rawDelta > 0 ? "improved" : "unchanged";
+    })();
     return {
       areaId: (right ?? left)!.areaId,
       rubricId: (right ?? left)!.rubricId,
@@ -178,19 +198,24 @@ export function compareCampaigns(
       split: (right ?? left)!.split,
       baselineRuns: left?.values.length ?? 0,
       candidateRuns: right?.values.length ?? 0,
-      baselineMean,
-      candidateMean,
-      delta,
+      baselineTotalRuns: baseline.runs.length,
+      candidateTotalRuns: candidate.runs.length,
+      coverage: { baseline: baselineCoverage, candidate: candidateCoverage, delta: coverageDelta },
+      baselineMean: baselineMean === null ? null : round(baselineMean),
+      candidateMean: candidateMean === null ? null : round(candidateMean),
+      delta: rawDelta === null ? null : round(rawDelta),
+      rawDelta,
       change,
     };
   });
-  const paired = cases.filter((item) => item.delta !== null);
-  const deltas = paired.map((item) => item.delta!);
+  const cases: CampaignCaseComparison[] = measurements.map(({ rawDelta: _rawDelta, ...item }) => item);
+  const paired = measurements.filter((item) => item.rawDelta !== null);
+  const deltas = paired.map((item) => item.rawDelta!);
   const strata = new Map<string, number[]>();
   for (const item of paired) {
     for (const stratum of new Set(item.strata)) {
       const values = strata.get(stratum) ?? [];
-      values.push(item.delta!);
+      values.push(item.rawDelta!);
       strata.set(stratum, values);
     }
   }
@@ -198,10 +223,8 @@ export function compareCampaigns(
   if (status !== "compatible") warnings.push(`${status === "unknown" ? "Compatibility is unknown" : "Campaigns are incompatible"}; paired deltas ${numericAllowed ? "were explicitly enabled" : "are withheld"}.`);
   if (!paired.length) warnings.push("No common case produced judgeable results in both campaigns.");
   if (baseline.project !== candidate.project) warnings.push(`Project changed from ${baseline.project} to ${candidate.project}.`);
-  const baselineScore = baseline.scorePct.state === "observed" ? baseline.scorePct.value.mean : null;
-  const candidateScore = candidate.scorePct.state === "observed" ? candidate.scorePct.value.mean : null;
-  const baselineGates = baseline.criticalGatePassRate.state === "observed" ? baseline.criticalGatePassRate.value : null;
-  const candidateGates = candidate.criticalGatePassRate.state === "observed" ? candidate.criticalGatePassRate.value : null;
+  const { score: baselineScore, gates: baselineGates, coverage: baselineCoverage } = headlineMetrics(baseline);
+  const { score: candidateScore, gates: candidateGates, coverage: candidateCoverage } = headlineMetrics(candidate);
   return {
     schemaVersion: 1,
     createdAt: new Date().toISOString(),
@@ -209,15 +232,20 @@ export function compareCampaigns(
     candidate: { campaignId: candidate.campaignId, project: candidate.project, completedRuns: candidate.coverage.completedRuns },
     compatibility: { status, overridden: Boolean(options.allowIncompatible), reasons },
     overall: {
+      evidenceCoverageMeanPct: {
+        baseline: baselineCoverage,
+        candidate: candidateCoverage,
+        delta: numericAllowed && baselineCoverage !== null && candidateCoverage !== null ? candidateCoverage - baselineCoverage : null,
+      },
       scoreMeanPct: {
         baseline: baselineScore,
         candidate: candidateScore,
-        delta: numericAllowed && baselineScore !== null && candidateScore !== null ? round(candidateScore - baselineScore) : null,
+        delta: numericAllowed && baselineScore !== null && candidateScore !== null ? candidateScore - baselineScore : null,
       },
       criticalGatePassRate: {
         baseline: baselineGates,
         candidate: candidateGates,
-        delta: numericAllowed && baselineGates !== null && candidateGates !== null ? round(candidateGates - baselineGates) : null,
+        delta: numericAllowed && baselineGates !== null && candidateGates !== null ? candidateGates - baselineGates : null,
       },
     },
     pairedCases: {
@@ -253,24 +281,21 @@ export function loadCampaign(input: string): { file: string; report: CampaignRep
   const file = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory() ? path.join(resolved, "campaign.json") : resolved;
   if (!fs.existsSync(file)) throw new Error(`Campaign report does not exist: ${file}`);
   const report = readJson<CampaignReport>(file);
-  if (
-    report.schemaVersion !== 1 ||
-    typeof report.campaignId !== "string" ||
-    !Array.isArray(report.runs) ||
-    !report.compatibility ||
-    !report.coverage ||
-    !report.scorePct ||
-    !report.evidenceCoveragePct ||
-    !report.criticalGatePassRate ||
-    !Array.isArray(report.itemStability) ||
-    !Array.isArray(report.caseStability) ||
-    !Array.isArray(report.stratumStability) ||
-    !Array.isArray(report.limitations)
-  ) {
-    throw new Error(`Invalid Agent Eval Kit campaign: ${file}`);
+  const parsed = campaignReportSchema.safeParse(report);
+  if (!parsed.success) {
+    throw new Error(`Invalid Agent Eval Kit campaign: ${file}: ${parsed.error.message}`);
   }
   try {
     assertCampaignRunRecords(report.runs);
+    const rebuilt = buildCampaignReport({
+      campaignId: report.campaignId, project: report.project, startedAt: report.startedAt,
+      plannedRepetitions: report.plannedRepetitions, runs: report.runs,
+    });
+    for (const field of ["status", "compatibility", "coverage", "scorePct", "evidenceCoveragePct", "criticalGatePassRate", "itemStability", "caseStability", "stratumStability"] as const) {
+      if (stableJson(report[field]) !== stableJson(rebuilt[field])) {
+        throw new Error(`${field} does not match the campaign run records`);
+      }
+    }
   } catch (error) {
     throw new Error(`Invalid Agent Eval Kit campaign ${file}: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -288,13 +313,19 @@ export function campaignComparisonFailures(
   if (options.failOnRegression) {
     const cases = report.summary.regressed + report.summary.lostCoverage + report.summary.removed;
     if (cases) failures.push(`${cases} case regression(s), coverage loss(es), or removal(s)`);
+    const coverage = report.overall.evidenceCoverageMeanPct;
+    if (coverage.baseline !== null && coverage.candidate === null) {
+      failures.push("candidate campaign evidence coverage is unavailable despite an available baseline coverage");
+    } else if ((coverage.delta ?? 0) < 0) {
+      failures.push(`campaign mean evidence coverage dropped ${displayDrop(coverage.delta!)} points`);
+    }
     if (
       report.overall.scoreMeanPct.baseline !== null &&
       report.overall.scoreMeanPct.candidate === null
     ) {
       failures.push("candidate campaign mean score is unavailable despite an available baseline score");
     } else if ((report.overall.scoreMeanPct.delta ?? 0) < 0) {
-      failures.push(`campaign mean score dropped ${Math.abs(report.overall.scoreMeanPct.delta!)} points`);
+      failures.push(`campaign mean score dropped ${displayDrop(report.overall.scoreMeanPct.delta!)} points`);
     }
     if (
       report.overall.criticalGatePassRate.baseline !== null &&
@@ -302,14 +333,15 @@ export function campaignComparisonFailures(
     ) {
       failures.push("candidate critical-gate pass rate is unavailable despite an available baseline rate");
     } else if ((report.overall.criticalGatePassRate.delta ?? 0) < 0) {
-      failures.push(`critical-gate pass rate dropped ${Math.abs(report.overall.criticalGatePassRate.delta!)}`);
+      failures.push(`critical-gate pass rate dropped ${displayDrop(report.overall.criticalGatePassRate.delta!)}`);
     }
   }
   return failures;
 }
 
 const escapeHtml = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-const percent = (value: number | null) => value === null ? "—" : `${value}%`;
+const percent = (value: number | null) => value === null ? "—" : `${round(value)}%`;
+const displayDrop = (delta: number) => Math.abs(delta) < 0.001 ? "<0.001" : String(round(Math.abs(delta)));
 
 export function writeCampaignComparisonArtifacts(directory: string, report: CampaignComparisonReport): { json: string; html: string } {
   const resolved = path.resolve(directory);
@@ -317,9 +349,9 @@ export function writeCampaignComparisonArtifacts(directory: string, report: Camp
   const json = path.join(resolved, "campaign-comparison.json");
   const html = path.join(resolved, "campaign-comparison.html");
   writeJson(json, report);
-  const rows = report.cases.map((item) => `<tr><td>${escapeHtml(item.areaId)}</td><td>${escapeHtml(item.rubricId)}</td><td>${escapeHtml(item.caseId)}</td><td>${escapeHtml(item.strata.join(", ") || "—")}</td><td>${item.baselineMean ?? "—"}</td><td>${item.candidateMean ?? "—"}</td><td class="${["regressed", "lost_coverage", "removed"].includes(item.change) ? "bad" : ["improved", "gained_coverage", "added"].includes(item.change) ? "good" : ""}">${item.delta === null ? escapeHtml(item.change) : `${item.delta > 0 ? "+" : ""}${item.delta}`}</td></tr>`).join("");
+  const rows = report.cases.map((item) => `<tr><td>${escapeHtml(item.areaId)}</td><td>${escapeHtml(item.rubricId)}</td><td>${escapeHtml(item.caseId)}</td><td>${escapeHtml(item.strata.join(", ") || "—")}</td><td>${item.baselineMean ?? "—"}</td><td>${item.candidateMean ?? "—"}</td><td>${item.baselineRuns}/${item.baselineTotalRuns} → ${item.candidateRuns}/${item.candidateTotalRuns}</td><td>${escapeHtml(item.change)}</td><td class="${["regressed", "lost_coverage", "removed"].includes(item.change) ? "bad" : ["improved", "gained_coverage", "added"].includes(item.change) ? "good" : ""}">${item.delta === null ? escapeHtml(item.change) : `${item.delta > 0 ? "+" : ""}${item.delta}`}</td></tr>`).join("");
   const strataRows = report.strata.map((item) => `<tr><td>${escapeHtml(item.stratum)}</td><td>${item.matchedCases}</td><td>${item.meanDelta > 0 ? "+" : ""}${item.meanDelta}</td></tr>`).join("");
-  fs.writeFileSync(html, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Campaign comparison</title><style>body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;color:#1f2328;max-width:1120px;margin:2rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #d0d7de;padding:.45rem .65rem;text-align:left}th{background:#f6f8fa}.good{color:#1a7f37;font-weight:650}.bad,.warn{color:#cf222e;font-weight:650}code{font-size:.9em}</style></head><body><h1>Campaign comparison</h1><p><code>${escapeHtml(report.baseline.campaignId)}</code> → <code>${escapeHtml(report.candidate.campaignId)}</code> · compatibility <strong class="${report.compatibility.status === "compatible" ? "good" : "warn"}">${report.compatibility.status}</strong></p><p><strong>Campaign mean score:</strong> ${percent(report.overall.scoreMeanPct.baseline)} → ${percent(report.overall.scoreMeanPct.candidate)} · Δ ${report.overall.scoreMeanPct.delta === null ? "—" : `${report.overall.scoreMeanPct.delta > 0 ? "+" : ""}${report.overall.scoreMeanPct.delta}`} points<br><strong>Critical-gate pass rate:</strong> ${report.overall.criticalGatePassRate.baseline === null ? "—" : `${report.overall.criticalGatePassRate.baseline * 100}%`} → ${report.overall.criticalGatePassRate.candidate === null ? "—" : `${report.overall.criticalGatePassRate.candidate * 100}%`}</p><p><strong>Mean paired-case delta:</strong> ${report.pairedCases.meanDelta === null ? "unavailable" : `${report.pairedCases.meanDelta > 0 ? "+" : ""}${report.pairedCases.meanDelta}`}${report.pairedCases.confidenceInterval95 ? ` · 95% bootstrap ${report.pairedCases.confidenceInterval95.lower} to ${report.pairedCases.confidenceInterval95.upper}` : ""}</p><p>${report.summary.improved} improved · ${report.summary.regressed} regressed · ${report.summary.gainedCoverage} gained coverage · ${report.summary.lostCoverage} lost coverage · ${report.summary.added} added · ${report.summary.removed} removed · ${report.summary.unchanged} unchanged · ${report.summary.unavailable} unavailable</p><h2>Cases</h2><table><thead><tr><th>Area</th><th>Rubric</th><th>Case</th><th>Strata</th><th>Baseline mean</th><th>Candidate mean</th><th>Δ / status</th></tr></thead><tbody>${rows}</tbody></table><h2>Strata</h2>${strataRows ? `<table><thead><tr><th>Stratum</th><th>Cases</th><th>Mean Δ</th></tr></thead><tbody>${strataRows}</tbody></table>` : "<p>No strata available.</p>"}<h2>Warnings</h2><ul>${report.warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>None</li>"}</ul></body></html>`);
+  fs.writeFileSync(html, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Campaign comparison</title><style>body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;color:#1f2328;max-width:1120px;margin:2rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #d0d7de;padding:.45rem .65rem;text-align:left}th{background:#f6f8fa}.good{color:#1a7f37;font-weight:650}.bad,.warn{color:#cf222e;font-weight:650}code{font-size:.9em}</style></head><body><h1>Campaign comparison</h1><p><code>${escapeHtml(report.baseline.campaignId)}</code> → <code>${escapeHtml(report.candidate.campaignId)}</code> · compatibility <strong class="${report.compatibility.status === "compatible" ? "good" : "warn"}">${report.compatibility.status}</strong></p><p><strong>Campaign mean score:</strong> ${percent(report.overall.scoreMeanPct.baseline)} → ${percent(report.overall.scoreMeanPct.candidate)} · Δ ${report.overall.scoreMeanPct.delta === null ? "—" : `${report.overall.scoreMeanPct.delta > 0 ? "+" : ""}${round(report.overall.scoreMeanPct.delta)}`} points<br><strong>Mean evidence coverage:</strong> ${percent(report.overall.evidenceCoverageMeanPct.baseline)} → ${percent(report.overall.evidenceCoverageMeanPct.candidate)}<br><strong>Critical-gate pass rate:</strong> ${report.overall.criticalGatePassRate.baseline === null ? "—" : `${round(report.overall.criticalGatePassRate.baseline * 100)}%`} → ${report.overall.criticalGatePassRate.candidate === null ? "—" : `${round(report.overall.criticalGatePassRate.candidate * 100)}%`}</p><p><strong>Mean paired-case delta:</strong> ${report.pairedCases.meanDelta === null ? "unavailable" : `${report.pairedCases.meanDelta > 0 ? "+" : ""}${report.pairedCases.meanDelta}`}${report.pairedCases.confidenceInterval95 ? ` · 95% bootstrap ${report.pairedCases.confidenceInterval95.lower} to ${report.pairedCases.confidenceInterval95.upper}` : ""}</p><p>${report.summary.improved} improved · ${report.summary.regressed} regressed · ${report.summary.gainedCoverage} gained coverage · ${report.summary.lostCoverage} lost coverage · ${report.summary.added} added · ${report.summary.removed} removed · ${report.summary.unchanged} unchanged · ${report.summary.unavailable} unavailable</p><h2>Cases</h2><table><thead><tr><th>Area</th><th>Rubric</th><th>Case</th><th>Strata</th><th>Baseline mean</th><th>Candidate mean</th><th>Judgeable / attempted</th><th>Change</th><th>Δ / status</th></tr></thead><tbody>${rows}</tbody></table><h2>Strata</h2>${strataRows ? `<table><thead><tr><th>Stratum</th><th>Cases</th><th>Mean Δ</th></tr></thead><tbody>${strataRows}</tbody></table>` : "<p>No strata available.</p>"}<h2>Warnings</h2><ul>${report.warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>None</li>"}</ul></body></html>`);
   return { json, html };
 }
 

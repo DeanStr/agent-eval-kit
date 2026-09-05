@@ -43,6 +43,7 @@ const excludedRoots = new Set([
   INDEX_FILE,
   "manual-results.json",
   ".run.lock",
+  ".run.lock-acquisition",
   "run-state.json",
   "run.log",
 ]);

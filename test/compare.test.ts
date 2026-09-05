@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { scoreArea } from "../src/scoring.js";
+import type { EvalConfig, EvalSpec, ScenarioEvidence } from "../src/types.js";
 import {
   compareReports,
   comparisonFailures,
@@ -10,7 +12,7 @@ import {
   loadResumableRunReport,
   writeComparisonArtifacts,
 } from "../src/compare.js";
-import type { AreaResult, JudgedItem, RunReceipt, RunReport, Verdict } from "../src/types.js";
+import type { AreaResult, JudgedItem, RunReceipt, RunReport, ScoreSlice, Verdict } from "../src/types.js";
 
 const receipt = (fingerprint = "same", methodSha256 = "method"): RunReceipt => ({
   schemaVersion: 1,
@@ -42,6 +44,11 @@ const item = (id: string, verdict: Verdict): JudgedItem => ({
   reasoning: "test",
   evidenceRefs: verdict === "cannot_judge" ? [] : ["evidence"],
   source: "llm",
+  score: { total: 1, earned: verdict === "pass" ? 1 : verdict === "partial" ? 0.5 : 0, judgeable: verdict === "cannot_judge" ? 0 : 1, scorePct: verdict === "cannot_judge" ? null : verdict === "pass" ? 100 : verdict === "partial" ? 50 : 0, coveragePct: verdict === "cannot_judge" ? 0 : 100 },
+});
+
+const slice = (scorePct: number | null, coveragePct: number): ScoreSlice => ({
+  earned: (scorePct ?? 0) * coveragePct / 100, judgeable: coveragePct, total: 100, scorePct, coveragePct,
 });
 
 const area = (items: JudgedItem[], scorePct: number | null, coveragePct: number, unproven: string[] = []): AreaResult => ({
@@ -49,18 +56,14 @@ const area = (items: JudgedItem[], scorePct: number | null, coveragePct: number,
   title: "Core",
   weight: 100,
   optional: false,
-  earned: 1,
-  judgeable: 1,
-  total: 1,
-  scorePct,
-  coveragePct,
+  ...slice(scorePct, coveragePct),
   items,
   defects: [],
   notes: "",
   scenarios: [],
   pendingManual: [],
   unproven,
-  byTag: { workflow: { earned: 1, judgeable: 1, total: 1, scorePct, coveragePct } },
+  byTag: { workflow: slice(scorePct, coveragePct) },
   byStratum: {},
   gates: [],
   caseResults: [],
@@ -84,11 +87,47 @@ const report = (
   overallScorePct: scorePct,
   overallCoveragePct: coveragePct,
   scoreWithheld: false,
-  byTag: { workflow: { earned: 1, judgeable: 1, total: 1, scorePct, coveragePct } },
+  byTag: { workflow: slice(scorePct, coveragePct) },
   byStratum: {},
   manualPending: 0,
   receipt: receipt(),
   gates: { passed: true, blocking: [] },
+});
+
+test("hybrid comparisons use actual weighted contributions and partial coverage", () => {
+  const spec: EvalSpec = { id: "core", title: "Core", weight: 100, optional: false, description: "hybrid", sourceFile: "core.yaml", scenarios: [],
+    rubric: [{ id: "R1", criterion: "hybrid", passCriteria: "both pass", weight: 1, tags: [], scenarios: ["S1"], grader: { type: "hybrid", autoShare: 0.9 } }],
+  };
+  const make = (automatic: Verdict, manual?: Verdict) => {
+    const result = report(automatic, [], null, 0);
+    const input = { ...item("R1", automatic), score: undefined, components: { automatic, manual } };
+    const scored = scoreArea({ spec, config: { scoring: { partialCredit: 0.25 } } as EvalConfig,
+      evidence: [{ scenarioId: "S1", outcome: "completed" } as ScenarioEvidence], judgements: [input] });
+    assert.equal(input.score, undefined, "scoring must not mutate original judgements");
+    result.areas = [scored];
+    result.overallScorePct = scored.scorePct;
+    result.overallCoveragePct = scored.coveragePct;
+    return result;
+  };
+  const result = compareReports(make("pass", "fail"), make("fail", "pass"));
+  assert.equal(result.overall.scorePct.delta, -80);
+  assert.equal(result.items[0].change, "regressed");
+  assert.equal(result.items[0].scorePct.delta, -80);
+  assert.equal(comparisonFailures(result, { failOnRegression: true }).length, 1);
+  const pending = compareReports(make("pass", "fail"), make("pass"));
+  assert.equal(pending.items[0].change, "lost_coverage");
+  assert.equal(pending.items[0].coveragePct.delta, -10);
+  assert.equal(comparisonFailures(pending, { failOnRegression: true }).length, 1);
+  assert.equal(compareReports(make("pass"), make("partial")).items[0].change, "regressed");
+  spec.rubric[0].grader = { type: "hybrid", autoShare: 0.000001 };
+  const smallDrop = compareReports(make("pass", "partial"), make("fail", "partial"));
+  assert.deepEqual(smallDrop.items[0].scorePct, { baseline: 25, candidate: 25, delta: 0 });
+  assert.equal(smallDrop.items[0].change, "regressed");
+  assert.equal(comparisonFailures(smallDrop, { failOnRegression: true }).length, 1);
+  const smallCoverageLoss = compareReports(make("pass", "pass"), make("cannot_judge", "pass"));
+  assert.deepEqual(smallCoverageLoss.items[0].coveragePct, { baseline: 100, candidate: 100, delta: 0 });
+  assert.equal(smallCoverageLoss.items[0].change, "lost_coverage");
+  assert.equal(comparisonFailures(smallCoverageLoss, { failOnRegression: true }).length, 1);
 });
 
 test("comparison reports score, coverage, tag, and item-level changes", () => {
@@ -105,6 +144,18 @@ test("comparison reports score, coverage, tag, and item-level changes", () => {
   assert.equal(comparisonFailures(comparison, { failOnRegression: true }).length, 1);
   assert.deepEqual(comparisonFailures(comparison, { maxScoreDrop: 8, maxCoverageDrop: 10 }), []);
   assert.equal(comparisonFailures(comparison, { maxScoreDrop: 7, maxCoverageDrop: 9 }).length, 2);
+});
+
+test("semantic verdict regressions remain blocking when partial credit makes scores equal", () => {
+  for (const [beforeVerdict, afterVerdict, points] of [["pass", "partial", 1], ["partial", "fail", 0]] as const) {
+    const before = item("R1", beforeVerdict);
+    const after = item("R1", afterVerdict);
+    before.score = after.score = { earned: points, total: 1, judgeable: 1, scorePct: points * 100, coveragePct: 100 };
+    const comparison = compareReports(report("before", [before], points * 100, 100), report("after", [after], points * 100, 100));
+    assert.equal(comparison.items[0].scorePct.delta, 0);
+    assert.equal(comparison.items[0].change, "regressed");
+    assert.equal(comparisonFailures(comparison, { failOnRegression: true }).length, 1);
+  }
 });
 
 test("comparison artifacts can be loaded from run directories and written as JSON and HTML", () => {
@@ -145,6 +196,8 @@ test("incompatible evaluator inputs withhold numeric deltas unless explicitly ov
 
   const comparison = compareReports(baseline, candidate);
   assert.equal(comparison.compatibility.status, "incompatible");
+  assert.equal(comparison.items[0].change, "unavailable");
+  assert.equal(comparison.summary.regressed, 0);
   assert.equal(comparison.overall.scorePct.delta, null);
   assert.match(comparison.compatibility.differences.join(" "), /configuration/);
   assert.match(comparisonFailures(comparison, { requireCompatible: true })[0], /incompatible/);
@@ -161,6 +214,36 @@ test("report loading rejects incomplete receipt-less artifacts", () => {
   fs.writeFileSync(path.join(root, "report.json"), JSON.stringify(incomplete));
   assert.throws(() => loadComparisonInput(root), /Invalid Agent Eval Kit report/);
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("saved report schemas reject malformed nested scores, gates, and evidence", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-report-schema-"));
+  try {
+    for (const mutate of [
+      (value: RunReport) => { value.areas[0].scorePct = 101; },
+      (value: RunReport) => { value.byTag.workflow.coveragePct = -1; },
+      (value: RunReport) => { value.areas[0].items[0].evidenceRefs = [12 as unknown as string]; },
+      (value: RunReport) => { value.gates.blocking = [{ itemId: "R1" } as RunReport["gates"]["blocking"][number]]; },
+      (value: RunReport) => { delete value.areas[0].items[0].score; },
+      (value: RunReport) => { value.areas[0].items.push(value.areas[0].items[0]); },
+      (value: RunReport) => { value.areas[0].items[0].score!.earned = 2; },
+      (value: RunReport) => { value.areas[0].items[0].score!.scorePct = 0; },
+      (value: RunReport) => { value.areas[0].scorePct = 0; },
+      (value: RunReport) => { value.areas[0].coveragePct = 50; },
+      (value: RunReport) => { value.areas[0].byTag.workflow.scorePct = 0; },
+      (value: RunReport) => { value.byTag.workflow.coveragePct = 50; },
+      (value: RunReport) => { value.areas[0].byStratum.one = { ...slice(100, 100), cases: 1, scorePct: 0 }; },
+      (value: RunReport) => { value.byStratum.one = { ...slice(100, 100), cases: 1, coveragePct: 50 }; },
+      (value: RunReport) => { value.areas[0].caseResults = [{ areaId: "core", rubricId: "R1", caseId: "one", scenarioIds: [], strata: [], verdict: "fail", points: 1, confidence: "high", reasoning: "test", evidenceRefs: [], source: "llm" }]; },
+    ]) {
+      const invalid = report("invalid", [item("R1", "pass")], 100, 100);
+      mutate(invalid);
+      fs.writeFileSync(path.join(root, "report.json"), JSON.stringify(invalid));
+      assert.throws(() => loadComparisonInput(root), /Invalid Agent Eval Kit report/);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("report loading rejects a sealed partial run missing a receipted area", () => {
@@ -185,4 +268,21 @@ test("resume report loading rejects areas outside the run's selected set", () =>
   fs.writeFileSync(path.join(root, "report.json"), JSON.stringify(invalid));
   assert.throws(() => loadResumableRunReport(root), /Invalid Agent Eval Kit report/);
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("saved reports preserve structured provider usage metadata", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-usage-report-"));
+  try {
+    const saved = report("usage", [item("R1", "pass")], 100, 100);
+    const usage = { input_tokens: 12, output_tokens_details: { reasoning_tokens: 4 }, service_tier: "standard", iterations: [{ tokens: 3 }] };
+    saved.areas[0].scenarios.push({
+      scenarioId: "S1", scenarioName: "Usage", kind: "workspace", outcome: "completed",
+      summary: "Done", observations: [], evidenceRefs: [], transcript: [], screenshots: [], artifacts: {},
+      provider: "claude", startedAt: "now", finishedAt: "now", durationMs: 1, usage,
+    });
+    fs.writeFileSync(path.join(root, "report.json"), JSON.stringify(saved));
+    assert.deepEqual(loadComparisonInput(root).report.areas[0].scenarios[0].usage, usage);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ProviderInvocation, ProviderResult } from "../types.js";
+import type { ProviderInvocation, ProviderResult, ProviderUsage } from "../types.js";
 import { stageCredentials } from "./credentials.js";
 import {
   assertSafeProviderExtraArgs,
@@ -106,11 +106,11 @@ export async function runGrok(invocation: ProviderInvocation): Promise<ProviderR
     let structured = parseJsonText(result.stdout);
     let finalText = result.stdout.trim();
     let sessionId: string | undefined;
-    let usage: Record<string, number> | undefined;
+    let usage: ProviderUsage | undefined;
     if (structured && typeof structured === "object") {
       const outer = structured as Record<string, unknown>;
       sessionId = typeof outer.session_id === "string" ? outer.session_id : undefined;
-      usage = outer.usage && typeof outer.usage === "object" ? (outer.usage as Record<string, number>) : undefined;
+      usage = outer.usage && typeof outer.usage === "object" ? (outer.usage as ProviderUsage) : undefined;
       if (outer.structured_output !== undefined) structured = outer.structured_output;
       else if (outer.result !== undefined) {
         finalText = typeof outer.result === "string" ? outer.result : JSON.stringify(outer.result);

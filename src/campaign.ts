@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { campaignRunSchema } from "./artifact-schemas.js";
 import { createTimestampedDirectory, writeJson } from "./io.js";
 import type { EvalConfig, RunReport, Verdict } from "./types.js";
 
@@ -53,51 +54,25 @@ export interface FailedCampaignRunRecord {
 
 export type CampaignRunRecord = CompleteCampaignRunRecord | FailedCampaignRunRecord;
 
-const campaignVerdicts = new Set<Verdict>(["pass", "partial", "fail", "not_found", "cannot_judge"]);
-
 export function assertCampaignRunRecords(value: unknown): asserts value is CampaignRunRecord[] {
   if (!Array.isArray(value)) throw new Error("Campaign runs must be an array");
   const ordinals = new Set<number>();
   for (const candidate of value) {
-    if (!candidate || typeof candidate !== "object") throw new Error("Campaign run records must be objects");
-    const run = candidate as Record<string, unknown>;
-    if (!Number.isInteger(run.ordinal) || Number(run.ordinal) < 1 || ordinals.has(Number(run.ordinal))) {
-      throw new Error(`Campaign contains an invalid or duplicate run ordinal: ${String(run.ordinal)}`);
+    const parsed = campaignRunSchema.safeParse(candidate);
+    if (!parsed.success) {
+      throw new Error(`Campaign run is missing required v1 measurements or identity, or has invalid measurements: ${parsed.error.message}`);
     }
-    ordinals.add(Number(run.ordinal));
-    if (run.status === "failed") {
-      if (typeof run.error !== "string" || !run.error.trim()) {
-        throw new Error(`Failed campaign run ${run.ordinal} requires an error message`);
-      }
-      continue;
+    const run = parsed.data;
+    if (ordinals.has(run.ordinal)) throw new Error(`Campaign contains a duplicate run ordinal: ${run.ordinal}`);
+    ordinals.add(run.ordinal);
+    if (run.status === "failed") continue;
+    const itemKeys = run.items.map(item => JSON.stringify([item.areaId, item.itemId]));
+    if (new Set(itemKeys).size !== itemKeys.length) {
+      throw new Error(`Complete campaign run ${run.ordinal} has duplicate item measurements`);
     }
-    if (run.status !== "complete") throw new Error(`Campaign run ${run.ordinal} has invalid status ${String(run.status)}`);
-    if (
-      typeof run.runId !== "string" || !run.runId || typeof run.runDir !== "string" || !run.runDir ||
-      typeof run.evaluationFingerprint !== "string" || !run.evaluationFingerprint ||
-      typeof run.inputFingerprint !== "string" || !run.inputFingerprint ||
-      (run.scorePct !== null && (typeof run.scorePct !== "number" || !Number.isFinite(run.scorePct))) ||
-      typeof run.coveragePct !== "number" || !Number.isFinite(run.coveragePct) ||
-      typeof run.scoreWithheld !== "boolean" || !Array.isArray(run.items) || !Array.isArray(run.cases)
-    ) {
-      throw new Error(`Complete campaign run ${run.ordinal} is missing required v1 measurements or identity`);
-    }
-    if (run.gatesPassed !== undefined && typeof run.gatesPassed !== "boolean") {
-      throw new Error(`Complete campaign run ${run.ordinal} has invalid gate status`);
-    }
-    if (run.items.some((item) =>
-      !item || typeof item !== "object" || typeof item.areaId !== "string" ||
-      typeof item.itemId !== "string" || !campaignVerdicts.has(item.verdict as Verdict)
-    )) {
-      throw new Error(`Complete campaign run ${run.ordinal} has invalid item measurements`);
-    }
-    if (run.cases.some((item) =>
-      !item || typeof item !== "object" || typeof item.areaId !== "string" ||
-      typeof item.rubricId !== "string" || typeof item.caseId !== "string" ||
-      !Array.isArray(item.strata) || !campaignVerdicts.has(item.verdict as Verdict) ||
-      (item.points !== null && (typeof item.points !== "number" || !Number.isFinite(item.points)))
-    )) {
-      throw new Error(`Complete campaign run ${run.ordinal} has invalid case measurements`);
+    const caseKeys = run.cases.map(item => JSON.stringify([item.areaId, item.rubricId, item.caseId]));
+    if (new Set(caseKeys).size !== caseKeys.length) {
+      throw new Error(`Complete campaign run ${run.ordinal} has duplicate case measurements`);
     }
   }
 }

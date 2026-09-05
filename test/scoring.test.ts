@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { scoreSliceSchema } from "../src/artifact-schemas.js";
 import { buildReport, scoreArea } from "../src/scoring.js";
 import { campaignRunRecord, buildCampaignReport } from "../src/campaign.js";
 import type { EvalConfig, EvalSpec, JudgedCase, JudgedItem, RunReceipt, RunReport, ScenarioEvidence, Verdict } from "../src/types.js";
@@ -43,6 +44,22 @@ const judgements: JudgedItem[] = [
   { id: "R1", verdict: "fail", confidence: "high", reasoning: "not reached", evidenceRefs: ["x"], source: "llm" },
   { id: "R2", verdict: "pass", confidence: "high", reasoning: "ok", evidenceRefs: ["x"], source: "command" },
 ];
+
+test("scoring preserves verifiable weights for small and fractional rubric weights", () => {
+  for (const weight of [1e-8, 0.123456789]) {
+    const smallSpec = { ...spec, rubric: spec.rubric.map(item => ({ ...item, weight })) };
+    const area = scoreArea({
+      spec: smallSpec, evidence: [evidence("completed")],
+      config: { ...config, scoring: { ...config.scoring, partialCredit: 1 / 3 } },
+      judgements: judgements.map(item => ({ ...item, verdict: "partial" })),
+    });
+    assert.equal(area.total, weight * 2);
+    assert.equal(area.scorePct, 33.333);
+    for (const slice of [area, ...area.items.map(item => item.score!), ...Object.values(area.byTag)]) {
+      assert.equal(scoreSliceSchema.safeParse(JSON.parse(JSON.stringify(slice))).success, true);
+    }
+  }
+});
 
 test("pending hybrid reviews preserve automatic credit without claiming a campaign full pass", () => {
   const hybrid: EvalSpec = { ...spec, rubric: [{ ...spec.rubric[0], grader: { type: "hybrid", autoShare: 0.5 }, gate: true }] };

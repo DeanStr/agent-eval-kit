@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import type { ProviderInvocation, ProviderResult } from "../types.js";
+import type { ProviderInvocation, ProviderResult, ProviderUsage } from "../types.js";
 import {
   assertSafeProviderExtraArgs,
   parseJsonText,
@@ -63,7 +63,7 @@ async function runIsolatedCodex(
   args.push("-");
 
   let sessionId: string | undefined;
-  let usage: Record<string, number> | undefined;
+  let usage: ProviderUsage | undefined;
   let eventLine = 0;
   let malformedEventLine: number | undefined;
   const policyViolations = new Set<string>();

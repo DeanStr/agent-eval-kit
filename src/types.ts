@@ -160,6 +160,9 @@ export interface ScreenshotRef {
   url?: string;
 }
 
+/** Raw structured provider telemetry; values are not limited to token counts. */
+export type ProviderUsage = Record<string, unknown>;
+
 export interface ScenarioEvidence {
   scenarioId: string;
   scenarioName: string;
@@ -180,7 +183,7 @@ export interface ScenarioEvidence {
   provider: ProviderId;
   model?: string;
   providerSessionId?: string;
-  usage?: Record<string, number>;
+  usage?: ProviderUsage;
   startedAt: string;
   finishedAt: string;
   durationMs: number;
@@ -211,6 +214,8 @@ export interface JudgedItem {
   reasoning: string;
   evidenceRefs: string[];
   source: "llm" | "command" | "manual";
+  /** Populated by scoreArea, using the actual weights and evidence coverage. */
+  score?: ScoreSlice;
   components?: {
     automatic?: Verdict;
     manual?: Verdict;
@@ -264,6 +269,7 @@ export interface Defect {
 }
 
 export interface ScoreSlice {
+  /** Full-precision weights; only percentages are rounded for reporting. */
   earned: number;
   judgeable: number;
   total: number;
@@ -349,7 +355,7 @@ export interface ProviderResult {
   finalText: string;
   structured?: unknown;
   sessionId?: string;
-  usage?: Record<string, number>;
+  usage?: ProviderUsage;
   command: string[];
   policyViolations?: string[];
 }
