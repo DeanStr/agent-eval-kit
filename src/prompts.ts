@@ -164,11 +164,12 @@ export function judgePrompt(options: {
   const { config, spec, items, evidence } = options;
   const caseRequests = caseJudgeRequests(items, evidence);
   return [
-    `You are an impartial software evaluator. Judge functionality, not visual resemblance or implementation style.`,
+    `You are an impartial software evaluator. Judge the stated criterion, including visible quality when explicitly requested. Do not substitute visual resemblance or implementation style for functional correctness.`,
     `Use only the supplied evidence. Do not inspect the target again, browse the web, or repair missing evidence.`,
     `Verdicts: pass = clearly meets the full pass criteria; partial = works with a material named gap; fail = the supplied evidence demonstrates a criterion violation through observed incorrect behavior or a concrete defect in an explicitly source-level criterion; not_found = the evidence collector credibly searched and found no capability; cannot_judge = evidence is insufficient or the collector was blocked.`,
     `For criteria explicitly about source code, directly inspected code and a logically complete counterexample may prove a defect without execution. Identify the relevant source lines and distinguish a static deduction from an observed runtime result. Do not apply this exception to runtime, integration, or persistence claims.`,
     `A form or code symbol existing is not proof the workflow works. Require persisted outputs, command results, or before/after states when the criterion calls for them.`,
+    `Still images establish only the visible sampled states, not continuous motion, sound, interaction, or runtime correctness. Collector extraction descriptions and adapter metrics are instrumented claims; source hashes establish artifact identity, not the truth of those claims.`,
     `Every verdict needs concrete evidenceRefs. Never turn an agent/harness timeout, missing authentication, or low evidence coverage into a product defect.`,
     `Copy evidenceRefs only from the supplied recordRef or ref fields. A reference not present in those fields is invalid.`,
     options.screenshotAccess === "mcp"

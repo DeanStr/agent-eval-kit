@@ -1,3 +1,4 @@
+import { snapshotCollectorInputs } from "./collectors/inputs.js";
 import { snapshotVisualInputs, visualInputs, validateVisualInputs } from "./visual/inputs.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -306,7 +307,7 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
   const activeAreaIds = new Set(specs.map((spec) => spec.id));
   const sourceSpecs = options.specs.filter((spec) => activeAreaIds.has(spec.id));
   assertScenarioSelectors(specs, options.scenarioIds, selectedSplit);
-  await validateVisualInputs(config, sourceSpecs, selectedSplit);
+  await validateVisualInputs(config, sourceSpecs, selectedSplit, options.scenarioIds);
   if (options.dryRun) {
     for (const spec of specs) {
       console.log(`${spec.id} (${spec.weight}${spec.optional ? ", optional" : ""}) — ${spec.title}`);
@@ -402,6 +403,7 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
   } else {
     snapshotInputs(runDir, config, sourceSpecs, config.paths.fixtures);
     snapshotVisualInputs(config, sourceSpecs, runDir, selectedSplit, receipt.inputs.visual!);
+    snapshotCollectorInputs(config, sourceSpecs, runDir, selectedSplit, receipt.inputs, options.scenarioIds);
   }
   const state: RunState = existingState ?? {
     schemaVersion: 1,
@@ -455,6 +457,9 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
     }
     const refreshTargetReceipt = (phase: string) => {
       const refreshed = currentReceipt();
+      if (stableJson(refreshed.inputs.collectorSources) !== stableJson(receipt.inputs.collectorSources)) {
+        throw new Error(`Target ${phase} changed collector source artifacts; start a new run with the new artifacts`);
+      }
       if (refreshed.evaluationFingerprint !== receipt.evaluationFingerprint) {
         throw new Error(`Target ${phase} changed evaluator specs or fixtures; target commands may modify target files only`);
       }
@@ -571,6 +576,7 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
           ].filter((value): value is string => Boolean(value)),
           onProgress: (message) => logger.line(`    ${message}`),
         });
+        if (scenario.collect) refreshTargetReceipt(`collector ${scenario.id}`);
         lifecycle.assertRunning();
         logger.line(`    ${result.outcome} in ${(result.durationMs / 1000).toFixed(1)}s; ${result.screenshots.length} screenshots`);
         evidence.push(result);

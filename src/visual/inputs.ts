@@ -1,3 +1,4 @@
+import { collectorInputs } from "../collectors/inputs.js";
 import fs from "node:fs";
 import path from "node:path";
 import { loadPromotedBaseline } from "../baselines.js";
@@ -59,16 +60,20 @@ export function snapshotVisualInputs(config: EvalConfig, specs: EvalSpec[], runD
   }
 }
 
-export async function validateVisualInputs(config: EvalConfig, specs: EvalSpec[], split: EvalSplit | "all" = "all"): Promise<void> {
+export async function validateVisualInputs(config: EvalConfig, specs: EvalSpec[], split: EvalSplit | "all" = "all", scenarioIds?: string[]): Promise<void> {
+  collectorInputs(config, specs, split, scenarioIds);
+  collectorInputs(config, specs, split, scenarioIds, "methods");
   for (const spec of specs) for (const item of spec.rubric) {
     if (!["pairwise", "capture", "image-distinctness", "image-regression"].includes(item.grader.type)) continue;
     if (!item.scenarios.length) throw new Error(`${item.id} requires scenarios`);
     for (const id of item.scenarios) {
       const scenario = spec.scenarios.find(s => s.id === id);
-      if (!scenario || (scenario.kind ?? (config.target.kind === "web" ? "browser" : "workspace")) !== "browser")
-        throw new Error(`${item.id} requires browser scenarios`);
-      if (item.grader.type === "capture" && !scenario.capture && !config.browser.diagnostics?.failOn.length)
+      if (!scenario || !["browser", "command"].includes(scenario.kind ?? (config.target.kind === "web" ? "browser" : "workspace")))
+        throw new Error(`${item.id} requires browser or command-collector scenarios`);
+      if (item.grader.type === "capture" && (scenario.collect || (!scenario.capture && !config.browser.diagnostics?.failOn.length)))
         throw new Error(`${item.id} requires controlled capture or browser.diagnostics.failOn checks`);
+      if (scenario.collect && "candidate" in item.grader && !scenario.collect.images.includes(item.grader.candidate))
+        throw new Error(`${item.id}: undeclared collector image label ${item.grader.candidate} for ${id}`);
       if (scenario.capture && "candidate" in item.grader) {
         const labels = controlledScreenshotLabels(scenario.capture);
         if (!labels.includes(item.grader.candidate)) throw new Error(`${item.id}: invalid controlled screenshot label ${item.grader.candidate} for ${id}. Available labels: ${labels.join(", ")}`);
@@ -90,7 +95,7 @@ export function visualEvidenceReader(runDir: string) {
       const shots = scenario.screenshots.filter(shot => shot.label === label);
       if (shots.length > 1) throw new Error(`Ambiguous candidate label ${label} in ${scenario.scenarioId}`);
       if (!shots.length) {
-        if (scenario.collector === "controlled") throw new Error(`Completed controlled capture ${scenario.scenarioId} is missing required screenshot ${label}`);
+        if (scenario.collector === "controlled" || scenario.collector === "command") throw new Error(`Completed ${scenario.collector === "controlled" ? "controlled capture" : "command collection"} ${scenario.scenarioId} is missing required screenshot ${label}`);
         return undefined;
       }
       const ref = `${scenario.scenarioId}/${shots[0].path}`;

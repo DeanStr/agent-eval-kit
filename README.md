@@ -13,6 +13,7 @@ It supports:
 - black-box browser scenarios through a shared Playwright MCP server and path-contained repository inspection through a read-only workspace MCP server;
 - deterministic command graders, independent LLM judges, manual graders, true weighted hybrid graders, and critical pass/fail gates;
 - controlled visual capture, independent motion/repeatability tolerances, image-health and scoped distinctness checks, opt-in image-statistic baseline gates, blind pairwise image graders, and resumable repeated judging;
+- command collectors for exported artifacts with snapshotted sources, validated image manifests, and extraction provenance; named capture checkpoints for irregular temporal sampling;
 - incremental artifacts, fingerprint-checked resume, reproducibility receipts, tamper-evident output indexes, offline rescore, auditable manual finalization, coverage thresholds, and diagnostic tags;
 - parameterized case matrices, diagnostic strata, and fingerprinted development/evaluation splits;
 - repeated-run campaigns with rubric/case/stratum stability, whole-run bootstrap intervals, and paired case-level campaign comparisons;
@@ -335,6 +336,17 @@ See [visual evaluation](docs/visual-evaluation.md) for configuration, adapter co
 ```bash
 pnpm aek run --config examples/visual/evalkit.yaml --judge codex
 ```
+
+The [exported-chart example](examples/artifact/evalkit.yaml) collects a delivered
+artifact without a browser and combines an absolute readability gate with a
+pairwise non-regression rubric:
+
+```bash
+pnpm aek run --config examples/artifact/evalkit.yaml --judge codex
+```
+
+Omit `--judge codex` for an offline pipeline check. Its mock judge abstains;
+the absolute gate remains unavailable and the CLI exits unsuccessfully.
 
 ## Authentication
 

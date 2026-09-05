@@ -3,7 +3,7 @@ export const PROVIDERS = ["codex", "claude", "grok", "mock"] as const;
 export type ProviderId = (typeof PROVIDERS)[number];
 
 export type TargetKind = "web" | "repository" | "command";
-export type ScenarioKind = "browser" | "workspace";
+export type ScenarioKind = "browser" | "workspace" | "command";
 export type EvalSplit = "development" | "evaluation";
 export type Verdict = "pass" | "partial" | "fail" | "not_found" | "cannot_judge";
 export type ScenarioOutcome = "completed" | "blocked" | "feature_not_found" | "agent_error";
@@ -83,6 +83,13 @@ export interface Scenario {
   /** Parameterized variants of this scenario. */
   cases?: ScenarioCase[];
   capture?: CaptureConfig;
+  collect?: {
+    command: string;
+    methodFiles: string[];
+    timeoutSeconds: number;
+    sources: Record<string, string>;
+    images: string[];
+  };
   /** Populated only on a materialized scenario instance. */
   sourceScenarioId?: string;
   /** Populated only on a materialized matrix case. */
@@ -163,6 +170,9 @@ export interface ScreenshotRef {
   label: string;
   step: number;
   url?: string;
+  timeSeconds?: number;
+  source?: string;
+  extraction?: string;
 }
 
 /** Raw structured provider telemetry; values are not limited to token counts. */
@@ -185,7 +195,7 @@ export interface ScenarioEvidence {
   screenshots: ScreenshotRef[];
   /** Paths relative to this scenario directory. */
   artifacts: Record<string, string>;
-  collector?: "controlled";
+  collector?: "controlled" | "command";
   captureChecks?: CaptureCheck[];
   diagnostics?: BrowserDiagnostic[];
   provider: ProviderId;
@@ -252,6 +262,8 @@ export interface RunReceipt {
     config: ArtifactReceipt;
     methodSha256: string;
     visual?: Record<string, ArtifactReceipt>;
+    collectorSources?: Record<string, ArtifactReceipt>;
+    collectorMethods?: Record<string, ArtifactReceipt>;
     specs: Record<string, ArtifactReceipt & { file: string }>;
     fixtures?: {
       manifest: ArtifactReceipt;

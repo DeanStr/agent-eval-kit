@@ -5,7 +5,7 @@ import { readDiagnostics } from "../browser/diagnostics.js";
 import { cancellationSignal, throwIfCancelled } from "../cancellation.js";
 import { stableJson, writeJson } from "../io.js";
 import type { EvalConfig, Scenario, ScenarioEvidence } from "../types.js";
-import type { CaptureCheck, CaptureConfig } from "./contracts.js";
+import { captureSchedule, type CaptureCheck, type CaptureConfig } from "./contracts.js";
 import { compareImages, contactSheet, inspectImage } from "./images.js";
 
 export function metricChecks(metrics: unknown, requirements: CaptureConfig["metrics"]): CaptureCheck[] {
@@ -19,6 +19,7 @@ export function metricChecks(metrics: unknown, requirements: CaptureConfig["metr
 
 export async function controlledCapture(config: EvalConfig, scenario: Scenario, directory: string, storageState?: string): Promise<ScenarioEvidence> {
   const capture = scenario.capture!;
+  const schedule = captureSchedule(capture);
   const startedAt = new Date().toISOString();
   const evidence: ScenarioEvidence = {
     scenarioId: scenario.id, scenarioName: scenario.name, sourceScenarioId: scenario.sourceScenarioId, caseId: scenario.caseId, strata: scenario.strata, split: scenario.split,
@@ -70,9 +71,11 @@ export async function controlledCapture(config: EvalConfig, scenario: Scenario, 
       await invoke("reset");
       await invoke("setSeed", capture.seed);
       await invoke("configure", { ...capture.setup, ...scenario.caseVariables });
-      for (let frame = 0; frame < capture.frames; frame++) {
+      for (let frame = 0; frame < schedule.length; frame++) {
         check();
-        if (frame) await invoke("advance", capture.stepSeconds);
+        const { label, timeSeconds } = schedule[frame];
+        const delta = timeSeconds - (schedule[frame - 1]?.timeSeconds ?? 0);
+        if (delta > 0) await invoke("advance", delta);
         await invoke("waitUntilStable");
         await browser.page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
         if (capture.rendererPattern) {
@@ -86,11 +89,10 @@ export async function controlledCapture(config: EvalConfig, scenario: Scenario, 
           if (!new RegExp(capture.rendererPattern).test(renderer)) throw new Error(`Renderer ${renderer} does not match ${capture.rendererPattern}`);
           writeJson(path.join(passDir, "renderer.json"), { renderer });
         }
-        const label = `frame-${String(frame + 1).padStart(3, "0")}`;
         const shot = await browser.screenshot(label, false);
         const file = path.join(passDir, shot.relPath);
         frames.push(file);
-        evidence.screenshots.push({ path: `${passName}/${shot.relPath}`, label: pass ? `${passName}/${label}` : label, step: evidence.transcript.length });
+        evidence.screenshots.push({ path: `${passName}/${shot.relPath}`, label: pass ? `${passName}/${label}` : label, timeSeconds, step: evidence.transcript.length });
         const image = await inspectImage(file); images.push(image);
         if (capture.minimumEntropy !== undefined) evidence.captureChecks!.push({ name: `${passName}/${label}/minimumEntropy`, pass: image.entropy >= capture.minimumEntropy, actual: image.entropy, expected: capture.minimumEntropy });
         if (capture.minimumStdev !== undefined) evidence.captureChecks!.push({ name: `${passName}/${label}/minimumStdev`, pass: image.stdev >= capture.minimumStdev, actual: image.stdev, expected: capture.minimumStdev });
@@ -121,7 +123,7 @@ export async function controlledCapture(config: EvalConfig, scenario: Scenario, 
         for (let frame = 0; frame < frames.length; frame++) {
           const diff = await compareImages(passes[0].frames[frame], frames[frame], capture.channelTolerance);
           fs.writeFileSync(path.join(passDir, `difference-${frame + 1}.png`), diff.difference);
-          evidence.captureChecks!.push({ name: `${passName}/frame-${frame + 1}/repeatability`, pass: diff.changedPixelRatio <= capture.maximumChangedPixelRatio, actual: diff.changedPixelRatio, expected: capture.maximumChangedPixelRatio });
+          evidence.captureChecks!.push({ name: `${passName}/${schedule[frame].label}/repeatability`, pass: diff.changedPixelRatio <= capture.maximumChangedPixelRatio, actual: diff.changedPixelRatio, expected: capture.maximumChangedPixelRatio });
         }
         evidence.captureChecks!.push({ name: `${passName}/metricsRepeatability`, pass: stableJson(passes[0].metrics) === stableJson(metrics) });
       }
@@ -134,7 +136,7 @@ export async function controlledCapture(config: EvalConfig, scenario: Scenario, 
     await Promise.race([task, aborted]);
     const failed = evidence.captureChecks!.filter(check => !check.pass);
     evidence.observations = ["Instrumented evidence: reset, seed, setup, stability and metrics are supplied by the project adapter.", `${evidence.captureChecks!.length} deterministic checks; ${failed.length} failed.`, ...failed.map(check => `${check.name}: ${JSON.stringify(check)}`)];
-    evidence.summary = `Captured ${capture.passes} independent passes of ${capture.frames} frames; ${failed.length} check failures.`;
+    evidence.summary = `Captured ${capture.passes} independent passes of ${schedule.length} frames; ${failed.length} check failures.`;
     return evidence;
   } catch (error) {
     evidence.outcome = "agent_error";
@@ -147,7 +149,7 @@ export async function controlledCapture(config: EvalConfig, scenario: Scenario, 
     await task?.catch(() => {});
     await session?.stop();
     evidence.finishedAt = new Date().toISOString(); evidence.durationMs = Date.now() - Date.parse(startedAt);
-    writeJson(path.join(directory, "capture.json"), { checks: evidence.captureChecks, passes: passes.map(p => ({ ...p, frames: p.frames.map(f => path.relative(directory, f)) })) });
+    writeJson(path.join(directory, "capture.json"), { schedule, checks: evidence.captureChecks, passes: passes.map(p => ({ ...p, frames: p.frames.map(f => path.relative(directory, f)) })) });
     writeJson(path.join(directory, "evidence.json"), evidence);
   }
 }

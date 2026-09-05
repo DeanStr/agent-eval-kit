@@ -1,0 +1,36 @@
+id: chart
+title: Exported chart quality
+weight: 100
+description: Judge the delivered chart independently of the application that produced it.
+scenarios:
+  - id: EXPORT
+    name: Collect the exported chart
+    kind: command
+    instructions: Collect the delivered artifact without inspecting or changing the application.
+    collect:
+      command: node collect.mjs
+      methodFiles: [collect.mjs]
+      sources:
+        chart: sources/chart.svg
+      images: [export]
+rubric:
+  - id: READABLE
+    criterion: The exported chart is independently readable
+    weight: 1
+    gate: true
+    scenarios: [EXPORT]
+    grader: { type: llm }
+    passCriteria: The title, month labels, and numeric values are readable at 640×360, with adequate contrast and no clipping or overlap. Judge only the supplied export; do not infer data accuracy or runtime behavior.
+    evidence: The full exported chart image.
+  - id: NON_REGRESSION
+    criterion: The chart retains the approved visual hierarchy and legibility
+    weight: 1
+    scenarios: [EXPORT]
+    grader:
+      type: pairwise
+      candidate: export
+      policy: non_regression
+      references:
+        - file: references/approved.svg
+      panel: { width: 640, height: 360, fit: contain }
+    passCriteria: Title hierarchy, label legibility, contrast, and spacing are at least as effective as the reference. Relative preference does not replace the separate READABLE gate.

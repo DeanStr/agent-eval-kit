@@ -78,6 +78,36 @@ Optional capture settings:
 
 Blank/duplicate/motion checks are opt-in. Unchanged content and plain backgrounds can be valid. Movement alone does not prove correct behavior. Entropy, standard deviation and gradient energy are retained as diagnostics; they never automatically contribute quality points.
 
+### Named temporal checkpoints
+
+For transitions and brief states, replace `frames` and `stepSeconds` with an
+explicit schedule:
+
+```yaml
+capture:
+  passes: 2
+  checkpoints:
+    - { label: before-update, timeSeconds: 0.95 }
+    - { label: at-update, timeSeconds: 1 }
+    - { label: after-update, timeSeconds: 1.05 }
+    - { label: settled, timeSeconds: 2 }
+```
+
+Times are logical seconds from the reset/configured adapter state, not wall-clock
+delays. AEK calls `advance` with each difference, including the initial offset
+when the first time is greater than zero. Each independent pass replays the
+same schedule. Times must be nonnegative and strictly increasing; 1–30
+checkpoints are allowed. Labels must be portable names, unique ignoring case;
+`contact-sheet` is reserved. Combining checkpoints with `frames` or `stepSeconds`
+is invalid. Uniform capture still defaults to one frame at time zero, with
+one-second intervals when multiple frames are requested.
+
+Image graders select labels such as `after-update` or `pass-02/after-update`.
+The schedule is retained in `capture.json`; each frame carries its logical
+`timeSeconds` in evidence. Motion checks compare consecutive selected samples,
+not every intervening frame. Sparse sampling cannot establish continuous motion
+quality or absence of glitches between checkpoints.
+
 A pixel counts as changed when **any** RGB channel differs by **more than** the selected tolerance. For example, `channelTolerance: 0` requires exact repeatability, while `movementChannelTolerance: 2` prevents one- or two-level color fluctuations from satisfying a movement assertion. `rejectDuplicateFrames` uses this same temporal definition, not encoded-file equality. Image-health and duplicate threshold failures are observed check failures, not execution errors; corrupt images and invalid adapters remain execution errors.
 
 Score the checks with a dedicated rubric:
@@ -238,6 +268,133 @@ The judge returns A, B, equivalent, or abstain, with confidence, reasoning, and 
 Vote outcomes and terminal decisions are explicitly checked. Unknown states, nonterminal `continue` decisions reaching scoring, and decisions inconsistent with the voting policy are internal execution errors; they are never converted into a product failure or unavailable score.
 
 Every reference and scenario must fully pass for the rubric to pass. Mixed judgeable outcomes receive partial credit; any unresolved comparison makes the aggregate unavailable. Case results feed the existing strata, campaign and comparison machinery. The HTML report links each pair's panels, pixel differences, votes and findings. Finding regions refer to the normalized candidate panel, including its configured crop.
+
+### Absolute quality and relative preference
+
+A win over a reference does not establish that either image is acceptable. Use
+an ordinary `llm` rubric with `gate: true` for an absolute requirement such as
+readable labels, then a separate pairwise rubric for relative preference or
+non-regression. An unavailable absolute gate remains blocking; a pairwise win
+cannot compensate for it. Use concrete requirements rather than arbitrary
+1–10 quality averages.
+
+The [exported-chart example](../examples/artifact/specs/chart.yaml) demonstrates
+this composition. Both candidate and reference begin with the same chart so
+the example starts from a known reference. Change the candidate under `sources/`
+while retaining the reviewed reference under `references/`.
+
+## Command collection of exported artifacts
+
+Use `kind: command` for evidence produced by project tools, such as rasterized
+documents, exported charts, or decoded video frames. AEK does not require a
+browser adapter or collection agent for these scenarios:
+
+```yaml
+scenarios:
+  - id: EXPORT
+    name: Inspect the delivered artifact
+    kind: command
+    instructions: Extract the declared images from the delivered artifact.
+    collect:
+      command: node evals/collect.mjs
+      methodFiles: [evals/collect.mjs, package-lock.json]
+      timeoutSeconds: 300
+      sources:
+        master: dist/deliverable.pdf
+      images: [cover, detail]
+```
+
+Sources must already exist before validation/run, be regular files inside
+`project.root`, and be no larger than 1 GiB each (1–20 named sources). Build or
+render them before invoking AEK. The run snapshots and hashes their bytes under
+`inputs/collector-sources/` before any target lifecycle or collection command.
+Changed source bytes prevent resume but do not change evaluator compatibility:
+different delivered artifacts can be compared using the same evaluation method.
+Offline rescore retains the original source receipts and does not need the
+original external files. Missing or invalid saved source/method receipts required
+by the selected collectors abort rescore; AEK never reconstructs that provenance
+from current project files. Changing the source files during a run is an execution
+error; start a new run for the changed artifact.
+
+`methodFiles` is required: list the collector script, relevant helper files, and
+lockfiles that define extraction behavior (up to 50 files inside `project.root`).
+Use an explicit empty list only when the extraction method is fully defined by
+the inline command and no project files implement it. AEK snapshots these files
+under `inputs/collector-methods/`, includes their hashes in evaluator compatibility,
+and rejects changes before or during collection. Declare transitive dependencies
+and pin external tool versions; AEK cannot infer arbitrary shell dependencies.
+Only selected scenarios contribute collector source and method inputs.
+
+The command runs in `project.root`, using the existing process timeout and
+cancellation machinery. `AEK_COLLECT_CONTEXT` points to a JSON document:
+
+```json
+{
+  "version": 1,
+  "scenarioId": "EXPORT",
+  "sources": {
+    "master": { "path": "/run/inputs/collector-sources/hash", "sha256": "...", "bytes": 1234 }
+  },
+  "outputDir": "/run/EXPORT/collector-output",
+  "images": ["cover", "detail"],
+  "variables": {}
+}
+```
+
+Use the supplied snapshot paths, which have no file extension. Variables combine
+project and case variables; case values take precedence. Write extracted images
+under `outputDir`, send diagnostics to stderr, and emit exactly one JSON manifest
+on stdout with exit code zero:
+
+```json
+{
+  "version": 1,
+  "outcome": "completed",
+  "summary": "Extracted the cover and detail pages from the delivered PDF.",
+  "observations": ["These images establish visible document presentation only."],
+  "images": [
+    { "label": "cover", "path": "cover.png", "source": "master", "extraction": "Rendered page 1 at 144 DPI using the project-pinned PDF renderer." },
+    { "label": "detail", "path": "detail.png", "source": "master", "extraction": "Rendered page 3 at 144 DPI using the project-pinned PDF renderer." }
+  ]
+}
+```
+
+Every declared image label must appear exactly once (1–30 labels). Each image
+must name a declared source and describe extraction, including tool/version and
+page/frame selection as relevant. Temporal images may also specify nonnegative
+`timeSeconds`. The manifest is limited to 1 MiB. Unknown fields, malformed output,
+nonzero exits, timeouts, missing/extra images, invalid source names, escaping
+paths, and corrupt images are execution errors, not failed product scores.
+Images use the existing 25 MiB/40-million-pixel limits and are oriented,
+white-flattened, and normalized to lossless PNG without resizing. Original
+outputs, command/context, manifest, stderr, normalized images, and source
+snapshots are retained and integrity-sealed.
+
+For valid insufficient evidence, return `outcome: blocked`, a specific summary,
+and `images: []`. This reduces coverage. Do not use blocked to hide a failed
+decoder, missing required input, or other execution error. Collectors gather
+evidence and do not award scores; executable pass/fail assertions belong in
+command graders.
+
+Collected images participate in ordinary LLM, pairwise, image-distinctness, and
+image-regression rubrics, reports, image-bearing baselines, and resume. The
+`capture` grader remains for controlled/browser checks. A missing declared image
+in completed command evidence is a contract error. Source hashes establish
+artifact identity; they do not independently prove that a project collector's
+extraction claims are correct. Still images cannot establish sound, continuous
+motion, interactions, or runtime correctness. Tool-specific extraction and media
+checks remain project-owned.
+
+Run the complete example with:
+
+```bash
+pnpm aek validate --config examples/artifact/evalkit.yaml
+pnpm aek run --config examples/artifact/evalkit.yaml --judge codex
+```
+
+The example uses Sharp to rasterize an exported SVG. Omitting `--judge codex`
+exercises collection offline with mock abstentions and an unavailable absolute
+gate, which causes CLI exit 2. No provider output is fabricated.
 
 ## Reference images in baselines
 

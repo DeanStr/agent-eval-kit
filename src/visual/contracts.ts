@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { isPortablePathComponent } from "../io.js";
 
 // Bump when visual measurement/decision semantics change, including defaults.
-export const VISUAL_METHOD_VERSION = 4;
+export const VISUAL_METHOD_VERSION = 5;
 
 const fraction = z.number().min(0).max(1);
 export const votingSchema = z.object({
@@ -82,6 +83,13 @@ export const imageRegressionSchema = z.object({
 }).strict().refine(v => v.darkLevel < v.highlightLevel, "darkLevel must be below highlightLevel");
 export type ImageRegressionGrader = z.infer<typeof imageRegressionSchema>;
 
+export const checkpointSchema = z.object({
+  label: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/)
+    .refine(isPortablePathComponent, "must be a portable file name")
+    .refine(v => v.toLowerCase() !== "contact-sheet", "contact-sheet is reserved"),
+  timeSeconds: z.number().nonnegative(),
+}).strict();
+
 export const captureSchema = z.object({
   hook: z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]*$/).default("__AEK_EVAL__"),
   seed: z.number().int().default(1337),
@@ -89,8 +97,9 @@ export const captureSchema = z.object({
   readySelector: z.string().min(1).optional(),
   timeoutSeconds: z.number().positive().max(600).default(60),
   passes: z.number().int().min(2).max(10).default(2),
-  frames: z.number().int().min(1).max(30).default(1),
-  stepSeconds: z.number().positive().default(1),
+  frames: z.number().int().min(1).max(30).optional(),
+  checkpoints: z.array(checkpointSchema).min(1).max(30).optional(),
+  stepSeconds: z.number().positive().optional(),
   channelTolerance: z.number().int().min(0).max(255).default(0),
   movementChannelTolerance: z.number().int().min(0).max(255).default(0),
   movementCrop: cropSchema.optional(),
@@ -105,7 +114,12 @@ export const captureSchema = z.object({
   renderer: z.enum(["default", "software"]).default("default"),
   rendererPattern: z.string().min(1).optional(),
 }).strict().superRefine((v, ctx) => {
-  if (v.frames === 1 && (v.minimumMovement !== undefined || v.maximumMovement !== undefined || v.rejectDuplicateFrames || v.movementCrop || v.movementChannelTolerance !== 0))
+  if (v.checkpoints) {
+    if (v.frames !== undefined || v.stepSeconds !== undefined) ctx.addIssue({ code: "custom", message: "checkpoints cannot be combined with frames or stepSeconds" });
+    if (new Set(v.checkpoints.map(p => p.label.toLowerCase())).size !== v.checkpoints.length) ctx.addIssue({ code: "custom", message: "checkpoint labels must be unique ignoring case" });
+    if (v.checkpoints.some((p, i) => i > 0 && p.timeSeconds <= v.checkpoints![i - 1].timeSeconds)) ctx.addIssue({ code: "custom", message: "checkpoint times must be strictly increasing" });
+  }
+  if ((v.checkpoints?.length ?? v.frames ?? 1) === 1 && (v.minimumMovement !== undefined || v.maximumMovement !== undefined || v.rejectDuplicateFrames || v.movementCrop || v.movementChannelTolerance !== 0))
     ctx.addIssue({ code: "custom", message: "movement and duplicate checks require frames > 1" });
   if (v.minimumMovement !== undefined && v.maximumMovement !== undefined && v.minimumMovement > v.maximumMovement)
     ctx.addIssue({ code: "custom", message: "minimumMovement must be <= maximumMovement" });
@@ -113,9 +127,15 @@ export const captureSchema = z.object({
 });
 export type CaptureConfig = z.infer<typeof captureSchema>;
 
-export function controlledScreenshotLabels(capture: Pick<CaptureConfig, "frames" | "passes">): string[] {
-  const frames = Array.from({ length: capture.frames }, (_, i) => `frame-${String(i + 1).padStart(3, "0")}`);
-  const labels = capture.frames > 1 ? [...frames, "contact-sheet"] : frames;
+export function captureSchedule(capture: Pick<CaptureConfig, "frames" | "stepSeconds" | "checkpoints">) {
+  return capture.checkpoints ?? Array.from({ length: capture.frames ?? 1 }, (_, i) => ({
+    label: `frame-${String(i + 1).padStart(3, "0")}`, timeSeconds: i * (capture.stepSeconds ?? 1),
+  }));
+}
+
+export function controlledScreenshotLabels(capture: Pick<CaptureConfig, "frames" | "passes" | "checkpoints">): string[] {
+  const frames = captureSchedule(capture).map(p => p.label);
+  const labels = frames.length > 1 ? [...frames, "contact-sheet"] : frames;
   return Array.from({ length: capture.passes }, (_, pass) => labels.map(label => pass ? `pass-${String(pass + 1).padStart(2, "0")}/${label}` : label)).flat();
 }
 

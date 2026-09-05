@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import sharp from "sharp";
-import { captureSchema, pairwiseSchema, votingSchema } from "../src/visual/contracts.js";
+import { captureSchema, captureSchedule, controlledScreenshotLabels, pairwiseSchema, votingSchema } from "../src/visual/contracts.js";
 import { compareImages, contactSheet, inspectImage, normalizeImage, sourceImage } from "../src/visual/images.js";
 import { decideVotes, journalVote, mapConcurrent } from "../src/visual/votes.js";
 import { pairOutcome } from "../src/visual/pairwise.js";
@@ -36,6 +36,23 @@ test("invalid voting, capture and reference contracts fail validation", () => {
   assert.throws(() => metricChecks({ queue: null }, { queue: { max: 0 } }), /missing or non-numeric/);
   assert.equal(metricChecks({ queue: 5 }, { queue: { max: 0 } })[0].pass, false);
   assert.equal(metricChecks({ queue: 0 }, { queue: { max: 0 } })[0].pass, true);
+});
+
+test("named capture checkpoints validate ordered times and stable image labels", () => {
+  const checkpoints = [{ label: "before", timeSeconds: 0.9 }, { label: "at", timeSeconds: 1 }, { label: "after", timeSeconds: 1.01 }];
+  const capture = captureSchema.parse({ checkpoints, minimumMovement: 0 });
+  assert.deepEqual(captureSchedule(capture), checkpoints);
+  assert.deepEqual(controlledScreenshotLabels(capture), ["before", "at", "after", "contact-sheet", "pass-02/before", "pass-02/at", "pass-02/after", "pass-02/contact-sheet"]);
+  assert.deepEqual(captureSchedule(captureSchema.parse({})), [{ label: "frame-001", timeSeconds: 0 }]);
+  for (const invalid of [
+    { checkpoints, frames: 1 }, { checkpoints, stepSeconds: 1 },
+    { checkpoints: [...checkpoints].reverse() },
+    { checkpoints: [{ label: "a", timeSeconds: 0 }, { label: "b", timeSeconds: 0 }] },
+    { checkpoints: [{ label: "a", timeSeconds: 0 }, { label: "A", timeSeconds: 1 }] },
+    { checkpoints: [{ label: "contact-sheet", timeSeconds: 0 }] },
+    { checkpoints: [{ label: "../escape", timeSeconds: 0 }] },
+    { checkpoints: [{ label: "a", timeSeconds: -1 }] },
+  ]) assert.throws(() => captureSchema.parse(invalid));
 });
 
 test("image normalization handles alpha and crops, retains deterministic pixels and exposes diagnostics", async t => {

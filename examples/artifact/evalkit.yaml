@@ -1,0 +1,12 @@
+version: 1
+project:
+  name: Exported chart evaluation
+  root: .
+target:
+  kind: repository
+agent:
+  provider: mock
+judge:
+  provider: mock
+paths:
+  specs: specs

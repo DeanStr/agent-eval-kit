@@ -1,3 +1,4 @@
+import { collectCommand } from "./collectors/command.js";
 import { controlledCapture } from "./visual/capture.js";
 import { readDiagnostics } from "./browser/diagnostics.js";
 import fs from "node:fs";
@@ -103,6 +104,8 @@ export async function executeScenario(options: {
   if (kind === "browser" && !config.target.url) {
     throw new Error(`Scenario ${scenario.id} uses browser mode but target.url is not configured`);
   }
+
+  if (kind === "command") return collectCommand(config, scenario, directory);
 
   const promptFile = path.join(directory, "prompt.md");
   const outputFile = path.join(directory, "provider-final.json");

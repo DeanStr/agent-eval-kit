@@ -95,6 +95,29 @@ test("controlled collection, blind votes, interrupted resume and image baselines
   assert.throws(() => loadPromotedBaseline(value.config, "visual"), /image checksum changed/);
 });
 
+test("named checkpoints replay irregular adapter times across independent browser passes", async t => {
+  const value = await fixture(t);
+  const scenario = value.specs[0].scenarios[0];
+  const checkpoints = [{ label: "before", timeSeconds: 0.5 }, { label: "at", timeSeconds: 1 }, { label: "after", timeSeconds: 1.25 }];
+  scenario.capture = captureSchema.parse({ checkpoints });
+  const directory = path.join(value.root, "named-capture");
+  const evidence = await controlledCapture(value.config, scenario, directory);
+  assert.equal(evidence.outcome, "completed");
+  assert.deepEqual(evidence.transcript.filter(entry => entry.tool === "adapter.advance").map(entry => entry.input.value), [0.5, 0.5, 0.25, 0.5, 0.5, 0.25]);
+  assert.deepEqual(evidence.screenshots.filter(shot => !shot.label.includes("contact-sheet")).map(shot => [shot.label, shot.timeSeconds]), [
+    ["before", 0.5], ["at", 1], ["after", 1.25], ["pass-02/before", 0.5], ["pass-02/at", 1], ["pass-02/after", 1.25],
+  ]);
+  assert.ok(evidence.captureChecks!.every(check => check.pass));
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory, "capture.json"), "utf8")).schedule, checkpoints);
+  const pairwise = value.specs[0].rubric[1].grader;
+  if (pairwise.type !== "pairwise") throw new Error("Expected pairwise fixture");
+  pairwise.candidate = "after";
+  const { validateVisualInputs } = await import("../src/visual/inputs.js");
+  await validateVisualInputs(value.config, value.specs);
+  pairwise.candidate = "frame-001";
+  await assert.rejects(validateVisualInputs(value.config, value.specs), /invalid controlled screenshot label/);
+});
+
 test("instrumented behavior failures are scores; adapter failures and interrupted captures are execution errors", async t => {
   const value = await fixture(t);
   const scenario = value.specs[0].scenarios[0];

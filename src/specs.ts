@@ -1,4 +1,5 @@
 import { pairwiseSchema, captureSchema, distinctnessSchema, imageRegressionSchema } from "./visual/contracts.js";
+import { collectorSchema } from "./collectors/contracts.js";
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
@@ -52,7 +53,7 @@ const scenarioCaseSchema = z.object({
 const scenarioSchema = z.object({
   id: artifactIdSchema,
   name: z.string().min(1),
-  kind: z.enum(["browser", "workspace"]).optional(),
+  kind: z.enum(["browser", "workspace", "command"]).optional(),
   persona: z.string().min(1).optional(),
   instructions: z.string().min(1),
   successSignals: z.array(z.string().min(1)).default([]),
@@ -61,6 +62,7 @@ const scenarioSchema = z.object({
   split: splitSchema.optional(),
   cases: z.array(scenarioCaseSchema).min(1).optional(),
   capture: captureSchema.optional(),
+  collect: collectorSchema.optional(),
 }).strict();
 
 const rubricSchema = z
@@ -283,6 +285,8 @@ export function assertScenarioTargetCompatibility(
   for (const spec of specs) {
     for (const scenario of spec.scenarios) {
       const kind = scenario.kind ?? (target.kind === "web" ? "browser" : "workspace");
+      if ((kind === "command") !== Boolean(scenario.collect)) problems.push(`${scenario.id}: command mode requires collect, and collect requires command mode`);
+      if (scenario.collect && scenario.persona) problems.push(`${scenario.id}: command collectors cannot use browser personas`);
       if (scenario.capture && kind !== "browser") problems.push(`${scenario.id}: capture requires browser mode`);
       if (scenario.capture && scenario.dependsOn.length) problems.push(`${scenario.id}: controlled captures must reset independently and cannot depend on scenarios`);
       if (kind === "browser" && !target.url) {

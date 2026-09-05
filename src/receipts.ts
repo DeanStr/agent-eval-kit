@@ -1,3 +1,4 @@
+import { collectorInputDefinitions, collectorInputs } from "./collectors/inputs.js";
 import { visualInputs } from "./visual/inputs.js";
 import { createRequire } from "node:module";
 import fs from "node:fs";
@@ -336,6 +337,17 @@ export function buildRunReceipt(options: {
   evidenceProvenance?: RunReceipt;
 }): RunReceipt {
   const { config, specs, fixtures } = options;
+  if (options.evidenceProvenance) {
+    for (const kind of ["sources", "methods"] as const) {
+      const saved = kind === "sources" ? options.evidenceProvenance.inputs.collectorSources : options.evidenceProvenance.inputs.collectorMethods;
+      for (const key of Object.keys(collectorInputDefinitions(specs, options.split, options.scenarioIds, kind))) {
+        const entry = saved && Object.hasOwn(saved, key) ? saved[key] : undefined;
+        if (!entry || typeof entry.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(entry.sha256) || !Number.isSafeInteger(entry.bytes) || entry.bytes < 0) {
+          throw new Error(`Saved collector ${kind} provenance is missing or invalid for ${key}. Restore the original complete receipt or start a new run; offline rescore cannot reconstruct provenance.`);
+        }
+      }
+    }
+  }
   const specReceipts = Object.fromEntries(
     [...specs]
       .sort((left, right) => left.id.localeCompare(right.id))
@@ -359,6 +371,8 @@ export function buildRunReceipt(options: {
       judge: { provider: config.judge.provider, model: config.judge.model, cliVersion: versions.get(config.judge.provider)! },
     };
   })();
+  const collectorSources = options.evidenceProvenance ? options.evidenceProvenance.inputs.collectorSources : Object.fromEntries(Object.entries(collectorInputs(config, specs, options.split, options.scenarioIds)).map(([key, { sha256, bytes }]) => [key, { sha256, bytes }]));
+  const collectorMethods = options.evidenceProvenance ? options.evidenceProvenance.inputs.collectorMethods : Object.fromEntries(Object.entries(collectorInputs(config, specs, options.split, options.scenarioIds, "methods")).map(([key, { sha256, bytes }]) => [key, { sha256, bytes }]));
   const visual = options.evidenceProvenance?.inputs.visual ?? Object.fromEntries(Object.entries(visualInputs(config, specs, options.split)).map(([key, { sha256, bytes }]) => [key, { sha256, bytes }]));
   const evidenceRuntime = options.evidenceProvenance?.runtime.evidence ?? (() => {
     const require = createRequire(import.meta.url);
@@ -370,6 +384,7 @@ export function buildRunReceipt(options: {
     return { chromium, sharp: require("sharp").versions as Record<string, string>, playwright: require("playwright/package.json").version as string };
   })();
   const method = {
+    collectorMethods,
     evidenceRuntime,
     visualMethodVersion: config.browser.diagnostics || specs.some(spec => spec.scenarios.some(scenario => scenario.capture) || spec.rubric.some(item => ["capture", "pairwise", "image-distinctness", "image-regression"].includes(item.grader.type))) ? VISUAL_METHOD_VERSION : undefined,
     kitVersion: KIT_VERSION,
@@ -428,12 +443,15 @@ export function buildRunReceipt(options: {
     inputFingerprint: sha256(stableJson({
       evaluationFingerprint,
       configSha256: configReceipt.sha256,
+      collectorSources,
       target,
     })),
     inputs: {
       config: configReceipt,
       methodSha256,
       visual,
+      collectorSources,
+      collectorMethods,
       specs: specReceipts,
       fixtures: fixtureReceipt,
       selection,

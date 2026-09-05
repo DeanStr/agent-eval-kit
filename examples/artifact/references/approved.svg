@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <rect width="640" height="360" fill="#f8fafc"/>
+  <g font-family="sans-serif" fill="#172033">
+    <text x="40" y="52" font-size="28" font-weight="bold">Monthly orders</text>
+    <text x="40" y="82" font-size="16">Completed orders · first quarter</text>
+    <path d="M70 280H570" stroke="#64748b"/>
+    <g fill="#2563eb">
+      <rect x="110" y="190" width="90" height="90"/>
+      <rect x="270" y="160" width="90" height="120"/>
+      <rect x="430" y="130" width="90" height="150"/>
+    </g>
+    <g text-anchor="middle" font-size="20">
+      <text x="155" y="177">90</text><text x="315" y="147">120</text><text x="475" y="117">150</text>
+      <text x="155" y="311">January</text><text x="315" y="311">February</text><text x="475" y="311">March</text>
+    </g>
+  </g>
+</svg>
