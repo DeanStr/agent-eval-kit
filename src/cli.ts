@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import { validateVisualInputs } from "./visual/inputs.js";
 import path from "node:path";
 import YAML from "yaml";
 import { captureAuth } from "./auth.js";
@@ -66,7 +67,7 @@ function parseArgs(argv: string[]): Args {
 }
 
 const booleanFlags = new Set([
-  "allow-incompatible", "dry-run", "fail-on-regression", "headed", "help", "include-optional", "public",
+  "include-images", "allow-incompatible", "dry-run", "fail-on-regression", "headed", "help", "include-optional", "public",
 ]);
 
 function validateCliShape(args: Args): void {
@@ -94,7 +95,7 @@ function validateCliShape(args: Args): void {
     case "rescore": allowed = ["run", "config", "fail-under-score", "fail-under-coverage"]; break;
     case "finalize": allowed = ["run", "config", "reviewer", "fail-under-score", "fail-under-coverage"]; break;
     case "compare": allowed = ["baseline", "baseline-name", "candidate", "config", "output", "fail-on-regression", "max-score-drop", "max-coverage-drop", "allow-incompatible"]; break;
-    case "baseline": allowed = args.positionals[0] === "promote" ? ["run", "name", "reviewer", "config"] : ["config"]; break;
+    case "baseline": allowed = args.positionals[0] === "promote" ? ["run", "name", "reviewer", "config", "include-images"] : ["config"]; break;
     case "campaign": allowed = args.positionals[0] === "compare"
       ? ["baseline", "candidate", "output", "fail-on-regression", "allow-incompatible"]
       : [...runFlags, "repetitions", "output"];
@@ -164,7 +165,7 @@ Usage: aek <command> [flags]
   rescore --run directory          Reapply current scoring/specs without an agent call
   finalize --run directory         Merge manual results and append review provenance
       [--reviewer name]
-  baseline promote --run dir --name name --reviewer name
+  baseline promote --run dir --name name --reviewer name [--include-images]
   baseline list [--config file]    Manage append-only promoted baseline snapshots
   compare --baseline run --candidate run
                                     Write JSON and HTML baseline comparison
@@ -425,7 +426,7 @@ async function main(): Promise<void> {
       const name = stringFlag(args, "name") ?? (() => { throw new Error("baseline promote requires --name <name>"); })();
       const reviewer = stringFlag(args, "reviewer") ?? (() => { throw new Error("baseline promote requires --reviewer <name>"); })();
       const { config } = loadRunConfig(args, runDir);
-      const promoted = promoteBaseline({ config, runDir, name, reviewer });
+      const promoted = promoteBaseline({ config, runDir, name, reviewer, includeImages: Boolean(args.flags["include-images"]) });
       console.log(`Promoted ${promoted.report.runId} as ${name} snapshot ${promoted.promotion.snapshotId}`);
       console.log(`Snapshot: ${promoted.directory}`);
       return;
@@ -579,6 +580,7 @@ async function main(): Promise<void> {
   const allSpecs = loadSpecs(config.paths.specs);
   assertScenarioTargetCompatibility(allSpecs, config.target);
   if (args.command === "validate") {
+    await validateVisualInputs(config, allSpecs);
     loadFixtures(config.paths.fixtures);
     const templates = allSpecs.reduce((n, spec) => n + spec.scenarios.length, 0);
     const executions = materializeSpecs(allSpecs).reduce((n, spec) => n + spec.scenarios.length, 0);

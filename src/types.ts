@@ -1,3 +1,4 @@
+import type { CaptureConfig, CaptureCheck, DiagnosticPolicy, BrowserDiagnostic, PairwiseGrader, VotingPolicy, VoteSummary, DistinctnessGrader, ImageRegressionGrader } from "./visual/contracts.js";
 export const PROVIDERS = ["codex", "claude", "grok", "mock"] as const;
 export type ProviderId = (typeof PROVIDERS)[number];
 
@@ -35,6 +36,7 @@ export interface EvalConfig {
     allowedOrigins: string[];
     setup?: CommandConfig;
     start?: CommandConfig;
+    allowExternalServer?: boolean;
     ready?: {
       url?: string;
       command?: string;
@@ -43,7 +45,7 @@ export interface EvalConfig {
     };
   };
   agent: ProviderConfig;
-  judge: ProviderConfig;
+  judge: ProviderConfig & { voting?: VotingPolicy; concurrency?: number };
   paths: {
     specs: string;
     fixtures?: string;
@@ -56,6 +58,8 @@ export interface EvalConfig {
     headless: boolean;
     viewport: { width: number; height: number };
     actionTimeoutMs: number;
+    diagnostics?: DiagnosticPolicy;
+    screenshotFormat?: "jpeg" | "png";
   };
   scoring: {
     partialCredit: number;
@@ -78,6 +82,7 @@ export interface Scenario {
   split?: EvalSplit;
   /** Parameterized variants of this scenario. */
   cases?: ScenarioCase[];
+  capture?: CaptureConfig;
   /** Populated only on a materialized scenario instance. */
   sourceScenarioId?: string;
   /** Populated only on a materialized matrix case. */
@@ -117,7 +122,7 @@ export interface HybridGrader {
   autoShare: number;
 }
 
-export type Grader = CommandGrader | LlmGrader | ManualGrader | HybridGrader;
+export type Grader = CommandGrader | LlmGrader | ManualGrader | HybridGrader | PairwiseGrader | DistinctnessGrader | ImageRegressionGrader | { type: "capture" };
 
 export interface RubricItem {
   id: string;
@@ -180,6 +185,9 @@ export interface ScenarioEvidence {
   screenshots: ScreenshotRef[];
   /** Paths relative to this scenario directory. */
   artifacts: Record<string, string>;
+  collector?: "controlled";
+  captureChecks?: CaptureCheck[];
+  diagnostics?: BrowserDiagnostic[];
   provider: ProviderId;
   model?: string;
   providerSessionId?: string;
@@ -202,7 +210,7 @@ export interface JudgedCase {
   confidence: "high" | "medium" | "low";
   reasoning: string;
   evidenceRefs: string[];
-  source: "llm";
+  source: "llm" | "pairwise";
   /** Numeric value under this run's configured partial-credit rule. */
   points?: number | null;
 }
@@ -213,7 +221,9 @@ export interface JudgedItem {
   confidence: "high" | "medium" | "low";
   reasoning: string;
   evidenceRefs: string[];
-  source: "llm" | "command" | "manual";
+  source: "llm" | "command" | "manual" | "pairwise" | "capture" | "image-distinctness" | "image-regression";
+  votes?: VoteSummary;
+  comparisons?: string[];
   /** Populated by scoreArea, using the actual weights and evidence coverage. */
   score?: ScoreSlice;
   components?: {
@@ -241,6 +251,7 @@ export interface RunReceipt {
   inputs: {
     config: ArtifactReceipt;
     methodSha256: string;
+    visual?: Record<string, ArtifactReceipt>;
     specs: Record<string, ArtifactReceipt & { file: string }>;
     fixtures?: {
       manifest: ArtifactReceipt;
@@ -259,10 +270,11 @@ export interface RunReceipt {
     agent: { provider: ProviderId; model?: string; cliVersion: string };
     judge: { provider: ProviderId; model?: string; cliVersion: string };
   };
-  runtime: { kitVersion: string; node: string; platform: NodeJS.Platform; arch: string };
+  runtime: { kitVersion: string; node: string; platform: NodeJS.Platform; arch: string; evidence?: { chromium?: string; playwright: string; sharp: Record<string, string> } };
 }
 
 export interface Defect {
+  region?: { x: number; y: number; width: number; height: number };
   severity: "critical" | "major" | "minor";
   description: string;
   evidenceRefs: string[];

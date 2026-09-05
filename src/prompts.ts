@@ -112,6 +112,9 @@ function compactEvidence(evidence: ScenarioEvidence[], attachments: Record<strin
     sourceScenarioId: scenario.sourceScenarioId,
     caseId: scenario.caseId,
     name: scenario.scenarioName,
+    collector: scenario.collector ?? "agent",
+    captureChecks: scenario.captureChecks,
+    browserDiagnostics: scenario.diagnostics,
     outcome: scenario.outcome,
     summary: scenario.summary,
     observations: scenario.observations.map((text, index) => ({

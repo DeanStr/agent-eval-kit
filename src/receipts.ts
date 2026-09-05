@@ -1,3 +1,5 @@
+import { visualInputs } from "./visual/inputs.js";
+import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -12,6 +14,9 @@ import type {
   RunReceipt,
 } from "./types.js";
 import { KIT_VERSION } from "./version.js";
+import { VISUAL_METHOD_VERSION } from "./visual/contracts.js";
+import { chromiumVersion } from "./browser/provenance.js";
+import { materializeSpecs } from "./specs.js";
 
 function bytesReceipt(value: string | Buffer): ArtifactReceipt {
   const buffer = Buffer.isBuffer(value) ? value : Buffer.from(value);
@@ -110,6 +115,7 @@ function normalizedLifecyclePolicy(config: EvalConfig) {
     setup: command(config.target.setup),
     start: command(config.target.start),
     ready,
+    allowExternalServer: config.target.allowExternalServer,
   };
 }
 
@@ -353,7 +359,19 @@ export function buildRunReceipt(options: {
       judge: { provider: config.judge.provider, model: config.judge.model, cliVersion: versions.get(config.judge.provider)! },
     };
   })();
+  const visual = options.evidenceProvenance?.inputs.visual ?? Object.fromEntries(Object.entries(visualInputs(config, specs, options.split)).map(([key, { sha256, bytes }]) => [key, { sha256, bytes }]));
+  const evidenceRuntime = options.evidenceProvenance?.runtime.evidence ?? (() => {
+    const require = createRequire(import.meta.url);
+    const selectedScenarios = materializeSpecs(specs, options.split).flatMap(spec => spec.scenarios).filter(scenario =>
+      !options.scenarioIds?.length || options.scenarioIds.includes(scenario.id) || Boolean(scenario.sourceScenarioId && options.scenarioIds.includes(scenario.sourceScenarioId))
+    );
+    const usesBrowser = selectedScenarios.some(scenario => (scenario.kind ?? (config.target.kind === "web" ? "browser" : "workspace")) === "browser" && (scenario.capture || config.agent.provider !== "mock"));
+    const chromium = usesBrowser ? chromiumVersion(config.browser.headless) : undefined;
+    return { chromium, sharp: require("sharp").versions as Record<string, string>, playwright: require("playwright/package.json").version as string };
+  })();
   const method = {
+    evidenceRuntime,
+    visualMethodVersion: config.browser.diagnostics || specs.some(spec => spec.scenarios.some(scenario => scenario.capture) || spec.rubric.some(item => ["capture", "pairwise", "image-distinctness", "image-regression"].includes(item.grader.type))) ? VISUAL_METHOD_VERSION : undefined,
     kitVersion: KIT_VERSION,
     targetKind: config.target.kind,
     lifecycle: normalizedLifecyclePolicy(config),
@@ -374,6 +392,7 @@ export function buildRunReceipt(options: {
   };
   const definition = {
     methodSha256,
+    visual,
     specs: Object.fromEntries(Object.entries(specReceipts).map(([id, receipt]) => [id, receipt.sha256])),
     fixtures: fixtureReceipt
       ? {
@@ -414,6 +433,7 @@ export function buildRunReceipt(options: {
     inputs: {
       config: configReceipt,
       methodSha256,
+      visual,
       specs: specReceipts,
       fixtures: fixtureReceipt,
       selection,
@@ -421,6 +441,7 @@ export function buildRunReceipt(options: {
     target,
     providers,
     runtime: {
+      evidence: evidenceRuntime,
       kitVersion: KIT_VERSION,
       node: process.version,
       platform: process.platform,

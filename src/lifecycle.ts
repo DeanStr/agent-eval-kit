@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { shellInvocation, spawnCaptured } from "./providers/process.js";
@@ -91,6 +92,26 @@ export async function startLifecycle(
 ): Promise<LifecycleHandle> {
   assertEvaluationPlatform();
   throwIfCancelled();
+  const endpoint = config.target.url ?? config.target.ready?.url;
+  let reuseExternal = false;
+  if (config.target.start && endpoint) {
+    const url = new URL(endpoint);
+    const occupied = await new Promise<boolean>((resolve, reject) => {
+      const socket = net.connect({ host: url.hostname.replace(/^\[|\]$/g, ""), port: Number(url.port || (url.protocol === "https:" ? 443 : 80)) });
+      socket.setTimeout(2000);
+      socket.once("connect", () => { socket.destroy(); resolve(true); });
+      socket.once("error", (error: NodeJS.ErrnoException) => {
+        socket.destroy();
+        if (error.code === "ECONNREFUSED") resolve(false);
+        else reject(new Error(`Cannot verify target endpoint availability: ${error.message}`));
+      });
+      socket.once("timeout", () => { socket.destroy(); reject(new Error("Target endpoint availability probe timed out")); });
+    });
+    if (occupied && config.target.allowExternalServer !== true) {
+      throw new Error(`Target endpoint ${url.origin} is already in use. Stop the existing server or explicitly set target.allowExternalServer: true to reuse it.`);
+    }
+    reuseExternal = occupied;
+  }
   if (config.target.setup && !options.skipSetup) {
     const setup = config.target.setup;
     const shell = shellInvocation(setup.command);
@@ -109,7 +130,7 @@ export async function startLifecycle(
     options.onSetupComplete?.();
   }
 
-  const start = config.target.start;
+  const start = reuseExternal ? undefined : config.target.start;
   if (!start) {
     await waitUntilReady(config, runDir, undefined);
     options.onReady?.();

@@ -23,7 +23,7 @@ export async function runMock(invocation: ProviderInvocation): Promise<ProviderR
         observations: ["Mock provider: no agent actions were executed."],
         evidenceRefs: [],
       }
-    : {
+    : prompt.startsWith("PAIRWISE_EVALUATION:") ? { preferred: "abstain", confidence: 0, reasoning: "Offline mock judge does not inspect images.", findings: [] } : {
         items: rubric.flatMap((item) => item.id ? [{
           id: item.id,
           verdict: "cannot_judge",

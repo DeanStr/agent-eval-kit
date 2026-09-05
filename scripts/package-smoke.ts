@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import http from "node:http";
 import YAML from "yaml";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -10,14 +11,14 @@ import { spawnCaptured } from "../src/providers/process.js";
 const kitRoot = path.resolve(import.meta.dirname, "..");
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "aek-package-smoke-"));
 let ordinal = 0;
-async function run(command: string, args: string[], cwd: string): Promise<string> {
+async function run(command: string, args: string[], cwd: string, expectedExit = 0): Promise<string> {
   const id = ++ordinal;
   const result = await spawnCaptured({
     command, args, cwd, timeoutSeconds: 180,
     stdoutFile: path.join(scratch, `${id}.stdout.log`), stderrFile: path.join(scratch, `${id}.stderr.log`),
   });
   assert.equal(result.timedOut, false, `Timed out: ${command}`);
-  assert.equal(result.exitCode, 0, `${command} ${args.join(" ")}\n${result.stderr}\n${result.stdout}`);
+  assert.equal(result.exitCode, expectedExit, `${command} ${args.join(" ")}\n${result.stderr}\n${result.stdout}`);
   return result.stdout;
 }
 
@@ -70,7 +71,35 @@ try {
     await client.close();
     await transport.close();
   }
-  console.log("Package smoke passed: tarball install, executable bin, init, validate, run, verify, and installed MCP without dev dependencies.");
+  const visualRoot = path.join(consumer, "visual");
+  fs.mkdirSync(path.join(visualRoot, "specs"), { recursive: true });
+  const example = path.join(kitRoot, "examples/visual");
+  fs.copyFileSync(path.join(example, "reference.svg"), path.join(visualRoot, "reference.svg"));
+  fs.copyFileSync(path.join(example, "specs/dashboard.yaml"), path.join(visualRoot, "specs/dashboard.yaml"));
+  const html = fs.readFileSync(path.join(example, "index.html"));
+  const server = http.createServer((_request, response) => { response.setHeader("Content-Type", "text/html"); response.end(html); });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const visualConfig = YAML.parse(fs.readFileSync(path.join(example, "evalkit.yaml"), "utf8"));
+    visualConfig.target = { kind: "web", url: `http://127.0.0.1:${(server.address() as { port: number }).port}` };
+    fs.writeFileSync(path.join(visualRoot, "evalkit.yaml"), YAML.stringify(visualConfig));
+    await run(cli, ["validate"], visualRoot);
+    // Mock votes must withhold the visual gate despite passing capture checks.
+    await run(cli, ["run"], visualRoot, 2);
+    const visualRuns = path.join(visualRoot, ".agent-eval/runs");
+    const visualRun = path.join(visualRuns, fs.readdirSync(visualRuns)[0]);
+    await run(cli, ["verify", "--run", visualRun], visualRoot);
+    const report = JSON.parse(fs.readFileSync(path.join(visualRun, "report.json"), "utf8"));
+    assert.equal(report.areas[0].items[0].verdict, "pass");
+    assert.equal(report.areas[0].items[1].verdict, "cannot_judge");
+    assert.equal(report.areas[0].items[1].votes.judgeable, 0);
+    assert.equal(report.areas[0].items[2].source, "image-distinctness");
+    assert.equal(report.areas[0].items[2].verdict, "pass");
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+  console.log("Package smoke passed: tarball install, executable bin, init, validate, run, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.");
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });
 }

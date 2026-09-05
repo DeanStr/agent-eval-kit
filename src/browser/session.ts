@@ -1,3 +1,4 @@
+import { attachDiagnostics } from "./diagnostics.js";
 import fs from "node:fs";
 import path from "node:path";
 import { writeJson } from "../io.js";
@@ -36,6 +37,7 @@ export class BrowserSession {
   page!: Page;
   private refCounter = 0;
   private shotCounter = 0;
+  private diagnosticBudget = { count: 0 };
   /** Only Chromium's pristine page may bypass top-level origin enforcement. */
   private initialBlankAllowed = false;
   /** Events (dialogs, popups, origin blocks) surfaced in the next tool result. */
@@ -58,11 +60,12 @@ export class BrowserSession {
     private readonly viewport: { width: number; height: number } = { width: 1280, height: 800 },
     private readonly actionTimeoutMs = 10_000,
     private readonly popupPolicy: "same-origin" | "authentication" = "same-origin",
+    private readonly captureOptions?: { lossless?: boolean; software?: boolean; disableAnimations?: boolean },
   ) {}
 
   async start(): Promise<void> {
     assertEvaluationPlatform();
-    this.browser = await chromium.launch({ headless: this.headless });
+    this.browser = await chromium.launch({ headless: this.headless, args: this.captureOptions?.software ? ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] : [] });
     try {
       const useState = this.storageStatePath && fs.existsSync(this.storageStatePath);
       this.context = await this.browser.newContext({
@@ -72,6 +75,8 @@ export class BrowserSession {
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 agent-eval-kit/0.1",
         ...(useState ? { storageState: this.storageStatePath } : {}),
       });
+      fs.mkdirSync(this.evidenceDir, { recursive: true });
+      writeJson(path.join(this.evidenceDir, "browser-provenance.json"), { chromium: this.browser.version(), viewport: this.viewport, deviceScaleFactor: 1, software: this.captureOptions?.software ?? false });
       this.page = await this.context.newPage();
       this.initialBlankAllowed = true;
       this.page.setDefaultTimeout(this.actionTimeoutMs);
@@ -122,6 +127,7 @@ export class BrowserSession {
   }
 
   private attachPageHandlers(page: Page): void {
+    attachDiagnostics(page, this.evidenceDir, this.diagnosticBudget);
     page.on("framenavigated", (frame) => {
       if (frame === page.mainFrame() && frame.url() !== "about:blank") {
         this.initialBlankAllowed = false;
@@ -1221,7 +1227,7 @@ export class BrowserSession {
     this.shotCounter += 1;
     const safe = label.replace(/[^a-z0-9-_]+/gi, "-").slice(0, 60) || "shot";
     // Forward slashes always: these appear in report.html href/src attributes.
-    const relPath = `screenshots/${String(this.shotCounter).padStart(3, "0")}-${safe}.jpg`;
+    const relPath = `screenshots/${String(this.shotCounter).padStart(3, "0")}-${safe}.${this.captureOptions?.lossless ? "png" : "jpg"}`;
     const abs = path.join(this.evidenceDir, ...relPath.split("/"));
 
     // Hard ceiling: the Messages API rejects any image over 2000px on a side
@@ -1230,8 +1236,9 @@ export class BrowserSession {
     const MAX_SIDE = 1_900;
     let options: Parameters<Page["screenshot"]>[0] = {
       path: abs,
-      type: "jpeg",
-      quality: 60,
+      type: this.captureOptions?.lossless ? "png" : "jpeg",
+      quality: this.captureOptions?.lossless ? undefined : 60,
+      animations: this.captureOptions?.disableAnimations ? "disabled" : "allow",
       fullPage,
     };
     if (fullPage) {
@@ -1252,9 +1259,10 @@ export class BrowserSession {
         const clipHeight = Math.min(documentSize.height, MAX_SIDE);
         options = {
           path: abs,
-          type: "jpeg",
-          quality: 60,
-          fullPage: false,
+          type: this.captureOptions?.lossless ? "png" : "jpeg",
+          quality: this.captureOptions?.lossless ? undefined : 60,
+          animations: this.captureOptions?.disableAnimations ? "disabled" : "allow",
+          fullPage: true,
           clip: { x: 0, y: 0, width: clipWidth, height: clipHeight },
         };
         this.pendingNotes.push(

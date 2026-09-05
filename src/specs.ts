@@ -1,3 +1,4 @@
+import { pairwiseSchema, captureSchema, distinctnessSchema, imageRegressionSchema } from "./visual/contracts.js";
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
@@ -6,6 +7,10 @@ import { isPortablePathComponent, stableJson } from "./io.js";
 import type { EvalConfig, EvalSpec, EvalSplit, RubricItem, Scenario, ScenarioCase } from "./types.js";
 
 const graderSchema = z.discriminatedUnion("type", [
+  pairwiseSchema,
+  distinctnessSchema,
+  imageRegressionSchema,
+  z.object({ type: z.literal("capture") }).strict(),
   z.object({ type: z.literal("llm") }).strict(),
   z.object({
     type: z.literal("command"),
@@ -55,6 +60,7 @@ const scenarioSchema = z.object({
   requiresAuth: z.boolean().default(false),
   split: splitSchema.optional(),
   cases: z.array(scenarioCaseSchema).min(1).optional(),
+  capture: captureSchema.optional(),
 }).strict();
 
 const rubricSchema = z
@@ -247,6 +253,13 @@ export function loadSpecs(specsPath: string): EvalSpec[] {
       else if (foldedRubric) problems.push(`rubric ids ${foldedRubric} and ${item.id} collide on case-insensitive filesystems`);
       rubricIds.add(item.id);
       if (!foldedRubric) foldedRubricIds.set(rubricKey, item.id);
+      if (["pairwise", "capture", "image-distinctness", "image-regression"].includes(item.grader.type) && !item.scenarios.length) problems.push(`${item.id} requires scenarios`);
+      if (new Set(item.scenarios).size !== item.scenarios.length) problems.push(`${item.id} repeats scenario references`);
+      if (item.grader.type === "image-distinctness") {
+        const count = item.scenarios.reduce((n, id) => n + (spec.scenarios.find(s => s.id === id)?.cases?.length ?? 1), 0);
+        if (count < 2 || count > 100) problems.push(`${item.id}: image-distinctness requires 2–100 materialized scenarios`);
+      }
+
       for (const scenarioId of item.scenarios) {
         if (!localScenarios.has(scenarioId)) {
           problems.push(`${item.id} references unknown scenario ${scenarioId} in area ${spec.id}`);
@@ -270,6 +283,8 @@ export function assertScenarioTargetCompatibility(
   for (const spec of specs) {
     for (const scenario of spec.scenarios) {
       const kind = scenario.kind ?? (target.kind === "web" ? "browser" : "workspace");
+      if (scenario.capture && kind !== "browser") problems.push(`${scenario.id}: capture requires browser mode`);
+      if (scenario.capture && scenario.dependsOn.length) problems.push(`${scenario.id}: controlled captures must reset independently and cannot depend on scenarios`);
       if (kind === "browser" && !target.url) {
         problems.push(`${scenario.id} uses browser mode but target.url is not configured`);
       }

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Delivery dashboard</title>
+<style>
+*{box-sizing:border-box}body{margin:0;padding:40px;font:18px Arial,sans-serif;color:#14243b;background:#edf2f7}
+h1{font-size:32px;margin:0 0 8px}p{color:#496079;margin:0 0 28px}.card{background:white;border-radius:12px;padding:28px}
+.row{display:flex;align-items:center;height:64px;gap:16px}.label{width:90px}.bar{height:28px;background:#2475c8;border-radius:4px}.value{font-weight:bold}
+</style>
+<h1>Deliveries this week</h1><p>Completed deliveries by region</p><main class="card">
+<div class="row"><span class="label">North</span><div class="bar" style="width:280px"></div><span class="value">140</span></div>
+<div class="row"><span class="label">Central</span><div class="bar" style="width:360px"></div><span class="value">180</span></div>
+<div class="row"><span class="label">South</span><div class="bar" style="width:220px"></div><span class="value">110</span></div>
+</main><script>
+let step=0, values=[140,180,110];
+function render(){document.querySelectorAll('.bar').forEach((bar,index)=>{const count=values[index]+step*10;bar.style.width=count*2+'px';bar.nextElementSibling.textContent=count})}
+window.__AEK_EVAL__={reset(){step=0;values=[140,180,110];render()},setSeed(seed){if(!Number.isInteger(seed))throw Error('seed must be an integer')},configure({dataset='weekly'}={}){if(!['weekly','monthly'].includes(dataset))throw Error('unknown dataset');values=dataset==='weekly'?[140,180,110]:[70,100,160];render()},waitUntilStable(){},advance(seconds){step+=seconds;render()},getMetrics(){return {rendering:{errors:0}}}};
+</script></html>

@@ -1,3 +1,4 @@
+import { cropSchema, browserDiagnosticSchema } from "./visual/contracts.js";
 import { z } from "zod";
 import { calculateScoreSlice } from "./score-slice.js";
 import type { ScoreSlice, Verdict } from "./types.js";
@@ -49,9 +50,11 @@ const judgement = {
   verdict, confidence: z.enum(["high", "medium", "low"]), reasoning: text, evidenceRefs: strings,
 };
 const item = z.object({
-  ...judgement, id, source: z.enum(["llm", "command", "manual"]),
+  ...judgement, id, source: z.enum(["llm", "command", "manual", "pairwise", "capture", "image-distinctness", "image-regression"]),
   components: z.object({ automatic: verdict.optional(), manual: verdict.optional() }).optional(),
   score: scoreSliceSchema,
+  comparisons: strings.optional(),
+  votes: z.object({ attempted: count, judgeable: count, counts: record(count), decision: text }).optional(),
 });
 const uniqueItems = z.array(item).refine(values => new Set(values.map(value => value.id)).size === values.length, "Duplicate rubric item IDs");
 const gateShape = { itemId: id, status: z.enum(["passed", "failed", "unavailable"]), verdict: verdict.optional(), reason: text };
@@ -65,19 +68,22 @@ const receiptTarget = z.object({
 const receipt = z.object({
   schemaVersion: z.literal(1), evaluationFingerprint: id, inputFingerprint: id,
   inputs: z.object({
-    config: artifact, methodSha256: id,
+    config: artifact, methodSha256: id, visual: record(artifact).optional(),
     specs: record(artifact.extend({ file: id })),
     fixtures: z.object({ manifest: artifact, files: record(artifact.extend({ configuredPath: text })) }).optional(),
     selection: z.object({ areas: strings, scenarios: strings.optional(), split: z.enum(["development", "evaluation", "all"]).optional() }),
   }),
   target: receiptTarget, providers: z.object({ agent: receiptProvider, judge: receiptProvider }),
-  runtime: z.object({ kitVersion: id, node: id, platform: id, arch: id }),
+  runtime: z.object({ kitVersion: id, node: id, platform: id, arch: id, evidence: z.object({ chromium: text.optional(), playwright: id, sharp: record(text) }).optional() }),
 });
 const evidence = z.object({
   scenarioId: id, scenarioName: text, kind: z.enum(["browser", "workspace"]), persona: text.optional(),
   sourceScenarioId: text.optional(), caseId: text.optional(), strata: strings.optional(), split: split.optional(),
   outcome: z.enum(["completed", "blocked", "feature_not_found", "agent_error"]),
   summary: text, observations: strings, evidenceRefs: strings,
+  collector: z.literal("controlled").optional(),
+  captureChecks: z.array(z.object({ name: id, pass: z.boolean(), actual: z.number().optional(), expected: z.unknown().optional() })).optional(),
+  diagnostics: z.array(browserDiagnosticSchema).optional(),
   transcript: z.array(z.object({ step: count, at: text, tool: text, input: record(z.unknown()), result: text, isError: z.boolean().optional() })),
   screenshots: z.array(z.object({ path: text, label: text, step: count, url: text.optional() })),
   artifacts: record(text), provider, model: text.optional(), providerSessionId: text.optional(), usage: record(z.unknown()).optional(),
@@ -85,7 +91,7 @@ const evidence = z.object({
 });
 const judgedCase = z.object({
   ...judgement, areaId: id, rubricId: id, caseId: id, scenarioIds: strings, strata: strings, split: split.optional(),
-  source: z.literal("llm"), points: fraction.nullable(),
+  source: z.enum(["llm", "pairwise"]), points: fraction.nullable(),
 }).refine(validCasePoints, casePointsMessage);
 export const runReportSchema = z.object({
   schemaVersion: z.literal(1), runId: id, project: text,
@@ -94,7 +100,7 @@ export const runReportSchema = z.object({
   providers: z.object({ agent: providerModel, judge: providerModel }),
   areas: z.array(z.object({
     ...sliceShape, id, title: text, weight: z.number().positive(), optional: z.boolean(), items: uniqueItems,
-    defects: z.array(z.object({ severity: z.enum(["critical", "major", "minor"]), description: text, evidenceRefs: strings })),
+    defects: z.array(z.object({ severity: z.enum(["critical", "major", "minor"]), description: text, evidenceRefs: strings, region: cropSchema.optional() })),
     notes: text, scenarios: z.array(evidence), pendingManual: strings, unproven: strings,
     byTag: record(scoreSliceSchema), byStratum: record(stratum), gates: z.array(gate),
     caseResults: z.array(judgedCase).refine(values => new Set(values.map(value => JSON.stringify([value.rubricId, value.caseId]))).size === values.length, "Duplicate case measurements"),

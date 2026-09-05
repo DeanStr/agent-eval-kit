@@ -1,3 +1,4 @@
+import { votingSchema, diagnosticPolicySchema } from "./visual/contracts.js";
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
@@ -98,6 +99,7 @@ const rawConfigSchema = z.object({
     allowedOrigins: z.array(allowedOriginSchema).default([]),
     setup: commandSchema.optional(),
     start: commandSchema.optional(),
+    allowExternalServer: z.boolean().optional(),
     ready: z
       .object({
         url: httpUrlSchema.optional(),
@@ -112,7 +114,7 @@ const rawConfigSchema = z.object({
       .optional(),
   }).strict(),
   agent: providerSchema.default({ provider: "codex", timeoutSeconds: 1800, extraArgs: [] }),
-  judge: providerSchema.default({ provider: "codex", timeoutSeconds: 1800, extraArgs: [] }),
+  judge: providerSchema.extend({ voting: votingSchema.optional(), concurrency: z.number().int().min(1).max(8).optional() }).default({ provider: "codex", timeoutSeconds: 1800, extraArgs: [] }),
   paths: z
     .object({
       specs: z.string().default("evals/specs"),
@@ -132,6 +134,8 @@ const rawConfigSchema = z.object({
         }).strict()
         .default({ width: 1280, height: 800 }),
       actionTimeoutMs: z.number().int().positive().default(10_000),
+      diagnostics: diagnosticPolicySchema.optional(),
+      screenshotFormat: z.enum(["jpeg", "png"]).optional(),
     }).strict()
     .default({ headless: true, viewport: { width: 1280, height: 800 }, actionTimeoutMs: 10_000 }),
   scoring: z

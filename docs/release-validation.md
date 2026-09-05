@@ -1,5 +1,33 @@
 # Release validation
 
+## Codex review/fix loop (0.2.0)
+
+Validated locally on 2026-09-05 through four `codex exec review --uncommitted` rounds using `gpt-6-astra` at medium reasoning effort. Fixed three actionable findings: Chromium provenance now uses the configured launch mode, browser probing respects split and scenario selection, and skipped/dependency-blocked area evidence is sealed before visual grading. The final review reported no actionable regressions; no findings were dismissed. All 242 tests, type checking, build, and production-package smoke passed. See [the per-round findings and decisions](review-loop-2026-09-05.md).
+
+## Fail-fast visual contracts (0.2.0)
+
+Validated locally on 2026-09-05: all 237 tests passed, plus type checking, build, and production-package smoke. Non-abstaining MCP pairwise judgments require successful views of both images; violations abort before a completed vote is recorded. Invalid controlled screenshot labels fail before collection or reference loading, and completed controlled captures must contain required screenshots. Browser diagnostics enforce their record schema before exclusions and reject missing streams after recording starts. Unexpected vote outcomes and terminal decisions raise contract errors. Regression coverage verifies that explicit abstention, blocked scenarios, and missing ordinary-agent evidence remain unavailable coverage, including successful resume after a failed judge contract. Visual method revision 4 requires fresh runs for these stricter contracts. No Traffic migration or live judge calls were performed.
+
+## Review of uncommitted visual changes (0.2.0)
+
+Validated locally on 2026-09-05 after review fixes: all 230 tests passed, plus type checking, build, both browser smoke suites, and production-package smoke. Regression tests reproduced and now prevent false diagnostic passes without a browser, lossy JPEG re-encoding during source preparation, replacement of corrupted completed votes on resume, loss of partial capture measurements, and reuse of sealed scenarios after startup changes the target before the first area report. Additional checks cover a shared diagnostics limit across pages and reference snapshots matching their receipt. Visual method revision 3 invalidates earlier measurement methods. No live judge calls were used.
+
+## Generic visual checks (0.2.0)
+
+Validated locally on 2026-09-05: the full suite passed all 224 tests. After the final sequential-image processing and grader-order adjustment, all 20 focused visual/integration/grader tests passed again. Type checking, build, production-package smoke, and all seven deterministic reference variants passed. The installed package example now also exercises scoped image distinctness and image-health checks.
+
+Coverage includes independent motion/repeatability tolerances, cropped temporal checks, connected dark/highlight regions, RGB distinctness, explicit group and metric contracts, missing cohort members, near-zero relative baselines, absolute bounds, aggregate cancellation of individual regressions, sealed candidate/reference tampering, image baseline promotion, and report loading. The visual method revision participates in evaluator fingerprints; earlier visual runs require fresh collection. No Traffic migration or live model judging was performed for these additions.
+
+## Visual evaluation and repeated judging (0.2.0)
+
+Validated locally on 2026-09-05: all 216 tests passed, along with type checking, the build, both browser smoke suites, the seven deterministic reference variants, and the production-package smoke. Package smoke now exercises controlled PNG capture and pairwise abstention using only installed production dependencies. Playwright is pinned to the validated version so fresh consumers use the same browser revision.
+
+New regression coverage includes independent capture passes and temporal metrics, capture cancellation, missing metric contracts, occupied target endpoints, blind vote normalization, abstention versus equivalence, interrupted pairwise and rubric-vote resume without recollection, image baseline integrity, normalized panels, bounded PNG screenshots, diagnostic checks, and escaped HTML with localized findings. The example's mock judge leaves its visual gate unavailable and exits 2 even though deterministic checks pass.
+
+No live subscription judges or human visual-calibration reviewers were invoked. Mock and fake-provider checks validate harness behavior, not visual-judge accuracy. See [visual evaluation](visual-evaluation.md) for contracts and limitations.
+
+Evaluator fingerprints now include reference-image hashes and browser/image runtime versions. Regenerate runs and baselines when upgrading; pre-release artifact compatibility is not promised. Image-bearing baseline promotion is explicit through `--include-images`.
+
 Run `pnpm typecheck`, `pnpm test`, both browser smoke suites, `pnpm test:reference`, and `pnpm smoke:package` before release. CI runs those commands on Linux with Node 20.12.0, 22, and 24; it does not use subscription credentials or invoke real providers. The package smoke rebuilds before packing and installs a fresh consumer with production dependencies only.
 
 The workflow uses the official [checkout](https://github.com/actions/checkout), [Node setup](https://github.com/actions/setup-node), and [pnpm setup](https://github.com/pnpm/action-setup) actions pinned to commits. It has read-only repository permissions and does not publish packages.

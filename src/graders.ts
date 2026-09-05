@@ -1,3 +1,7 @@
+import { judgePairwise, aggregateVerdicts } from "./visual/pairwise.js";
+import { judgeVisualChecks } from "./visual/deterministic.js";
+import { journalVote, decideVotes, rubricVoteVerdict } from "./visual/votes.js";
+import { sha256, stableJson } from "./io.js";
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -406,6 +410,52 @@ async function runLlmJudge(options: {
   return { items: enforcedItems, cases, defects, notes };
 }
 
+const repeatedResultSchema = judgementOutputValidator.extend({
+  items: z.array(judgementOutputValidator.shape.items.element.extend({ source: z.literal("llm") })),
+  cases: z.array(judgementOutputValidator.shape.cases.element.extend({
+    areaId: z.string(), scenarioIds: z.array(z.string()), strata: z.array(z.string()), split: z.enum(["development", "evaluation"]).optional(), source: z.literal("llm"),
+  })),
+});
+
+async function repeatedLlmJudge(options: Parameters<typeof runLlmJudge>[0] & { onVoteComplete?: () => void }): Promise<Awaited<ReturnType<typeof runLlmJudge>>> {
+  const policy = options.config.judge.voting;
+  if (!policy) return runLlmJudge(options);
+  const receipt = JSON.parse(fs.readFileSync(path.join(options.runDir, "receipt.json"), "utf8"));
+  const images = pickImages(options.evidence, options.runDir).map(image => ({ ref: image.ref, sha256: sha256(fs.readFileSync(image.file)) }));
+  const votes: Awaited<ReturnType<typeof runLlmJudge>>[] = [];
+  const outcome = (item: { verdict: Verdict; confidence: "high" | "medium" | "low" } | undefined) => !item || item.verdict === "cannot_judge" || ({ high: 1, medium: 0.7, low: 0.3 }[item.confidence] < policy.minimumConfidence) ? "abstain" : item.verdict;
+  const requests = caseJudgeRequests(options.items, options.evidence);
+  const itemDecision = (id: string) => decideVotes(votes.map(vote => outcome(vote.items.find(item => item.id === id))), policy, ["pass"]);
+  const caseDecision = (rubricId: string, caseId: string) => decideVotes(votes.map(vote => outcome(vote.cases.find(item => item.rubricId === rubricId && item.caseId === caseId))), policy, ["pass"]);
+  while (votes.length < policy.maximumVotes) {
+    const ordinal = votes.length + 1;
+    options.onProgress?.(`rubric judge vote ${ordinal}/${policy.maximumVotes}`);
+    votes.push(await journalVote({
+      directory: path.join(options.directory, "votes", `vote-${String(ordinal).padStart(2, "0")}`),
+      identity: { evaluator: receipt.evaluationFingerprint, evidence: sha256(stableJson(options.evidence)), images, ordinal, policy },
+      validate: value => repeatedResultSchema.parse(value), seal: options.onVoteComplete,
+      run: directory => runLlmJudge({ ...options, directory }),
+    }));
+    if (options.items.every(item => itemDecision(item.id).decision !== "continue") && requests.every(request => caseDecision(request.rubricId, request.caseId).decision !== "continue")) break;
+  }
+  const verdict = rubricVoteVerdict;
+  const cases: JudgedCase[] = requests.map(request => {
+    const decision = caseDecision(request.rubricId, request.caseId);
+    const selected = votes.flatMap(vote => vote.cases.filter(item => item.rubricId === request.rubricId && item.caseId === request.caseId && outcome(item) === decision.decision));
+    return { ...request, areaId: options.spec.id, source: "llm", verdict: verdict(decision.decision), confidence: decision.decision === "inconclusive" ? "low" : "high", reasoning: `Repeated judge: ${decision.decision}; ${decision.judgeable}/${decision.attempted} judgeable votes. ${selected.map(item => item.reasoning).join(" ")}`, evidenceRefs: [...new Set(selected.flatMap(item => item.evidenceRefs))] };
+  });
+  const items: JudgedItem[] = options.items.map(item => {
+    const decision = itemDecision(item.id);
+    const selected = votes.flatMap(vote => vote.items.filter(candidate => candidate.id === item.id && outcome(candidate) === decision.decision));
+    let result = verdict(decision.decision);
+    const itemCases = cases.filter(candidate => candidate.rubricId === item.id);
+    if (result === "pass" && itemCases.length) result = aggregateVerdicts(itemCases.map(candidate => candidate.verdict));
+    return { id: item.id, source: "llm", verdict: result, confidence: result === "cannot_judge" ? "low" : "high", reasoning: `Repeated judge: ${decision.decision}; ${decision.judgeable}/${decision.attempted} judgeable votes. ${selected.map(item => item.reasoning).join(" ")}`, evidenceRefs: [...new Set(selected.flatMap(item => item.evidenceRefs))], votes: decision };
+  });
+  writeJson(path.join(options.directory, "vote-summary.json"), { items, cases });
+  return { items, cases, defects: votes.flatMap(vote => vote.defects), notes: `${votes.length} fresh judge contexts evaluated fixed evidence; vote fractions are not calibrated probabilities.` };
+}
+
 export async function judgeArea(options: {
   config: EvalConfig;
   spec: EvalSpec;
@@ -413,6 +463,7 @@ export async function judgeArea(options: {
   runDir: string;
   areaDirectory: string;
   onProgress?: (message: string) => void;
+  onVoteComplete?: () => void;
   onCommandGraderComplete?: (item: RubricItem) => void;
 }): Promise<{ items: JudgedItem[]; cases: JudgedCase[]; defects: Defect[]; notes: string }> {
   const commandItems = options.spec.rubric.filter((item) => item.grader.type === "command");
@@ -436,21 +487,29 @@ export async function judgeArea(options: {
     }
     commandResults.push(result);
   }
+  const visualChecks = await judgeVisualChecks(options);
   const llm = llmItems.length
-    ? await runLlmJudge({
+    ? await repeatedLlmJudge({
         ...options,
         items: llmItems,
         directory: path.join(options.areaDirectory, "_judge"),
       })
     : { items: [], cases: [], defects: [], notes: "No LLM-graded rubric items." };
-  const byId = new Map([...commandResults, ...llm.items].map((item) => [item.id, item]));
+  const pairwise = await judgePairwise(options);
+  const captureResults: JudgedItem[] = options.spec.rubric.filter(item => item.grader.type === "capture").map(item => {
+    const evidence = item.scenarios.map(id => options.evidence.find(scenario => scenario.scenarioId === id));
+    const checks = evidence.flatMap(scenario => scenario?.captureChecks ?? []);
+    const unavailable = evidence.some(scenario => scenario?.outcome !== "completed" || !scenario.captureChecks?.length);
+    return { id: item.id, source: "capture", verdict: unavailable ? "cannot_judge" : checks.every(check => check.pass) ? "pass" : "fail", confidence: unavailable ? "low" : "high", reasoning: `${checks.length} instrumented/browser checks; ${checks.filter(check => !check.pass).length} failed.${unavailable ? " Some scenarios or checks were unavailable." : ""}`, evidenceRefs: evidence.flatMap(scenario => scenario ? [`${scenario.scenarioId}/evidence.json`] : []) };
+  });
+  const byId = new Map([...commandResults, ...captureResults, ...visualChecks, ...llm.items, ...pairwise.items].map((item) => [item.id, item]));
   return {
     items: options.spec.rubric.flatMap((item) => {
       const result = byId.get(item.id);
       return result ? [result] : [];
     }),
-    cases: llm.cases,
-    defects: llm.defects,
+    cases: [...llm.cases, ...pairwise.cases],
+    defects: [...llm.defects, ...pairwise.defects],
     notes: llm.notes,
   };
 }

@@ -1,3 +1,5 @@
+import { controlledCapture } from "./visual/capture.js";
+import { readDiagnostics } from "./browser/diagnostics.js";
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -145,6 +147,7 @@ export async function executeScenario(options: {
       writeJson(path.join(directory, "evidence.json"), blocked);
       return blocked;
     }
+    if (scenario.capture) return controlledCapture(config, scenario, directory, existingPersonaState);
     // A persona path is permanent authentication state and may only be updated
     // when it was already established by `aek auth`. If an uncaptured persona
     // participates in a dependency chain, use the run-local chain state instead.
@@ -163,6 +166,7 @@ export async function executeScenario(options: {
       headless: config.browser.headless,
       viewport: config.browser.viewport,
       actionTimeoutMs: config.browser.actionTimeoutMs,
+      screenshotFormat: config.browser.screenshotFormat,
       // Claude and Grok enforce maxTurns in their provider CLIs. Codex has no
       // equivalent flag, so only Codex maps the option to MCP interactions.
       maxToolCalls: config.agent.provider === "codex" ? config.agent.maxTurns ?? 50 : undefined,
@@ -307,6 +311,7 @@ export async function executeScenario(options: {
   const structuredObservations = structuredTrusted ? parsed.data.observations : [];
   const evidenceRefs = structuredTrusted ? parsed.data.evidenceRefs : [];
 
+  const diagnostics = kind === "browser" ? readDiagnostics(directory, config.browser.diagnostics) : undefined;
   const evidence: ScenarioEvidence = {
     scenarioId: scenario.id,
     scenarioName: scenario.name,
@@ -318,7 +323,9 @@ export async function executeScenario(options: {
     split: scenario.split,
     outcome,
     summary,
-    observations: [...new Set([...toolArtifacts.observations, ...structuredObservations])],
+    diagnostics: diagnostics?.diagnostics,
+    captureChecks: diagnostics?.checks,
+    observations: [...new Set([...toolArtifacts.observations, ...structuredObservations, ...(diagnostics?.diagnostics.map(entry => `Browser ${entry.kind}: ${entry.message}`) ?? [])])],
     evidenceRefs: [...new Set(evidenceRefs)],
     transcript: toolArtifacts.transcript,
     screenshots: toolArtifacts.screenshots,

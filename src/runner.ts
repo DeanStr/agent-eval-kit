@@ -1,3 +1,4 @@
+import { snapshotVisualInputs, visualInputs, validateVisualInputs } from "./visual/inputs.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -7,7 +8,7 @@ import { loadResumableRunReport } from "./compare.js";
 import { redactConfig } from "./config.js";
 import type { ConfigOverrides } from "./config.js";
 import { judgeArea } from "./graders.js";
-import { assertArtifactIntegrity } from "./integrity.js";
+import { assertArtifactIntegrity, writeArtifactIndex } from "./integrity.js";
 import { createTimestampedDirectory, safeName, sha256, stableJson, writeJson } from "./io.js";
 import { startLifecycle } from "./lifecycle.js";
 import { RunLogger } from "./log.js";
@@ -305,6 +306,7 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
   const activeAreaIds = new Set(specs.map((spec) => spec.id));
   const sourceSpecs = options.specs.filter((spec) => activeAreaIds.has(spec.id));
   assertScenarioSelectors(specs, options.scenarioIds, selectedSplit);
+  await validateVisualInputs(config, sourceSpecs, selectedSplit);
   if (options.dryRun) {
     for (const spec of specs) {
       console.log(`${spec.id} (${spec.weight}${spec.optional ? ", optional" : ""}) — ${spec.title}`);
@@ -354,6 +356,17 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
         allowChangedRoles: existingState.status === "complete" ? [] : ["evidence", "judgement", "report", "receipt"],
       })
     : undefined;
+  // Partial judge output is recoverable; completed vote journals are immutable.
+  // Validate these before cleanup so corruption cannot erase a completed vote
+  // and silently trigger a different model judgement on resume.
+  const completedVotes = priorIndex?.entries.flatMap(entry => {
+    const match = entry.path.match(/^(areas\/.+\/vote-\d+\/)vote\.json$/);
+    return match ? [match[1]] : [];
+  }) ?? [];
+  for (const entry of priorIndex?.entries ?? []) {
+    if (completedVotes.some(prefix => entry.path.startsWith(prefix)) && !indexedFileMatches(runDir, entry))
+      throw new Error(`Completed vote artifact changed: ${entry.path}. Restore the sealed bytes or start a new run.`);
+  }
   const sealedPaths = new Set(priorIndex?.entries.filter((entry) => indexedFileMatches(runDir, entry)).map((entry) => entry.path) ?? []);
   for (const prefix of recoverablePrefixes) removeUnsealedFiles(runDir, prefix, sealedPaths);
   const prefixIsFullySealed = (prefix: string) => {
@@ -388,6 +401,7 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
     }
   } else {
     snapshotInputs(runDir, config, sourceSpecs, config.paths.fixtures);
+    snapshotVisualInputs(config, sourceSpecs, runDir, selectedSplit, receipt.inputs.visual!);
   }
   const state: RunState = existingState ?? {
     schemaVersion: 1,
@@ -417,6 +431,12 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
     ? loadResumableRunReport(reportFile).report
     : undefined;
   let reusePriorEvidence = !priorReport || stableJson(priorReport.receipt.target) === stableJson(receipt.target);
+  const hasReusableScenarioEvidence = specs.some(spec => spec.scenarios.some(scenario => {
+    const relative = `${scenario.id}/evidence.json`;
+    if (!sealedPaths.has(relative) || !prefixIsFullySealed(`${scenario.id}/`)) return false;
+    const evidence = JSON.parse(fs.readFileSync(path.join(runDir, relative), "utf8")) as ScenarioEvidence;
+    return evidence.outcome === "completed" || evidence.outcome === "feature_not_found";
+  }));
   const priorAreas = new Map((reusePriorEvidence ? priorReport?.areas ?? [] : []).map((area) => [area.id, area]));
   const areaResults: AreaResult[] = [];
   let lifecycle;
@@ -440,7 +460,7 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
       }
       if (
         reusePriorEvidence &&
-        priorReport?.areas.length &&
+        (priorReport?.areas.length || hasReusableScenarioEvidence) &&
         stableJson(refreshed.target) !== stableJson(receipt.target)
       ) {
         throw new Error(
@@ -538,6 +558,7 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
           fixtures,
           directory: scenarioDir,
           evaluatorOnlyPaths: [
+            ...Object.values(visualInputs(config, sourceSpecs, selectedSplit)).map(input => input.file),
             options.configFile,
             path.join(path.dirname(path.resolve(options.configFile)), ".env"),
             config.paths.specs,
@@ -553,9 +574,13 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
         lifecycle.assertRunning();
         logger.line(`    ${result.outcome} in ${(result.durationMs / 1000).toFixed(1)}s; ${result.screenshots.length} screenshots`);
         evidence.push(result);
+        writeArtifactIndex(runDir);
       }
 
       lifecycle.assertRunning();
+      // Visual graders require sealed evidence even when every scenario was
+      // skipped, dependency-blocked, or reused instead of freshly executed.
+      if (evidence.length) writeArtifactIndex(runDir);
       const judged = await judgeArea({
         config,
         spec,
@@ -566,6 +591,7 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
         // A grader is allowed to build or otherwise exercise the project. Seal
         // each resulting target revision before another grader or judge runs,
         // so both failed and completed runs remain accurately resumable.
+        onVoteComplete: () => writeArtifactIndex(runDir),
         onCommandGraderComplete: (item) => refreshTargetReceipt(`command grader ${item.id}`),
       });
       lifecycle.assertRunning();

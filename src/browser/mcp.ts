@@ -74,6 +74,8 @@ async function getBrowser(): Promise<BrowserSession> {
     context.allowedOrigins,
     context.viewport,
     context.actionTimeoutMs,
+    "same-origin",
+    { lossless: context.screenshotFormat === "png" },
   );
   await browser.start();
   return browser;
@@ -316,7 +318,7 @@ server.registerTool(
       return {
         content: [
           { type: "text" as const, text: result },
-          { type: "image" as const, data: shot.base64, mimeType: "image/jpeg" },
+          { type: "image" as const, data: shot.base64, mimeType: shot.relPath.endsWith(".png") ? "image/png" : "image/jpeg" },
         ],
       };
     } catch (error) {

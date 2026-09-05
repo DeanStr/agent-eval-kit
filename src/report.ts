@@ -143,7 +143,7 @@ function areaSections(report: RunReport): string {
     .map((area) => {
       const itemRows = area.items
         .map(
-          (item) => `<tr><td>${escapeHtml(item.id)}</td><td style="color:${verdictColor[item.verdict]};font-weight:650">${escapeHtml(item.verdict)}</td><td>${escapeHtml(item.confidence)}</td><td>${escapeHtml(item.reasoning)}<br><small>${item.evidenceRefs.map(escapeHtml).join(", ")}</small></td></tr>`,
+          (item) => `<tr><td>${escapeHtml(item.id)}</td><td style="color:${verdictColor[item.verdict]};font-weight:650">${escapeHtml(item.verdict)}</td><td>${escapeHtml(item.confidence)}</td><td>${escapeHtml(item.reasoning)}${item.votes ? `<p>${item.votes.judgeable}/${item.votes.attempted} judgeable votes: ${escapeHtml(JSON.stringify(item.votes.counts))}</p>` : ""}${(item.comparisons ?? []).filter(ref => /^areas\/[A-Za-z0-9._/-]+\/comparison\.html$/.test(ref) && !ref.split("/").includes("..")).map((ref, index) => `<a href="${ref.split("/").map(encodeURIComponent).join("/")}">Comparison ${index + 1}</a>`).join(" · ")}<br><small>${item.evidenceRefs.map(escapeHtml).join(", ")}</small></td></tr>`,
         )
         .join("");
       const scenarios = area.scenarios
@@ -154,7 +154,7 @@ function areaSections(report: RunReport): string {
               return `<figure><a href="${href}"><img loading="lazy" src="${href}" width="320"></a><figcaption>${escapeHtml(shot.label)} (step ${shot.step})</figcaption></figure>`;
             })
             .join("");
-          return `<details><summary><strong>${escapeHtml(scenario.scenarioId)}</strong> — ${escapeHtml(scenario.outcome)} · ${(scenario.durationMs / 1000).toFixed(1)}s</summary><p>${escapeHtml(scenario.summary)}</p>${scenario.error ? `<p class="low">${escapeHtml(scenario.error)}</p>` : ""}<ul>${scenario.observations.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul><div class="shots">${shots}</div></details>`;
+          return `<details><summary><strong>${escapeHtml(scenario.scenarioId)}</strong> — ${escapeHtml(scenario.outcome)} · ${(scenario.durationMs / 1000).toFixed(1)}s</summary><p>${escapeHtml(scenario.summary)}</p>${scenario.captureChecks?.length ? `<ul>${scenario.captureChecks.map(check => `<li>${escapeHtml(check.name)}: ${check.pass ? "pass" : "fail"}${check.actual === undefined ? "" : ` (${check.actual})`}</li>`).join("")}</ul>` : ""}${scenario.error ? `<p class="low">${escapeHtml(scenario.error)}</p>` : ""}<ul>${scenario.observations.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul><div class="shots">${shots}</div></details>`;
         })
         .join("");
       const caseRows = area.caseResults

@@ -12,6 +12,7 @@ export interface BrowserMcpContext {
   headless: boolean;
   viewport: { width: number; height: number };
   actionTimeoutMs: number;
+  screenshotFormat?: "jpeg" | "png";
   /** Codex has no provider turn limit, so its maxTurns is enforced here. */
   maxToolCalls?: number;
 }

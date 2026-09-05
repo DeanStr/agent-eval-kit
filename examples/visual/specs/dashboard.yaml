@@ -1,0 +1,62 @@
+id: dashboard
+title: Dashboard presentation
+weight: 100
+description: A stable, readable dashboard with reproducible time steps.
+scenarios:
+  - id: DASHBOARD
+    name: Capture a seeded dashboard
+    kind: browser
+    instructions: Collect the dashboard at three controlled time steps.
+    capture:
+      seed: 1337
+      frames: 3
+      stepSeconds: 1
+      minimumMovement: 0.001
+      channelTolerance: 0
+      movementChannelTolerance: 2
+      imageHealth:
+        metrics:
+          darkPixelFraction: { max: 0.95 }
+          highlightPixelFraction: { max: 0.95 }
+      metrics:
+        rendering.errors: { max: 0 }
+  - id: MONTHLY
+    name: Capture the alternative dataset
+    kind: browser
+    instructions: Capture the monthly chart to verify that dataset selection changes the chart.
+    capture:
+      setup: { dataset: monthly }
+      frames: 1
+rubric:
+  - id: CAPTURE
+    criterion: Rendering and behavior remain reproducible
+    weight: 1
+    scenarios: [DASHBOARD, MONTHLY]
+    grader: { type: capture }
+    gate: true
+    passCriteria: Every configured deterministic and browser check passes.
+  - id: DESIGN
+    criterion: The dashboard has a clear hierarchy and readable chart
+    weight: 1
+    scenarios: [DASHBOARD]
+    grader:
+      type: pairwise
+      candidate: frame-001
+      policy: non_regression
+      references:
+        - file: reference.svg
+      panel: { width: 800, height: 500, fit: contain }
+      voting: { minimumVotes: 5, maximumVotes: 9, agreement: 0.8 }
+    gate: true
+    passCriteria: The title, chart labels, values, contrast and spacing support quick reading.
+  - id: DATASETS_DIFFER
+    criterion: Dataset selection changes the visible chart
+    weight: 1
+    scenarios: [DASHBOARD, MONTHLY]
+    grader:
+      type: image-distinctness
+      candidate: frame-001
+      crop: { x: 0.08, y: 0.25, width: 0.84, height: 0.55 }
+      minimumDistance: 0.01
+    gate: true
+    passCriteria: Both chart regions are available and their RGB thumbnail distance is at least 0.01.

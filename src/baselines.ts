@@ -21,6 +21,7 @@ export interface BaselinePromotion {
   reviewer: string;
   promotedAt: string;
   promotionSha256: string;
+  images?: Record<string, { file: string; sha256: string; bytes: number; scenario: string; label: string }>;
 }
 
 interface BaselinePointer {
@@ -64,6 +65,7 @@ function compactBaselineReport(report: RunReport): RunReport {
         ...item,
         reasoning: "Promoted baseline comparison snapshot.",
         evidenceRefs: [],
+        comparisons: undefined,
       })),
       defects: [],
       notes: "",
@@ -109,6 +111,7 @@ export function promoteBaseline(options: {
   runDir: string;
   name: string;
   reviewer: string;
+  includeImages?: boolean;
 }): PromotedBaseline {
   const runDir = path.resolve(options.runDir);
   const reviewer = options.reviewer.trim();
@@ -130,10 +133,24 @@ export function promoteBaseline(options: {
   const snapshotId = `${promotionTimestamp()}-${reportSha256.slice(0, 12)}-${crypto.randomUUID().slice(0, 8)}`;
   const snapshotDirectory = path.join(directory, snapshotId);
   const staged = path.join(directory, `.aek-baseline-${crypto.randomUUID()}.tmp`);
-  fs.mkdirSync(staged);
   const promotedAt = new Date().toISOString();
+  const images: NonNullable<BaselinePromotion["images"]> = {};
+  if (options.includeImages) {
+    for (const area of source.report.areas) for (const scenario of area.scenarios) for (const shot of scenario.screenshots) {
+      const key = JSON.stringify([scenario.scenarioId, shot.path]);
+      if (images[key]) throw new Error(`Duplicate screenshot path in ${scenario.scenarioId}: ${shot.path}`);
+      const relative = `${scenario.scenarioId}/${shot.path}`;
+      const entry = artifactIndex.entries.find(entry => entry.path === relative);
+      if (!entry) throw new Error(`Screenshot is not sealed: ${relative}`);
+      const extension = path.extname(shot.path).toLowerCase();
+      if (![".jpg", ".jpeg", ".png"].includes(extension)) throw new Error(`Unsupported baseline image format: ${relative}`);
+      const file = `images/${sha256(key)}${extension}`;
+      images[key] = { file, sha256: entry.sha256, bytes: entry.bytes, scenario: scenario.scenarioId, label: shot.label };
+    }
+  }
   const promotionPayload: Omit<BaselinePromotion, "promotionSha256"> = {
     schemaVersion: 1,
+    images: options.includeImages ? images : undefined,
     baselineName: options.name,
     snapshotId,
     sourceRunId: source.report.runId,
@@ -156,6 +173,18 @@ export function promoteBaseline(options: {
     promotionSha256: promotionHash(promotionPayload),
   };
   try {
+    fs.mkdirSync(staged);
+    if (options.includeImages) {
+      fs.mkdirSync(path.join(staged, "images"));
+      for (const [key, image] of Object.entries(images)) {
+        const [scenarioId, shotPath] = JSON.parse(key) as string[];
+        const scenario = source.report.areas.flatMap(area => area.scenarios).find(s => s.scenarioId === scenarioId)!;
+        const shot = scenario.screenshots.find(s => s.path === shotPath)!;
+        const bytes = fs.readFileSync(path.join(runDir, scenarioId, shot.path));
+        if (bytes.length !== image.bytes || sha256(bytes) !== image.sha256) throw new Error("Baseline image changed during promotion");
+        fs.writeFileSync(path.join(staged, image.file), bytes);
+      }
+    }
     fs.writeFileSync(path.join(staged, "report.json"), reportBytes, { flag: "wx" });
     fs.writeFileSync(path.join(staged, "source-artifact-index.json"), sourceIndexBytes, { flag: "wx" });
     writeJson(path.join(staged, "promotion.json"), promotion);
@@ -210,6 +239,11 @@ export function loadPromotedBaseline(config: EvalConfig, name: string): Promoted
     sourceIndex.rootSha256 !== promotion.sourceArtifactRootSha256
   ) {
     throw new Error(`Promoted baseline artifact root mismatch: ${sourceIndexFile}`);
+  }
+  for (const image of Object.values(promotion.images ?? {})) {
+    if (!/^images\/[a-f0-9]{64}\.(?:jpg|jpeg|png)$/i.test(image.file)) throw new Error("Invalid baseline image path");
+    const bytes = fs.readFileSync(path.join(snapshotDirectory, image.file));
+    if (bytes.length !== image.bytes || sha256(bytes) !== image.sha256) throw new Error("Baseline image checksum changed");
   }
   const loaded = loadComparisonInput(reportFile);
   if (loaded.report.receipt.evaluationFingerprint !== promotion.evaluationFingerprint) {

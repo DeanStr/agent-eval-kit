@@ -1,0 +1,21 @@
+version: 1
+project:
+  name: Visual dashboard example
+  root: .
+target:
+  kind: web
+  url: http://127.0.0.1:4188
+  start: node server.mjs
+  ready:
+    url: http://127.0.0.1:4188
+agent:
+  provider: mock
+judge:
+  provider: mock
+  timeoutSeconds: 180
+paths:
+  specs: specs
+browser:
+  viewport: { width: 800, height: 500 }
+  diagnostics:
+    failOn: [pageerror, requestfailed, http]
