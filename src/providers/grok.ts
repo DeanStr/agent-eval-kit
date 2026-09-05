@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ProviderInvocation, ProviderResult } from "../types.js";
+import { stageCredentials } from "./credentials.js";
 import {
   assertSafeProviderExtraArgs,
   parseJsonText,
@@ -23,6 +24,7 @@ export async function runGrok(invocation: ProviderInvocation): Promise<ProviderR
   const isolatedHome = path.join(isolationRoot, "home");
   const isolatedGrokHome = path.join(isolatedHome, ".grok");
   const isolatedWork = path.join(isolationRoot, "work");
+  let persistCredentials: (() => void) | undefined;
   try {
     fs.mkdirSync(isolatedGrokHome, { recursive: true });
     fs.mkdirSync(isolatedWork);
@@ -35,8 +37,11 @@ export async function runGrok(invocation: ProviderInvocation): Promise<ProviderR
       const source = path.join(sourceGrokHome, name);
       if (!fs.existsSync(source) || !fs.statSync(source).isFile()) continue;
       const destination = path.join(isolatedGrokHome, name);
-      fs.copyFileSync(source, destination);
-      fs.chmodSync(destination, fs.statSync(source).mode & 0o777);
+      if (name === "auth.json") persistCredentials = stageCredentials(source, destination);
+      else {
+        fs.copyFileSync(source, destination);
+        fs.chmodSync(destination, fs.statSync(source).mode & 0o777);
+      }
     }
     if (invocation.mcp) fs.copyFileSync(invocation.mcp.configFile, path.join(isolatedWork, ".mcp.json"));
     const args = ["--no-auto-update", ...invocation.extraArgs];
@@ -123,6 +128,10 @@ export async function runGrok(invocation: ProviderInvocation): Promise<ProviderR
       command: stringifyCommand("grok", args),
     };
   } finally {
-    fs.rmSync(isolationRoot, { recursive: true, force: true });
+    try {
+      persistCredentials?.();
+    } finally {
+      fs.rmSync(isolationRoot, { recursive: true, force: true });
+    }
   }
 }

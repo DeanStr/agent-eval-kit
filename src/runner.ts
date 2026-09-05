@@ -14,6 +14,8 @@ import { RunLogger } from "./log.js";
 import { writeReportArtifacts } from "./report.js";
 import { buildRunReceipt } from "./receipts.js";
 import { executeScenario } from "./scenario.js";
+import { throwIfCancelled } from "./cancellation.js";
+import { assertEvaluationPlatform } from "./platform.js";
 import { buildReport, scoreArea } from "./scoring.js";
 import { assertScenarioSelectors, assertScenarioTargetCompatibility, materializeSpecs } from "./specs.js";
 import type { AreaResult, EvalConfig, EvalSpec, EvalSplit, RunReport, ScenarioEvidence } from "./types.js";
@@ -272,6 +274,8 @@ function dependencyBlockedEvidence(
 }
 
 export async function runEvaluation(options: RunOptions): Promise<{ runDir: string; report?: RunReport }> {
+  assertEvaluationPlatform();
+  throwIfCancelled();
   const { config, fixtures } = options;
   assertScenarioTargetCompatibility(options.specs, config.target);
   const selectedSplit = options.split ?? "development";
@@ -444,6 +448,7 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
     });
     for (const spec of specs) {
       logger.line(`Area ${spec.id}: ${spec.title}`);
+      throwIfCancelled();
       const selectedScenarioIds = spec.scenarios
         .filter((scenario) => !options.scenarioIds?.length || options.scenarioIds.includes(scenario.id) || Boolean(scenario.sourceScenarioId && options.scenarioIds.includes(scenario.sourceScenarioId)))
         .map((scenario) => scenario.id);
@@ -569,6 +574,7 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
     lifecycle.assertRunning();
     await lifecycle.stop();
     lifecycle = undefined;
+    throwIfCancelled();
     const report = persist();
     state.status = "complete";
     writeJson(stateFile, state);

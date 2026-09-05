@@ -225,15 +225,20 @@ try {
 
   // ---------------------------------------------------------------------
   // CLICK-TO-EDIT: the value renders as a <button>; the input only exists
-  // after a click. fill() used to answer "not an editable field".
+  // after an explicit click. A fill must never guess that an arbitrary button
+  // is an editor and activate it.
   // ---------------------------------------------------------------------
   snap = await b.snapshot();
   const c2eRef = snap.match(/\[(e\d+)\] <button[^>]*> Chief AI Officer/)?.[1];
   if (!c2eRef) { console.error(elemsOf(snap)); throw new Error("click-to-edit field not surfaced"); }
   const c2eRes = await b.fill(c2eRef, "Head of DevRel");
-  if (c2eRes.startsWith("ERROR") || !/click-to-edit/.test(c2eRes)) {
-    throw new Error(`click-to-edit fill failed: ${c2eRes.slice(0, 300)}`);
+  if (!c2eRes.startsWith("ERROR") || await b.page.locator('#c2e-host input').count()) {
+    throw new Error(`fill activated an ambiguous button: ${c2eRes.slice(0, 300)}`);
   }
+  const editorSnapshot = await b.click(c2eRef);
+  const editorRef = editorSnapshot.match(/\[(e\d+)\] <input[^>]*> Add title/)?.[1];
+  if (!editorRef) throw new Error("explicit edit click did not reveal a fillable input");
+  await b.fill(editorRef, "Head of DevRel");
   if (!(await b.snapshot()).includes("TITLE:Head of DevRel")) {
     throw new Error("click-to-edit fill did not reach the revealed input");
   }

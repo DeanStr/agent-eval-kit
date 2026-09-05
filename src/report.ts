@@ -95,7 +95,7 @@ export function writeManualFiles(
         "",
         `- Pass when: ${rubric.passCriteria}`,
         `- Verify: ${rubric.manualInstructions ?? rubric.evidence ?? rubric.passCriteria}`,
-        automatic ? `- Automatic evidence: ${automatic.verdict} — ${automatic.reasoning}` : "",
+        automatic ? `- Automatic evidence: ${automatic.components?.automatic ?? "cannot_judge"} — ${automatic.reasoning}` : "",
         "",
       );
       const prior = Object.hasOwn(existing, id) ? existing[id] : undefined;
@@ -475,6 +475,20 @@ export function finalizeReport(options: {
   config: EvalConfig;
   reviewer?: string;
 }): RunReport {
+  // Validate persisted automatic evidence before recording any manual revision.
+  // A zero automatic share legitimately has no automatic judgement.
+  for (const area of options.report.areas) {
+    const spec = options.specs.find((candidate) => candidate.id === area.id);
+    if (!spec) throw new Error(`Cannot finalize report: no spec exists for report area ${area.id}`);
+    for (const rubric of spec.rubric) {
+      if (rubric.grader.type !== "hybrid") continue;
+      const automatic = area.items.find((item) => item.id === rubric.id)?.components?.automatic;
+      if ((rubric.grader.autoShare > 0 && automatic === undefined) ||
+          (automatic !== undefined && (typeof automatic !== "string" || !Object.hasOwn(verdictColor, automatic)))) {
+        throw new Error(`Cannot finalize report: hybrid ${area.id}/${rubric.id} is missing a valid automatic component; regenerate the report`);
+      }
+    }
+  }
   const manualInput = readJson<Record<string, ManualResultEntry>>(
     path.join(options.runDir, "manual-results.json"),
   );
@@ -500,9 +514,11 @@ export function finalizeReport(options: {
       const prior = byId.get(rubric.id);
       if (rubric.grader.type === "hybrid") {
         const automatic: Verdict =
-          !prior || area.unproven.includes(rubric.id)
+          area.unproven.includes(rubric.id)
             ? "cannot_judge"
-            : prior.components?.automatic ?? prior.verdict;
+            : rubric.grader.autoShare === 0
+              ? prior?.components?.automatic ?? "cannot_judge"
+              : prior!.components!.automatic!;
         const components = { automatic, manual: manualVerdict };
         const verdict = hybridAggregateVerdict(components, rubric.grader.autoShare);
         byId.set(rubric.id, {

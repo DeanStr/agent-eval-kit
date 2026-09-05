@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { chromium } from "playwright";
 import { grokAuthPath } from "./providers/grok.js";
 import type { ProviderId } from "./types.js";
+import { NATIVE_WINDOWS_ERROR } from "./platform.js";
 
 export interface DoctorCheck {
   name: string;
@@ -28,6 +29,9 @@ export function supportedNodeVersion(version: string): boolean {
 }
 
 export function doctor(options: DoctorOptions = {}): DoctorCheck[] {
+  if (process.platform === "win32") {
+    return [{ name: "evaluation platform", ok: false, detail: NATIVE_WINDOWS_ERROR, required: true }];
+  }
   const checks: DoctorCheck[] = [];
   checks.push({
     name: "node",

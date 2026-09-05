@@ -4,6 +4,8 @@
 
 No provider SDK and no API key are required. 
 
+This is an early pre-release project. Backward compatibility is not a requirement: configuration, artifact formats, and APIs may change without migration support. Regenerate affected runs and baselines after such changes.
+
 It supports:
 
 - deployed web apps and local web apps (managed setup/start/readiness);
@@ -23,6 +25,8 @@ The score and the evidence coverage are separate. `cannot_judge` never becomes a
 
 The evaluator and judge are also separate runs. The judge sees collected evidence, not the scenario agent's private reasoning, which reduces self-confirmation bias.
 
+Explicitly source-level criteria may be judged from inspected code and concrete static counterexamples. Runtime, integration, and persistence criteria still require evidence that the behavior was exercised; source inspection alone cannot establish those claims.
+
 ```text
 evalkit.yaml + specs + fixtures
                │
@@ -38,6 +42,7 @@ evalkit.yaml + specs + fixtures
 
 ## Requirements
 
+- Linux is the validated runtime. Native Windows evaluation is unsupported and fails before launch. On Windows, run inside WSL using Linux Node.js, provider CLIs, and browser dependencies—not Windows executables through WSL interop. macOS is not yet CI-certified.
 - Node.js 20.12+
 - pnpm (or npm)
 - at least one supported CLI, already signed into a subscription
@@ -188,6 +193,8 @@ Do not put passwords or tokens in `variables`: prompts and evidence are intentio
 
 For a deployed web app, omit `setup` and `start`; `ready` is optional but useful for failing early when the deployment is unavailable.
 
+Interrupting `run` or `campaign` with Ctrl+C (`SIGINT`) or `SIGTERM` stops active provider, grader, setup, readiness, and managed target processes before returning exit status 130 or 143. The interrupted run is marked failed and its lock is released. Campaigns retain the interrupted repetition and do not start further repetitions. Timeout cleanup waits for the entire process group, including descendants that outlive the original command.
+
 ## Specs
 
 Every YAML file under `paths.specs` is one weighted area. Required area weights must total exactly 100; optional areas are excluded from the headline score.
@@ -265,7 +272,7 @@ Set `gate: true` only on genuinely release-blocking criteria. A critical item mu
 grader: { type: llm }
 ```
 
-`command` is deterministic and runs after the area's scenarios. Exit codes map to `0=pass`, `1=fail`, `2=partial`, `3=cannot_judge`, `4=not_found`. Plain stdout becomes the reasoning, or stdout may be an exact JSON object:
+`command` is deterministic and runs after the area's scenarios. Every command grader must declare `output: exit-code` or `output: json`; formats are never guessed. In exit-code mode, codes map to `0=pass`, `1=fail`, `2=partial`, `3=cannot_judge`, `4=not_found`, and plain output becomes the reasoning. Other exit codes, signals, and timeouts fail the run. JSON mode requires exit code 0 and an exact, schema-valid JSON object on stdout; malformed output or nonzero exits fail the run instead of falling back to exit-code grading:
 
 ```json
 {
@@ -279,6 +286,7 @@ grader: { type: llm }
 ```yaml
 grader:
   type: command
+  output: exit-code          # use json for the structured object above
   command: pnpm test
   cwd: project                # project | run | path relative to project
   timeoutSeconds: 300
@@ -385,6 +393,8 @@ aek campaign --repetitions 5 --areas checkout --output .agent-eval/campaigns/che
 
 Each repetition remains a normal independently receipted run. `campaign.json` and `campaign.html` report completion failures, score and coverage mean/median/range/standard deviation, deterministic 95% percentile-bootstrap intervals using the complete run as the resampling unit, critical-gate pass rate, and rubric, case, and stratum verdict stability. Aggregate metrics are withheld if evaluator or strict target-input fingerprints differ. Campaigns are deliberately sequential to avoid subscription concurrency and rate-limit surprises. Intervals are descriptive and small repetition counts remain unstable. A campaign does not reset a deployed target's database: use idempotent scenarios, isolated test tenants, or a lifecycle setup command that restores state between runs.
 
+An incompatible campaign exits with status `2` even if every individual repetition passes its numeric thresholds; execution failures take precedence with status `1`. Hybrid rubric stability counts a full pass only after every required automatic and manual share passes. Pending hybrid reviews retain automatic credit and `components.automatic`, while their aggregate verdict is `cannot_judge` until review is complete. Case and stratum diagnostics continue to describe automatic judgements.
+
 Compare two campaigns over matching stable cases:
 
 ```bash
@@ -467,6 +477,8 @@ The lint is a guardrail, not proof of anonymity: product-specific customer IDs o
 
 Codex is the default and most-tested adapter. Claude Code and Grok Build are first-class adapters, but their CLIs evolve independently; `aek doctor` records the installed versions, and every invocation stores its exact argv, raw events, stderr, model, session id, and token usage when exposed.
 
+`doctor` checks installation and local authentication status, not remaining model quota or successful OAuth refresh. Use the opt-in provider smoke to verify actual collection and judging. Claude and Grok preserve provider-written credential refreshes before removing their temporary configuration homes, provided the original credential file has not changed during the invocation.
+
 The offline `mock` provider exists for harness tests. It does not inspect a target and should not be used for real LLM-graded evaluations.
 
 ## Evidence and safety model
@@ -477,7 +489,7 @@ The offline `mock` provider exists for harness tests. It does not inspect a targ
 - Repository scenario prompts contain scenario instructions and success signals, but not rubric criteria or pass thresholds. Attempts by Codex or Claude to use provider-native shell/file/web tools across the MCP evidence boundary invalidate the scenario.
 - Judges cannot revisit the target and receive only the evidence bundle plus capped, round-robin screenshot attachments.
 - Judges receive canonical IDs for scenario records, observations, screenshots, and transcript steps. Unknown citations are discarded; non-`cannot_judge` verdicts left without a valid supplied evidence ID are downgraded to `cannot_judge`, and uncited defects are dropped.
-- Raw provider output is retained. A schema-invalid final model answer becomes explicit unavailable coverage, while malformed NDJSON events, corrupt transcripts, provider launch failures, and other adapter/infrastructure faults abort the run instead of being mislabeled as model uncertainty.
+- Raw provider output is retained. Provider timeouts, nonzero exits, evidence-boundary violations, malformed structured answers or events, missing scenario finalization, and corrupt transcripts abort the run with diagnostics instead of being mislabeled as model uncertainty. A valid judge abstention still becomes unavailable coverage.
 - Command strings in configuration are trusted project code. Review them before running an eval kit from someone else.
 
 This is evaluation infrastructure, not a hardened hostile-code sandbox. Run untrusted projects in a disposable container or VM.
@@ -524,7 +536,22 @@ pnpm typecheck
 pnpm test
 pnpm smoke:browser
 pnpm smoke:browser:full
+pnpm test:reference
+pnpm smoke:package
 pnpm build
 ```
 
 The fast browser smoke covers the basic contract. The full regression fixture covers SPA click targets, custom dropdowns, rich-text editors, temporal inputs, iframes, open shadow DOM, modal scoping, overlays, nested upload controls, drag-and-drop, inner scroll containers, origin containment, synthesized labels, ref-budget collapse, and bounded screenshots.
+
+The CI workflow runs these checks on Linux with Node 20.12, 22, and 24. Package smoke builds a tarball, installs production dependencies in a temporary consumer, and exercises the installed CLI and workspace MCP without TypeScript source or `tsx`.
+
+Reference checks contain working, broken, and missing cart-total implementations with separately specified expected outcomes. The default command uses deterministic graders and no model quota. To measure a real collector/judge pair or check a provider's browser and workspace integration:
+
+```bash
+pnpm test:reference --provider codex --judge claude --repetitions 3
+pnpm smoke:provider --provider codex
+pnpm smoke:provider --provider claude
+pnpm smoke:provider --provider grok
+```
+
+These opt-in commands use the selected subscriptions and retain versioned, integrity-checked reports under `.agent-eval/reference/`. Each provider invocation is capped at 180 seconds and 20 turns/interactions. See [release validation](docs/release-validation.md) for interpretation, known limits, and the provider verification record.

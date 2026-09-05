@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ProviderInvocation, ProviderResult } from "../types.js";
+import { stageCredentials } from "./credentials.js";
 import {
   assertSafeProviderExtraArgs,
   parseJsonText,
@@ -14,7 +15,7 @@ import {
 
 export async function runClaude(invocation: ProviderInvocation): Promise<ProviderResult> {
   assertSafeProviderExtraArgs("claude", invocation.extraArgs);
-  return withIsolatedProviderDirectory("claude", (isolationRoot) => {
+  return withIsolatedProviderDirectory("claude", async (isolationRoot) => {
     const workingDirectory = path.join(isolationRoot, "work");
     const isolatedHome = path.join(isolationRoot, "home");
     const isolatedConfig = path.join(isolatedHome, ".claude");
@@ -26,17 +27,23 @@ export async function runClaude(invocation: ProviderInvocation): Promise<Provide
     // leaving user memories, settings, plugins, hooks, and sessions behind.
     const sourceConfig = path.resolve(process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude"));
     const credentials = path.join(sourceConfig, ".credentials.json");
+    let persistCredentials: (() => void) | undefined;
     if (fs.existsSync(credentials) && fs.statSync(credentials).isFile()) {
       const destination = path.join(isolatedConfig, ".credentials.json");
-      fs.copyFileSync(credentials, destination);
-      fs.chmodSync(destination, fs.statSync(credentials).mode & 0o777);
+      persistCredentials = stageCredentials(credentials, destination);
     }
     const environment = subscriptionEnvironment("claude");
     environment.HOME = isolatedHome;
     environment.USERPROFILE = isolatedHome;
     environment.CLAUDE_CONFIG_DIR = isolatedConfig;
     environment.PLAYWRIGHT_BROWSERS_PATH = playwrightBrowsersPath();
-    return runIsolatedClaude(invocation, workingDirectory, environment);
+    try {
+      return await runIsolatedClaude(invocation, workingDirectory, environment);
+    } finally {
+      // OAuth refresh tokens may rotate. Discarding the refreshed isolated
+      // copy would leave the next scenario with an invalid old credential.
+      persistCredentials?.();
+    }
   });
 }
 

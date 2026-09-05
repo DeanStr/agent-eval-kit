@@ -1,0 +1,13 @@
+{
+  "contract": "total(items) returns the sum of integer unitPriceCents multiplied by quantity, with zero for an empty cart.",
+  "examples": [
+    { "items": [], "expected": 0 },
+    { "items": [{ "unitPriceCents": 199, "quantity": 3 }], "expected": 597 },
+    { "items": [{ "unitPriceCents": 199, "quantity": 3 }, { "unitPriceCents": 50, "quantity": 2 }], "expected": 697 }
+  ],
+  "variants": [
+    { "file": "working.mjs", "expected": "pass", "reason": "Multiplies every integer price by its quantity and sums the results." },
+    { "file": "quantity-ignored.mjs", "expected": "fail", "reason": "Ignores quantity: the three-item purchase returns 199 instead of 597." },
+    { "file": "missing.mjs", "expected": "not_found", "reason": "Exports itemCount only; the total operation does not exist." }
+  ]
+}

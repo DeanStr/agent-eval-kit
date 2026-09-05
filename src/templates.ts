@@ -100,6 +100,7 @@ rubric:
     scenarios: []
     grader:
       type: command
+      output: exit-code
       command: pnpm test
       timeoutSeconds: 300
     passCriteria: The configured test command exits successfully.

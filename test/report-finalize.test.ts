@@ -86,6 +86,15 @@ test("finalizing an unproven hybrid result scores only its manual share", () => 
   };
   const area = scoreArea({ spec, judgements: [automatic], evidence: [blocked], config });
   const report = buildReport({ runId: "run", startedAt: blocked.startedAt, config, areas: [area], receipt });
+  for (const items of [
+    [],
+    [{ ...area.items[0], components: undefined }],
+    [{ ...area.items[0], components: { automatic: "invalid" as "pass" } }],
+  ]) {
+    const malformed = { ...report, areas: [{ ...area, items }] };
+    assert.throws(() => finalizeReport({ runDir, report: malformed, specs: [spec], config, reviewer: "alice" }), /missing a valid automatic component/);
+    assert.equal(fs.existsSync(path.join(runDir, "manual-revisions.ndjson")), false);
+  }
   const retainedEvidence = path.join(runDir, "retained-evidence.txt");
   fs.writeFileSync(retainedEvidence, "trusted evidence");
 
@@ -236,7 +245,7 @@ test("a zero automatic share can fully pass through manual finalization", () => 
   };
   const area = scoreArea({
     spec,
-    judgements: [{ id: "H0", verdict: "cannot_judge", confidence: "low", reasoning: "No automatic share", evidenceRefs: [], source: "llm" }],
+    judgements: [],
     evidence: [],
     config,
   });

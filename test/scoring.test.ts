@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildReport, scoreArea } from "../src/scoring.js";
-import type { EvalConfig, EvalSpec, JudgedCase, JudgedItem, RunReceipt, ScenarioEvidence, Verdict } from "../src/types.js";
+import { campaignRunRecord, buildCampaignReport } from "../src/campaign.js";
+import type { EvalConfig, EvalSpec, JudgedCase, JudgedItem, RunReceipt, RunReport, ScenarioEvidence, Verdict } from "../src/types.js";
 
 const config = {
   scoring: { partialCredit: 0.5, minimumCoverage: 60 },
@@ -34,7 +35,7 @@ const spec: EvalSpec = {
   scenarios: [{ id: "S1", name: "Scenario", instructions: "Do it", successSignals: [], dependsOn: [], requiresAuth: false }],
   rubric: [
     { id: "R1", criterion: "One", weight: 3, tags: ["flow"], scenarios: ["S1"], grader: { type: "llm" }, passCriteria: "" },
-    { id: "R2", criterion: "Two", weight: 2, tags: ["tests"], scenarios: [], grader: { type: "command", command: "true" }, passCriteria: "" },
+    { id: "R2", criterion: "Two", weight: 2, tags: ["tests"], scenarios: [], grader: { type: "command", output: "exit-code", command: "true" }, passCriteria: "" },
   ],
 };
 
@@ -42,6 +43,36 @@ const judgements: JudgedItem[] = [
   { id: "R1", verdict: "fail", confidence: "high", reasoning: "not reached", evidenceRefs: ["x"], source: "llm" },
   { id: "R2", verdict: "pass", confidence: "high", reasoning: "ok", evidenceRefs: ["x"], source: "command" },
 ];
+
+test("pending hybrid reviews preserve automatic credit without claiming a campaign full pass", () => {
+  const hybrid: EvalSpec = { ...spec, rubric: [{ ...spec.rubric[0], grader: { type: "hybrid", autoShare: 0.5 }, gate: true }] };
+  const area = scoreArea({ spec: hybrid, config, evidence: [evidence("completed")], judgements: [{ ...judgements[0], verdict: "pass" }] });
+  assert.equal(area.coveragePct, 50);
+  assert.equal(area.scorePct, 100);
+  assert.equal(area.items[0].components?.automatic, "pass");
+  assert.equal(area.items[0].verdict, "cannot_judge");
+  assert.equal(area.gates[0].status, "unavailable");
+  const report = {
+    schemaVersion: 1, project: "Hybrid", target: { kind: "repository", root: "/project" },
+    startedAt: "now", finishedAt: "now", kitVersion: "0.1.0",
+    providers: { agent: { provider: "mock" }, judge: { provider: "mock" } },
+    byTag: {}, byStratum: {}, manualPending: 1,
+    runId: "hybrid", areas: [area], overallScorePct: 100, overallCoveragePct: 50,
+    scoreWithheld: true, gates: { passed: false, blocking: [] },
+    receipt: {
+      schemaVersion: 1, evaluationFingerprint: "e", inputFingerprint: "i",
+      inputs: { config: { sha256: "c", bytes: 1 }, methodSha256: "m", specs: {}, selection: { areas: [area.id] } },
+      target: { kind: "repository" },
+      providers: { agent: { provider: "mock", cliVersion: "mock" }, judge: { provider: "mock", cliVersion: "mock" } },
+      runtime: { kitVersion: "0.1.0", node: process.version, platform: process.platform, arch: process.arch },
+    },
+  } as RunReport;
+  const campaign = buildCampaignReport({ campaignId: "hybrid", project: "Hybrid", startedAt: "now", plannedRepetitions: 2,
+    runs: [1, 2].map(ordinal => campaignRunRecord(ordinal, `/runs/${ordinal}`, report)),
+  });
+  assert.equal(campaign.itemStability[0].fullPassRate, 0);
+  assert.equal(campaign.itemStability[0].verdicts.cannot_judge, 2);
+});
 
 test("negative evidence from an entirely blocked scenario is not scored as product failure", () => {
   const score = scoreArea({ spec, judgements, evidence: [evidence("blocked")], config });

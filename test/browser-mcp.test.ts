@@ -349,7 +349,7 @@ test("styled uploads never attach fixtures after an off-origin redirect", async 
   }
 });
 
-test("internal fill and custom-select clicks stop before inspecting a redirected origin", async () => {
+test("ambiguous fills do not click and custom-select clicks contain redirected origins", async () => {
   let externalInputEvents = 0;
   let externalOptionClicks = 0;
   const external = http.createServer((request, response) => {
@@ -400,7 +400,8 @@ test("internal fill and custom-select clicks stop before inspecting a redirected
     const fillRef = /\[(e\d+)\]\s*<button[^[]*Edit value/.exec(fillSnapshot)?.[1];
     assert.ok(fillRef, fillSnapshot);
     const fillResult = await session.fill(fillRef, "must not reach the external input");
-    assert.match(fillResult, /^BLOCKED:.*navigated off-target/);
+    assert.match(fillResult, /^ERROR:.*not an editable field/);
+    assert.equal(session.page.url(), `${targetUrl}/fill`, "fill must not activate the button");
 
     const openSnapshot = await session.navigate(`${targetUrl}/select-open`);
     const openRef = /\[(e\d+)\]\s*<button[^[]*Open choices/.exec(openSnapshot)?.[1];
@@ -457,7 +458,7 @@ test("failed fallback clicks cannot type into or select unrelated controls", asy
     assert.ok(editRef, snapshot);
     assert.ok(selectRef, snapshot);
 
-    assert.match(await session.fill(editRef, "must not be typed"), /could not be opened as a click-to-edit field/);
+    assert.match(await session.fill(editRef, "must not be typed"), /not an editable field/);
     assert.equal(await session.page.locator("#unrelated").inputValue(), "");
     assert.match(await session.select(selectRef, "Approved"), /could not be opened as a custom dropdown/);
     assert.equal(await session.page.locator("body").getAttribute("data-option-clicked"), null);

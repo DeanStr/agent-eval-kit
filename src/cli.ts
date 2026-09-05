@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import { captureAuth } from "./auth.js";
+import { throwIfCancelled, withCliSignals } from "./cancellation.js";
 import { listPromotedBaselines, loadPromotedBaseline, promoteBaseline } from "./baselines.js";
 import {
   buildCampaignReport,
@@ -43,6 +44,7 @@ import { initializeProject } from "./templates.js";
 import { createPublicExport, defaultPublicExportOutput, privacyLint } from "./public-export.js";
 import { PROVIDERS, type EvalConfig, type EvalSplit, type ProviderId, type RunReport } from "./types.js";
 import { KIT_VERSION } from "./version.js";
+import { assertEvaluationPlatform } from "./platform.js";
 
 interface Args { command: string; flags: Record<string, string | boolean>; positionals: string[] }
 
@@ -365,6 +367,8 @@ async function main(): Promise<void> {
   if (["help", "--help", "-h"].includes(args.command)) { console.log(help); return; }
   validateCliShape(args);
   if (args.flags.help) { console.log(help); return; }
+  if (args.command === "run" || args.command === "auth" ||
+      (args.command === "campaign" && args.positionals[0] !== "compare")) assertEvaluationPlatform();
   if (args.command === "init") { init(args.positionals[0] ?? "."); return; }
 
   if (args.command === "verify") {
@@ -626,6 +630,7 @@ async function main(): Promise<void> {
     const runs: CampaignRunRecord[] = [];
     const reports: RunReport[] = [];
     for (let ordinal = 1; ordinal <= repetitions; ordinal++) {
+      throwIfCancelled();
       console.log(`Campaign ${campaignId}: repetition ${ordinal}/${repetitions}`);
       try {
         const result = await runEvaluation({
@@ -655,6 +660,7 @@ async function main(): Promise<void> {
         plannedRepetitions: repetitions,
         runs,
       }));
+      throwIfCancelled();
     }
     const campaign = buildCampaignReport({
       campaignId,
@@ -668,6 +674,9 @@ async function main(): Promise<void> {
     const failures = reports.flatMap((report, index) =>
       evaluateCiThresholds(report, thresholds).map((failure) => `repetition ${runs.filter((run) => run.status === "complete")[index]?.ordinal}: ${failure}`),
     );
+    if (campaign.compatibility.status !== "compatible") {
+      failures.push(`campaign inputs are ${campaign.compatibility.status}; aggregate measurements are unavailable`);
+    }
     for (const failure of failures) console.error(`CI campaign failed: ${failure}`);
     if (runs.some((run) => run.status === "failed")) process.exitCode = 1;
     else if (failures.length) process.exitCode = 2;
@@ -690,7 +699,8 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
+const execute = ["run", "campaign"].includes(process.argv[2]) ? () => withCliSignals(main) : main;
+execute().catch((error) => {
   console.error(error instanceof Error ? error.stack ?? error.message : String(error));
-  process.exitCode = 1;
+  if (process.exitCode !== 130 && process.exitCode !== 143) process.exitCode = 1;
 });

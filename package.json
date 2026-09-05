@@ -1,6 +1,6 @@
 {
   "name": "agent-eval-kit",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Provider-neutral project evaluation harness powered by Codex, Claude Code, or Grok Build subscriptions.",
   "type": "module",
   "bin": {
@@ -11,8 +11,7 @@
   "files": [
     "dist",
     "docs",
-    "README.md",
-    "LICENSE"
+    "README.md"
   ],
   "engines": {
     "node": ">=20.12.0"
@@ -24,6 +23,9 @@
     "test": "node --import tsx --test test/*.test.ts",
     "smoke:browser": "tsx scripts/browser-smoke.ts",
     "smoke:browser:full": "tsx scripts/browser-regression.ts",
+    "smoke:package": "tsx scripts/package-smoke.ts",
+    "smoke:provider": "tsx scripts/reference-eval.ts --smoke",
+    "test:reference": "tsx scripts/reference-eval.ts",
     "install:browser": "playwright install chromium",
     "aek": "tsx src/cli.ts",
     "prepack": "pnpm build"

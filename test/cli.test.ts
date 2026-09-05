@@ -4,12 +4,35 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import YAML from "yaml";
 import { writeArtifactIndex } from "../src/integrity.js";
 
 const kitRoot = path.resolve(import.meta.dirname, "..");
 const cli = path.join(kitRoot, "src", "cli.ts");
 const tsxCli = path.join(kitRoot, "node_modules", "tsx", "dist", "cli.mjs");
 const temporary = () => fs.mkdtempSync(path.join(os.tmpdir(), "aek-cli-test-"));
+
+test("CLI campaigns fail when individually passing repetitions use different target inputs", () => {
+  const root = temporary();
+  try {
+    writeProject(root);
+    const file = path.join(root, "specs/core.yaml");
+    const spec = YAML.parse(fs.readFileSync(file, "utf8"));
+    spec.rubric[0].grader.command = `${JSON.stringify(process.execPath)} -e "require('node:fs').appendFileSync('target.txt','changed')"`;
+    fs.writeFileSync(file, YAML.stringify(spec));
+    const output = path.join(root, "campaign");
+    const result = runCli(root, ["campaign", "--repetitions", "2", "--output", output, "--fail-under-score", "100", "--fail-under-coverage", "100"]);
+    assert.equal(result.status, 2, result.stderr);
+    const campaign = JSON.parse(fs.readFileSync(path.join(output, "campaign.json"), "utf8"));
+    assert.ok(campaign.runs.every((run: { scorePct: number }) => run.scorePct === 100));
+    assert.equal(campaign.compatibility.status, "incompatible");
+    assert.equal(campaign.scorePct.state, "unavailable");
+    assert.match(result.stderr, /campaign inputs are incompatible/);
+    assert.ok(fs.existsSync(path.join(output, "campaign.html")));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function runCli(cwd: string, args: string[]) {
   return spawnSync(process.execPath, [tsxCli, cli, ...args], {
@@ -19,6 +42,49 @@ function runCli(cwd: string, args: string[]) {
     maxBuffer: 10 * 1024 * 1024,
   });
 }
+
+test("CLI execution faults fail without thresholds while valid abstentions remain reports", () => {
+  for (const fault of ["command-exit", "command-json", "judge-exit", "judge-timeout", "judge-schema", "scenario-exit", "abstention"]) {
+    const root = temporary();
+    try {
+      writeProject(root);
+      const bin = path.join(root, "bin");
+      fs.mkdirSync(bin);
+      const answer = { items: [{ id: "R1", verdict: "cannot_judge", confidence: "low", reasoning: "Evidence is inconclusive", evidenceRefs: [] }], cases: [], defects: [], notes: "" };
+      const behavior = fault === "judge-timeout" ? "setInterval(() => {}, 1000);"
+        : fault === "judge-schema" ? 'console.log(JSON.stringify({type:"result",structured_output:{invalid:true}}));'
+        : fault === "abstention" ? `console.log(JSON.stringify({type:"result",structured_output:${JSON.stringify(answer)}}));`
+        : 'console.error("provider execution failed"); process.exit(7);';
+      fs.writeFileSync(path.join(bin, "claude"), `#!${process.execPath}\nif (process.argv.includes("--version")) { console.log("test-provider 1.0"); } else { ${behavior} }\n`, { mode: 0o755 });
+      const configFile = path.join(root, "evalkit.yaml");
+      const config = YAML.parse(fs.readFileSync(configFile, "utf8"));
+      if (fault.startsWith("judge") || fault === "abstention") config.judge = { provider: "claude", timeoutSeconds: 1 };
+      if (fault === "scenario-exit") config.agent = { provider: "claude", timeoutSeconds: 1 };
+      fs.writeFileSync(configFile, YAML.stringify(config));
+      const specFile = path.join(root, "specs", "core.yaml");
+      const spec = YAML.parse(fs.readFileSync(specFile, "utf8"));
+      spec.rubric[0].gate = false;
+      if (fault.startsWith("judge") || fault === "abstention") spec.rubric[0].grader = { type: "llm" };
+      else spec.rubric[0].grader = fault === "command-json"
+        ? { type: "command", output: "json", command: `${JSON.stringify(process.execPath)} -e 'console.log(JSON.stringify({verdict:"faill",reasoning:"broken"}))'` }
+        : { type: "command", output: "exit-code", command: `${JSON.stringify(process.execPath)} -e "process.exit(127)"` };
+      fs.writeFileSync(specFile, YAML.stringify(spec));
+      const result = spawnSync(process.execPath, [tsxCli, cli, "run"], {
+        cwd: root, encoding: "utf8", timeout: 20_000,
+        env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}` },
+      });
+      assert.equal(result.status, fault === "abstention" ? 0 : 1, `${fault}: ${result.stderr}`);
+      const runDir = path.join(root, "runs", fs.readdirSync(path.join(root, "runs"))[0]);
+      const state = JSON.parse(fs.readFileSync(path.join(runDir, "run-state.json"), "utf8"));
+      assert.equal(state.status, fault === "abstention" ? "complete" : "failed");
+      assert.equal(fs.existsSync(path.join(runDir, ".run.lock")), false);
+      if (fault.startsWith("judge")) assert.ok(fs.existsSync(path.join(runDir, "areas", "core", "_judge", "provider-run.json")));
+      if (fault === "scenario-exit") assert.equal(JSON.parse(fs.readFileSync(path.join(runDir, "S1", "evidence.json"), "utf8")).outcome, "agent_error");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
 
 function writeProject(root: string, fixtureLine = ""): void {
   fs.mkdirSync(path.join(root, "specs"), { recursive: true });
@@ -51,7 +117,7 @@ rubric:
     weight: 1
     gate: true
     scenarios: []
-    grader: { type: command, command: ${JSON.stringify(failingCommand)} }
+    grader: { type: command, output: exit-code, command: ${JSON.stringify(failingCommand)} }
     passCriteria: The command exits successfully.
 `,
   );

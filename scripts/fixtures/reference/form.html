@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Profile</title>
+<label>Display name <input id="name"></label>
+<button id="save">Save</button>
+<p id="saved"></p>
+<script>
+  const nameInput = document.getElementById('name');
+  const saved = document.getElementById('saved');
+  function render() {
+    const name = localStorage.getItem('display-name') || '';
+    nameInput.value = name;
+    saved.textContent = name ? 'Saved name: ' + name : 'No name saved';
+  }
+  document.getElementById('save').addEventListener('click', () => {
+    localStorage.setItem('display-name', nameInput.value);
+    render();
+  });
+  render();
+</script>
+</html>

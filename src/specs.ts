@@ -9,6 +9,7 @@ const graderSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("llm") }).strict(),
   z.object({
     type: z.literal("command"),
+    output: z.enum(["json", "exit-code"]),
     command: z.string().min(1),
     cwd: z.union([z.literal("project"), z.literal("run"), z.string().min(1)]).optional(),
     timeoutSeconds: z.number().positive().optional(),

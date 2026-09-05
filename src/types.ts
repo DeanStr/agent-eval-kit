@@ -97,6 +97,7 @@ export interface ScenarioCase {
 
 export interface CommandGrader {
   type: "command";
+  output: "json" | "exit-code";
   command: string;
   cwd?: "project" | "run" | string;
   timeoutSeconds?: number;

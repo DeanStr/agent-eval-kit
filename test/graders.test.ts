@@ -77,7 +77,7 @@ test("judge provider launch failures propagate instead of becoming cannot_judge"
   }
 });
 
-test("command grader process status overrides optimistic structured output", async () => {
+test("command graders enforce explicit output contracts and fail on execution errors", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-graders-"));
   const config: EvalConfig = {
     version: 1,
@@ -94,12 +94,12 @@ test("command grader process status overrides optimistic structured output", asy
   const items: RubricItem[] = [
     {
       id: "TIMEOUT", criterion: "Must finish", weight: 1, tags: [], scenarios: [],
-      grader: { type: "command", command: command(`${optimistic};setInterval(function(){},1000)`), timeoutSeconds: 0.05 },
+      grader: { type: "command", output: "exit-code", command: command(`${optimistic};setInterval(function(){},1000)`), timeoutSeconds: 0.05 },
       passCriteria: "The command exits successfully.",
     },
     {
       id: "NONZERO", criterion: "Must exit zero", weight: 1, tags: [], scenarios: [],
-      grader: { type: "command", command: command(`${optimistic};process.exit(1)`) },
+      grader: { type: "command", output: "exit-code", command: command(`${optimistic};process.exit(1)`) },
       passCriteria: "The command exits successfully.",
     },
   ];
@@ -108,17 +108,29 @@ test("command grader process status overrides optimistic structured output", asy
     scenarios: [], rubric: items, sourceFile: path.join(root, "unused.yaml"),
   };
 
-  const result = await judgeArea({ config, spec, evidence: [], runDir: root, areaDirectory: path.join(root, "area") });
-  assert.equal(result.items.find((item) => item.id === "TIMEOUT")?.verdict, "cannot_judge");
-  assert.match(result.items.find((item) => item.id === "TIMEOUT")?.reasoning ?? "", /timed out/);
-  assert.equal(result.items.find((item) => item.id === "NONZERO")?.verdict, "fail");
-  assert.match(
-    result.items.find((item) => item.id === "NONZERO")?.reasoning ?? "",
-    /Command exited 1, overriding the structured pass verdict\. optimistic/,
-  );
+  const grade = (item: RubricItem) => judgeArea({ config, spec: { ...spec, rubric: [item] }, evidence: [], runDir: root, areaDirectory: path.join(root, "area") });
+  await assert.rejects(grade(items[0]), /timed out/);
+  assert.equal((await grade(items[1])).items[0].verdict, "fail");
+  for (const [exit, verdict] of ["pass", "fail", "partial", "cannot_judge", "not_found"].entries()) {
+    const result = await grade({ ...items[1], grader: { type: "command", output: "exit-code", command: command(`process.exit(${exit})`) } });
+    assert.equal(result.items[0].verdict, verdict);
+  }
+  for (const [code, expected] of [
+    ['console.log(JSON.stringify({verdict:"faill",reasoning:"broken output"}))', /invalid structured output/],
+    ['console.log("{broken")', /exact JSON object/],
+    ['console.log(String.fromCharCode(96).repeat(3)+"json\\n{}\\n"+String.fromCharCode(96).repeat(3))', /exact JSON object/],
+    [`${optimistic};process.exit(1)`, /JSON grader exited 1/],
+    ['console.log(JSON.stringify({verdict:"pass",reasoning:"ok",unexpected:true}))', /invalid structured output/],
+  ] as const) {
+    await assert.rejects(grade({ ...items[1], grader: { type: "command", output: "json", command: command(code) } }), expected);
+  }
+  const json = await grade({ ...items[1], grader: { type: "command", output: "json", command: command('console.log(JSON.stringify({verdict:"fail",reasoning:"Real defect"}))') } });
+  assert.equal(json.items[0].verdict, "fail");
+  await assert.rejects(grade({ ...items[1], grader: { type: "command", output: "exit-code", command: command('process.exit(127)') } }), /unexpected exit code 127/);
+  assert.ok(fs.existsSync(path.join(root, "area", "graders", "TIMEOUT.stdout.txt")));
 });
 
-test("judge policy violations make otherwise valid verdicts unavailable", async () => {
+test("judge policy violations abort while retaining diagnostics", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-judge-policy-"));
   const bin = path.join(root, "bin");
   fs.mkdirSync(bin);
@@ -172,35 +184,29 @@ fs.writeFileSync(output, ${JSON.stringify(JSON.stringify(structured))});
   const originalPath = process.env.PATH;
   process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
   try {
-    const result = await judgeArea({ config, spec, evidence: [evidence], runDir: root, areaDirectory: path.join(root, "area") });
-    assert.equal(result.items[0].verdict, "cannot_judge");
-    assert.match(result.items[0].reasoning, /evidence-boundary violation.*Read/);
+    await assert.rejects(judgeArea({ config, spec, evidence: [evidence], runDir: root, areaDirectory: path.join(root, "area") }), /evidence-boundary violation.*Read/);
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, "area", "_judge", "provider-run.json"), "utf8")).policyViolations, ["Read"]);
 
-    const noMcpResult = await judgeArea({
+    await assert.rejects(judgeArea({
       config,
       spec,
       evidence: [{ ...evidence, screenshots: [] }],
       runDir: root,
       areaDirectory: path.join(root, "area-no-mcp"),
-    });
-    assert.equal(noMcpResult.items[0].verdict, "cannot_judge");
-    assert.match(noMcpResult.items[0].reasoning, /evidence-boundary violation.*Read/);
+    }), /evidence-boundary violation.*Read/);
     assert.deepEqual(
       JSON.parse(fs.readFileSync(path.join(root, "area-no-mcp", "_judge", "provider-run.json"), "utf8")).policyViolations,
       ["Read"],
     );
 
     const codexConfig: EvalConfig = { ...config, judge: { ...config.judge, provider: "codex" } };
-    const codexResult = await judgeArea({
+    await assert.rejects(judgeArea({
       config: codexConfig,
       spec,
       evidence: [evidence],
       runDir: root,
       areaDirectory: path.join(root, "area-codex"),
-    });
-    assert.equal(codexResult.items[0].verdict, "cannot_judge");
-    assert.match(codexResult.items[0].reasoning, /evidence-boundary violation.*command_execution/);
+    }), /evidence-boundary violation.*command_execution/);
     assert.deepEqual(
       JSON.parse(fs.readFileSync(path.join(root, "area-codex", "_judge", "provider-run.json"), "utf8")).policyViolations,
       ["command_execution"],
@@ -442,16 +448,9 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
   const originalPath = process.env.PATH;
   process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
   try {
-    const result = await judgeArea({
-      config,
-      spec,
-      evidence: [evidence],
-      runDir: root,
-      areaDirectory: path.join(root, "area"),
-    });
-    assert.equal(result.items[0].verdict, "cannot_judge");
-    assert.equal(result.cases[0].verdict, "cannot_judge");
-    assert.match(result.notes, /duplicate rubric item IDs \(LLM\).*duplicate case identities \(LLM\/a\)/);
+    await assert.rejects(judgeArea({
+      config, spec, evidence: [evidence], runDir: root, areaDirectory: path.join(root, "area"),
+    }), /duplicate rubric item IDs \(LLM\).*duplicate case identities \(LLM\/a\)/);
   } finally {
     if (originalPath === undefined) delete process.env.PATH;
     else process.env.PATH = originalPath;

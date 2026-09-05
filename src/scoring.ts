@@ -79,15 +79,19 @@ export function scoreArea(options: {
   caseResults?: JudgedCase[];
 }): AreaResult {
   const { spec, judgements, evidence, config } = options;
-  // A rescore may intentionally change a hybrid share. Rebuild any finalized
-  // aggregate from its retained component verdicts instead of trusting the
-  // aggregate produced under the old share.
+  // Retain the automatic verdict separately from the aggregate from the first
+  // scoring pass. Pending human work must never look like a full hybrid pass.
+  // Rescores also rebuild aggregates under the current configured shares.
   const normalizedJudgements = judgements.map((item) => {
     const rubric = spec.rubric.find((candidate) => candidate.id === item.id);
-    if (rubric?.grader.type !== "hybrid" || !item.components) return item;
+    if (rubric?.grader.type !== "hybrid") return item;
+    const components = item.components ?? (item.source === "manual"
+      ? { manual: item.verdict }
+      : { automatic: item.verdict });
     return {
       ...item,
-      verdict: hybridAggregateVerdict(item.components, rubric.grader.autoShare),
+      components,
+      verdict: hybridAggregateVerdict(components, rubric.grader.autoShare),
     };
   });
   const byId = new Map(normalizedJudgements.map((item) => [item.id, item]));
@@ -122,7 +126,7 @@ export function scoreArea(options: {
         earned = rubric.weight * points;
       }
     } else if (rubric.grader.type === "hybrid") {
-      const automaticVerdict = item?.components?.automatic ?? (item?.source !== "manual" ? item?.verdict : undefined);
+      const automaticVerdict = item?.components?.automatic;
       const manualVerdict = item?.components?.manual;
       const automaticPoints = automaticVerdict
         ? verdictPoints(automaticVerdict, config.scoring.partialCredit)

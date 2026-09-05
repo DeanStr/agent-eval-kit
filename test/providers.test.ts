@@ -28,6 +28,37 @@ function providerInvocation(root: string): ProviderInvocation {
   };
 }
 
+test("Claude carries rotated isolated credentials into the next invocation", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-claude-refresh-"));
+  const bin = path.join(root, "bin");
+  const config = path.join(root, "config");
+  fs.mkdirSync(bin);
+  fs.mkdirSync(config);
+  fs.writeFileSync(path.join(config, ".credentials.json"), JSON.stringify({ generation: 0 }), { mode: 0o600 });
+  const executable = path.join(bin, "claude");
+  fs.writeFileSync(executable, `#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+const file = path.join(process.env.CLAUDE_CONFIG_DIR, '.credentials.json');
+const { generation } = JSON.parse(fs.readFileSync(file, 'utf8'));
+fs.writeFileSync(file, JSON.stringify({ generation: generation + 1 }));
+console.log(JSON.stringify({ type: 'result', result: JSON.stringify({ generation }), structured_output: { generation } }));
+`, { mode: 0o755 });
+  const originalPath = process.env.PATH;
+  const originalConfig = process.env.CLAUDE_CONFIG_DIR;
+  process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
+  process.env.CLAUDE_CONFIG_DIR = config;
+  try {
+    assert.deepEqual((await runClaude(providerInvocation(root))).structured, { generation: 0 });
+    assert.deepEqual((await runClaude(providerInvocation(root))).structured, { generation: 1 });
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(config, ".credentials.json"), "utf8")), { generation: 2 });
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH; else process.env.PATH = originalPath;
+    if (originalConfig === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = originalConfig;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Playwright browser path is resolved before provider HOME isolation", () => {
   const root = path.join(os.tmpdir(), "aek-playwright-cache-origin");
   assert.equal(

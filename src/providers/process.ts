@@ -3,7 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
-import { terminateWindowsTree } from "../process-tree.js";
+import { terminateProcessTree } from "../process-tree.js";
+import { cancellationSignal } from "../cancellation.js";
+import { assertEvaluationPlatform } from "../platform.js";
 
 export interface SpawnResult {
   exitCode: number | null;
@@ -34,24 +36,8 @@ export function shellInvocation(
   script: string,
   platform: NodeJS.Platform = process.platform,
 ): { command: string; args: string[] } {
-  if (platform !== "win32") {
-    return { command: "bash", args: ["--noprofile", "--norc", "-c", script] };
-  }
-  // PowerShell itself normally exits zero after a failed native program. Save
-  // the status immediately after the configured script and make it the shell's
-  // status, while retaining normal last-command semantics for successful
-  // PowerShell cmdlets.
-  const wrapped = `& {
-${script}
-$_aekCommandSucceeded = $?
-$_aekNativeExitCode = $LASTEXITCODE
-if (-not $_aekCommandSucceeded) {
-  if ($null -ne $_aekNativeExitCode -and $_aekNativeExitCode -ne 0) { exit $_aekNativeExitCode }
-  exit 1
-}
-exit 0
-}`;
-  return { command: "powershell", args: ["-NoProfile", "-NonInteractive", "-Command", wrapped] };
+  assertEvaluationPlatform(platform);
+  return { command: "bash", args: ["--noprofile", "--norc", "-c", script] };
 }
 
 const MAX_CAPTURE = 12 * 1024 * 1024;
@@ -67,6 +53,9 @@ export async function spawnCaptured(options: {
   stderrFile: string;
   onLine?: (stream: "stdout" | "stderr", line: string) => void;
 }): Promise<SpawnResult> {
+  assertEvaluationPlatform();
+  const signal = cancellationSignal();
+  signal?.throwIfAborted();
   fs.mkdirSync(path.dirname(options.stdoutFile), { recursive: true });
   fs.mkdirSync(path.dirname(options.stderrFile), { recursive: true });
   const stdoutStream = fs.createWriteStream(options.stdoutFile, { flags: "w" });
@@ -80,7 +69,7 @@ export async function spawnCaptured(options: {
       cwd: options.cwd,
       env: options.env,
       stdio: ["pipe", "pipe", "pipe"],
-      detached: process.platform !== "win32",
+      detached: true,
     });
     let stdout = "";
     let stderr = "";
@@ -91,9 +80,7 @@ export async function spawnCaptured(options: {
     let decodersFlushed = false;
     let timedOut = false;
     let settled = false;
-    let killTimer: NodeJS.Timeout | undefined;
-    let killConfirmationTimer: NodeJS.Timeout | undefined;
-    const terminationErrors: Error[] = [];
+    let termination: Promise<void> | undefined;
 
     const capture = (current: string, chunk: string) => {
       const next = current + chunk;
@@ -135,24 +122,18 @@ export async function spawnCaptured(options: {
         stream.end();
       });
 
-    const terminate = async (signal: NodeJS.Signals) => {
-      if (!child.pid) return;
-      if (process.platform === "win32") {
-        await terminateWindowsTree(child.pid, signal === "SIGKILL");
-        return;
-      }
-      try {
-        process.kill(-child.pid, signal);
-      } catch {
-        child.kill(signal);
-      }
-    };
     const finish = async (result: SpawnResult | undefined, error?: Error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (killTimer) clearTimeout(killTimer);
-      if (killConfirmationTimer) clearTimeout(killConfirmationTimer);
+      // A closed leader does not imply its descendants exited. Keep the
+      // escalation alive and await it before returning or removing isolation.
+      try {
+        await termination;
+      } catch (terminationError) {
+        error = terminationError as Error;
+      }
+      signal?.removeEventListener("abort", onAbort);
       if (!decodersFlushed) {
         decodersFlushed = true;
         const stdoutTail = stdoutDecoder.end();
@@ -183,36 +164,39 @@ export async function spawnCaptured(options: {
         return;
       }
       if (error) reject(error);
+      else if (signal?.aborted) reject(signal.reason);
       else resolve(result!);
     };
 
-    const terminationFailure = (message: string) => {
-      child.stdout.destroy();
-      child.stderr.destroy();
-      child.stdin.destroy();
-      child.unref();
-      const causes = terminationErrors.map((error) => error.message).join("; ");
-      void finish(undefined, new Error(`${message}${causes ? `: ${causes}` : ""}`));
+    const stop = () => {
+      if (termination) return;
+      termination = terminateProcessTree(child);
+      void termination.then(() => {
+        // A detached descendant outside our process group may have inherited
+        // pipes. Once the owned tree has exited, those pipes cannot hold the
+        // invocation open indefinitely.
+        if (!settled) {
+          child.stdout.destroy();
+          child.stderr.destroy();
+          child.stdin.destroy();
+          void finish({ exitCode: child.exitCode, signal: child.signalCode, timedOut, stdout, stderr });
+        }
+      }, (error: Error) => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        child.stdin.destroy();
+        child.unref();
+        void finish(undefined, error);
+      });
     };
+    const onAbort = () => stop();
 
     const timer = setTimeout(() => {
       timedOut = true;
-      void terminate("SIGTERM").catch((error: Error) => terminationErrors.push(error));
-      killTimer = setTimeout(() => {
-        if (settled) return;
-        void terminate("SIGKILL").then(() => {
-          killConfirmationTimer = setTimeout(() => {
-            if (!settled) terminationFailure(`Timed-out process ${child.pid ?? "(unknown pid)"} remained alive after forced termination`);
-          }, 1_000);
-          killConfirmationTimer.unref();
-        }).catch((error: Error) => {
-          terminationErrors.push(error);
-          terminationFailure(`Unable to terminate timed-out process ${child.pid ?? "(unknown pid)"}`);
-        });
-      }, 5_000);
-      killTimer.unref();
+      stop();
     }, options.timeoutSeconds * 1000);
     timer.unref();
+    signal?.addEventListener("abort", onAbort, { once: true });
 
     child.on("error", (error) => {
       void finish(undefined, error);
@@ -279,8 +263,6 @@ export function playwrightBrowsersPath(environment: NodeJS.ProcessEnv = process.
     cacheDirectory = environment.XDG_CACHE_HOME ?? path.join(os.homedir(), ".cache");
   } else if (process.platform === "darwin") {
     cacheDirectory = path.join(os.homedir(), "Library", "Caches");
-  } else if (process.platform === "win32") {
-    cacheDirectory = environment.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local");
   } else {
     throw new Error(`Playwright is unsupported on platform ${process.platform}`);
   }

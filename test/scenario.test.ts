@@ -5,7 +5,12 @@ import path from "node:path";
 import test from "node:test";
 import { personaAuthPath } from "../src/auth.js";
 import { executeScenario } from "../src/scenario.js";
-import type { EvalConfig, EvalSpec, Scenario } from "../src/types.js";
+import type { EvalConfig, EvalSpec, Scenario, ScenarioEvidence } from "../src/types.js";
+
+async function failedScenario(options: Parameters<typeof executeScenario>[0]): Promise<ScenarioEvidence> {
+  await assert.rejects(executeScenario(options), /retained scenario diagnostics/);
+  return JSON.parse(fs.readFileSync(path.join(options.directory, "evidence.json"), "utf8"));
+}
 
 function workspaceFixture(root: string): { config: EvalConfig; spec: EvalSpec; scenario: Scenario } {
   const scenario: Scenario = {
@@ -115,7 +120,7 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
   const originalPath = process.env.PATH;
   process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
   try {
-    const result = await executeScenario({ config, spec, scenario, fixtures: {}, directory });
+    const result = await failedScenario({ config, spec, scenario, fixtures: {}, directory });
     assert.equal(result.outcome, "agent_error");
     assert.match(result.summary, /did not finalize evidence through the workspace MCP done tool/);
     assert.match(result.error ?? "", /did not call the workspace MCP done tool/);
@@ -184,7 +189,7 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
   const originalPath = process.env.PATH;
   process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
   try {
-    const result = await executeScenario({ config, spec, scenario, fixtures: {}, directory });
+    const result = await failedScenario({ config, spec, scenario, fixtures: {}, directory });
     assert.equal(result.outcome, "agent_error");
     assert.match(result.summary, /without first collecting evidence through the workspace MCP/);
     assert.match(result.error ?? "", /did not perform a successful workspace evidence-gathering MCP action/);
@@ -246,7 +251,7 @@ process.exit(1);
   const originalPath = process.env.PATH;
   process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
   try {
-    const result = await executeScenario({ config, spec, scenario, fixtures: {}, directory });
+    const result = await failedScenario({ config, spec, scenario, fixtures: {}, directory });
     assert.equal(result.outcome, "agent_error");
     assert.match(result.summary, /provider exited 1/);
     assert.match(result.error ?? "", /Provider exited 1/);
@@ -328,14 +333,14 @@ ${fail ? "process.exit(1);" : ""}
   try {
     writeProvider(true);
     const failedDirectory = path.join(root, "failed");
-    const failed = await executeScenario({ config, spec, scenario, fixtures: {}, directory: failedDirectory });
+    const failed = await failedScenario({ config, spec, scenario, fixtures: {}, directory: failedDirectory });
     assert.equal(failed.outcome, "agent_error");
     assert.match(fs.readFileSync(sharedState, "utf8"), /trusted/);
     assert.equal(fs.existsSync(path.join(failedDirectory, ".storage-state.candidate.json")), false);
 
     writeProvider(false, { outcome: "completed" });
     const malformedDirectory = path.join(root, "malformed");
-    const malformed = await executeScenario({ config, spec, scenario, fixtures: {}, directory: malformedDirectory });
+    const malformed = await failedScenario({ config, spec, scenario, fixtures: {}, directory: malformedDirectory });
     assert.equal(malformed.outcome, "agent_error");
     assert.match(malformed.summary, /invalid structured output/i);
     assert.match(fs.readFileSync(sharedState, "utf8"), /trusted/);

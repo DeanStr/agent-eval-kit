@@ -340,5 +340,8 @@ export async function executeScenario(options: {
     error,
   };
   writeJson(path.join(directory, "evidence.json"), evidence);
+  if (providerFailed) {
+    throw new Error(`${summary} See ${directory} for retained scenario diagnostics.`);
+  }
   return evidence;
 }

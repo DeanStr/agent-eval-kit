@@ -23,12 +23,12 @@ rubric:
     weight: 3
     tags: [correctness, types]
     scenarios: []
-    grader: { type: command, command: pnpm typecheck, timeoutSeconds: 180 }
+    grader: { type: command, output: exit-code, command: pnpm typecheck, timeoutSeconds: 180 }
     passCriteria: The typecheck command exits zero.
   - id: REPO-03
     criterion: Automated tests pass
     weight: 3
     tags: [correctness, tests]
     scenarios: []
-    grader: { type: command, command: pnpm test, timeoutSeconds: 300 }
+    grader: { type: command, output: exit-code, command: pnpm test, timeoutSeconds: 300 }
     passCriteria: The test command exits zero.

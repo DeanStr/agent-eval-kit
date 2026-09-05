@@ -5,7 +5,7 @@ import { safeName, writeJson } from "./io.js";
 import { EVIDENCE_TOOL_NAMES, evidenceMcpLaunch, writeMcpConfig } from "./mcp-config.js";
 import { canonicalEvidenceRefs, caseJudgeRequests, judgePrompt } from "./prompts.js";
 import { runProvider } from "./providers/index.js";
-import { parseJsonText, shellInvocation, spawnCaptured } from "./providers/process.js";
+import { shellInvocation, spawnCaptured } from "./providers/process.js";
 import { judgementOutputSchema, judgementOutputValidator } from "./schemas.js";
 import type {
   Defect,
@@ -24,7 +24,7 @@ const commandOutputValidator = z.object({
   reasoning: z.string(),
   evidenceRefs: z.array(z.string()).default([]),
   confidence: z.enum(["high", "medium", "low"]).default("high"),
-});
+}).strict();
 
 function commandCwd(item: RubricItem, config: EvalConfig, runDir: string): string {
   if (item.grader.type !== "command") return config.project.root;
@@ -41,6 +41,9 @@ async function runCommandGrader(options: {
 }): Promise<JudgedItem> {
   const { item, config, runDir, directory } = options;
   if (item.grader.type !== "command") throw new Error("Expected command grader");
+  if (item.grader.output !== "json" && item.grader.output !== "exit-code") {
+    throw new Error(`Command grader ${item.id} requires output: json or exit-code`);
+  }
   fs.mkdirSync(directory, { recursive: true });
   const stdoutFile = path.join(directory, `${safeName(item.id)}.stdout.txt`);
   const stderrFile = path.join(directory, `${safeName(item.id)}.stderr.txt`);
@@ -59,11 +62,19 @@ async function runCommandGrader(options: {
     stdoutFile,
     stderrFile,
   });
-  const parsed = commandOutputValidator.safeParse(parseJsonText(result.stdout));
-  // Process status is authoritative. In particular, a command must not be able
-  // to print a passing JSON object and then hang until AEK kills it, or exit
-  // unsuccessfully after emitting an optimistic intermediate result.
-  if (!result.timedOut && result.exitCode === 0 && parsed.success) {
+  const diagnostic = `Command grader ${item.id}; see ${stderrFile} and ${stdoutFile}`;
+  if (result.timedOut) throw new Error(`${diagnostic}: timed out after ${item.grader.timeoutSeconds ?? 300}s`);
+  if (result.exitCode === null) throw new Error(`${diagnostic}: terminated by ${result.signal ?? "an unknown signal"}`);
+  if (item.grader.output === "json") {
+    if (result.exitCode !== 0) throw new Error(`${diagnostic}: JSON grader exited ${result.exitCode}; expected exit 0`);
+    let output: unknown;
+    try {
+      output = JSON.parse(result.stdout);
+    } catch {
+      throw new Error(`${diagnostic}: expected an exact JSON object on stdout`);
+    }
+    const parsed = commandOutputValidator.safeParse(output);
+    if (!parsed.success) throw new Error(`${diagnostic}: invalid structured output`);
     return {
       id: item.id,
       ...parsed.data,
@@ -80,24 +91,15 @@ async function runCommandGrader(options: {
     3: "cannot_judge",
     4: "not_found",
   };
-  const verdict = result.timedOut ? "cannot_judge" : byExit[result.exitCode ?? 3] ?? "cannot_judge";
+  const verdict = byExit[result.exitCode];
+  if (!verdict) throw new Error(`${diagnostic}: unexpected exit code ${result.exitCode}; expected 0 through 4`);
   const output = result.stdout.trim() || result.stderr.trim();
-  const structuredRefs = parsed.success ? parsed.data.evidenceRefs : [];
-  const exitDescription = result.exitCode === null
-    ? `Command terminated${result.signal ? ` by ${result.signal}` : " without an exit code"}`
-    : `Command exited ${result.exitCode}`;
   return {
     id: item.id,
     verdict,
     confidence: verdict === "cannot_judge" ? "low" : "high",
-    reasoning: result.timedOut
-      ? `Command grader timed out after ${item.grader.timeoutSeconds ?? 300}s.`
-      : parsed.success
-        ? `${exitDescription}, overriding the structured ${parsed.data.verdict} verdict. ${parsed.data.reasoning}`
-        : `${exitDescription}.${output ? ` ${output.slice(0, 1_000)}` : ""}`,
-    evidenceRefs: structuredRefs.length
-      ? structuredRefs
-      : [`graders/${path.basename(stdoutFile)}`, `graders/${path.basename(stderrFile)}`],
+    reasoning: `Command exited ${result.exitCode}.${output ? ` ${output.slice(0, 1_000)}` : ""}`,
+    evidenceRefs: [`graders/${path.basename(stdoutFile)}`, `graders/${path.basename(stderrFile)}`],
     source: "command",
   };
 }
@@ -191,15 +193,6 @@ async function runLlmJudge(options: {
 }): Promise<{ items: JudgedItem[]; cases: JudgedCase[]; defects: Defect[]; notes: string }> {
   const { config, spec, items, evidence, runDir, directory } = options;
   const requestedCases = caseJudgeRequests(items, evidence);
-  const unavailableCases = (reasoning: string): JudgedCase[] => requestedCases.map((request) => ({
-    areaId: spec.id,
-    ...request,
-    verdict: "cannot_judge",
-    confidence: "low",
-    reasoning,
-    evidenceRefs: [],
-    source: "llm",
-  }));
   fs.mkdirSync(directory, { recursive: true });
   const promptFile = path.join(directory, "prompt.md");
   const outputFile = path.join(directory, "provider-final.json");
@@ -303,19 +296,7 @@ async function runLlmJudge(options: {
           : duplicateIdentityError
             ? `Judge returned invalid structured output: ${duplicateIdentityError}.`
           : `Judge returned invalid structured output: ${invalidOutput}`;
-    return {
-      items: items.map((item) => ({
-        id: item.id,
-        verdict: "cannot_judge",
-        confidence: "low",
-        reasoning: reason,
-        evidenceRefs: [],
-        source: "llm",
-      })),
-      cases: unavailableCases(reason),
-      defects: [],
-      notes: reason,
-    };
+    throw new Error(`${reason} See ${directory} for retained judge diagnostics.`);
   }
 
   const requested = new Set(items.map((item) => item.id));

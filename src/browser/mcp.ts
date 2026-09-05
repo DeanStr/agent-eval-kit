@@ -220,7 +220,7 @@ server.registerTool(
 server.registerTool(
   "fill",
   {
-    description: "Clear and fill an input, textarea, rich editor, date/time field, or click-to-edit control.",
+    description: "Clear and fill an input, textarea, rich editor, or date/time field. For click-to-edit controls, first click explicitly and use the revealed input's fresh ref.",
     inputSchema: { ref: z.string(), text: z.string() },
   },
   ({ ref, text }) => callTool("fill", { ref, text }, (session) => session.fill(ref, text)),
