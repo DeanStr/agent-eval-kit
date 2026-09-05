@@ -4,6 +4,16 @@ target: { kind: repository }
 agent: { provider: mock }
 judge: { provider: mock, timeoutSeconds: 300 }
 paths:
-  specs: specs
+  specs: specs/style.yaml
   runs: .agent-eval/runs
 scoring: { minimumCoverage: 100 }
+instructions: |
+  Judge authorial voice for an engineering blog, using the complete supplied texts.
+  Better organization, copyediting, comprehensiveness, or a tidier conclusion must
+  not compensate for a less natural or less convincing voice. General editorial
+  quality is evaluated separately. Judge voice holistically, not with a checklist.
+  When R is supplied, use it as the example of the desired voice. Otherwise A and B
+  already contain the candidate and reference; no third reference is missing.
+  Do not infer which text is the candidate or whether a human or AI wrote it.
+  Different subjects and lengths are expected; do not favor topic or length alone.
+  Reference wording and personal experiences are not material to copy.

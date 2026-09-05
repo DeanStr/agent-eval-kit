@@ -342,8 +342,9 @@ votes resume, and the report includes exact passage citations.
 pnpm aek run --config examples/text/evalkit.yaml --judge codex
 ```
 
-See [text evaluation](docs/text-evaluation.md) for configuration and the synthetic
-example. Direct text grading requires no collection scenario.
+See the [text example](examples/text/README.md) for direct reference comparisons,
+style-guided revisions, and separate voice and editorial-quality evaluations.
+See [text evaluation](docs/text-evaluation.md) for the full configuration. Direct text grading requires no collection scenario.
 
 ## Visual evaluation and repeated judges
 
