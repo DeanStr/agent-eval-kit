@@ -1,3 +1,5 @@
+import { textInputDefinitions, textInputs } from "./text/inputs.js";
+import { TEXT_METHOD_VERSION } from "./text/contracts.js";
 import { collectorInputDefinitions, collectorInputs } from "./collectors/inputs.js";
 import { visualInputs } from "./visual/inputs.js";
 import { createRequire } from "node:module";
@@ -373,6 +375,18 @@ export function buildRunReceipt(options: {
   })();
   const collectorSources = options.evidenceProvenance ? options.evidenceProvenance.inputs.collectorSources : Object.fromEntries(Object.entries(collectorInputs(config, specs, options.split, options.scenarioIds)).map(([key, { sha256, bytes }]) => [key, { sha256, bytes }]));
   const collectorMethods = options.evidenceProvenance ? options.evidenceProvenance.inputs.collectorMethods : Object.fromEntries(Object.entries(collectorInputs(config, specs, options.split, options.scenarioIds, "methods")).map(([key, { sha256, bytes }]) => [key, { sha256, bytes }]));
+  const textReceipts = (kind: "textCandidates" | "textReferences") => {
+    if (!options.evidenceProvenance) return Object.fromEntries(Object.entries(textInputs(config, specs, options.split, kind)).map(([key, { sha256, bytes }]) => [key, { sha256, bytes }]));
+    const saved = options.evidenceProvenance.inputs[kind];
+    const keys = Object.keys(textInputDefinitions(specs, options.split, kind));
+    if (stableJson(keys.sort()) !== stableJson(Object.keys(saved ?? {}).sort())) throw new Error(`Saved ${kind} provenance does not match text declarations; start a new run`);
+    for (const key of keys) {
+      const entry = saved?.[key];
+      if (!entry || !/^[a-f0-9]{64}$/.test(entry.sha256) || !Number.isSafeInteger(entry.bytes) || entry.bytes <= 0) throw new Error(`Saved ${kind} provenance is missing or invalid for ${key}; start a new run`);
+    }
+    return saved ?? {};
+  };
+  const textCandidates = textReceipts("textCandidates"), textReferences = textReceipts("textReferences");
   const visual = options.evidenceProvenance?.inputs.visual ?? Object.fromEntries(Object.entries(visualInputs(config, specs, options.split)).map(([key, { sha256, bytes }]) => [key, { sha256, bytes }]));
   const evidenceRuntime = options.evidenceProvenance?.runtime.evidence ?? (() => {
     const require = createRequire(import.meta.url);
@@ -384,6 +398,7 @@ export function buildRunReceipt(options: {
     return { chromium, sharp: require("sharp").versions as Record<string, string>, playwright: require("playwright/package.json").version as string };
   })();
   const method = {
+    textMethodVersion: Object.keys(textCandidates).length ? TEXT_METHOD_VERSION : undefined,
     collectorMethods,
     evidenceRuntime,
     visualMethodVersion: config.browser.diagnostics || specs.some(spec => spec.scenarios.some(scenario => scenario.capture) || spec.rubric.some(item => ["capture", "pairwise", "image-distinctness", "image-regression"].includes(item.grader.type))) ? VISUAL_METHOD_VERSION : undefined,
@@ -408,6 +423,7 @@ export function buildRunReceipt(options: {
   const definition = {
     methodSha256,
     visual,
+    textReferences: Object.keys(textReferences).length ? textReferences : undefined,
     specs: Object.fromEntries(Object.entries(specReceipts).map(([id, receipt]) => [id, receipt.sha256])),
     fixtures: fixtureReceipt
       ? {
@@ -444,12 +460,15 @@ export function buildRunReceipt(options: {
       evaluationFingerprint,
       configSha256: configReceipt.sha256,
       collectorSources,
+      textCandidates: Object.keys(textCandidates).length ? textCandidates : undefined,
       target,
     })),
     inputs: {
       config: configReceipt,
       methodSha256,
       visual,
+      textCandidates,
+      textReferences,
       collectorSources,
       collectorMethods,
       specs: specReceipts,

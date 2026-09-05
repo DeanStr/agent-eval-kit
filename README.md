@@ -13,6 +13,7 @@ It supports:
 - black-box browser scenarios through a shared Playwright MCP server and path-contained repository inspection through a read-only workspace MCP server;
 - deterministic command graders, independent LLM judges, manual graders, true weighted hybrid graders, and critical pass/fail gates;
 - controlled visual capture, independent motion/repeatability tolerances, image-health and scoped distinctness checks, opt-in image-statistic baseline gates, blind pairwise image graders, and resumable repeated judging;
+- direct text comparisons for writing style and taste, with anonymous A/B votes, optional target voice, and verified passage citations;
 - command collectors for exported artifacts with snapshotted sources, validated image manifests, and extraction provenance; named capture checkpoints for irregular temporal sampling;
 - incremental artifacts, fingerprint-checked resume, reproducibility receipts, tamper-evident output indexes, offline rescore, auditable manual finalization, coverage thresholds, and diagnostic tags;
 - parameterized case matrices, diagnostic strata, and fingerprinted development/evaluation splits;
@@ -328,6 +329,21 @@ files:
 ```
 
 `aek validate` resolves these paths relative to the fixture document and verifies that every entry exists and is a regular file. Missing uploads therefore fail before any provider is started or subscription quota is used.
+
+## Text evaluation
+
+Compare writing directly against selected reference passages using `text-pairwise`.
+The judge makes a holistic editorial choice; reference text can express the
+desired taste without a detailed style checklist. An optional `styleTarget`
+compares two alternatives against a fixed target voice. Text files are snapshotted,
+votes resume, and the report includes exact passage citations.
+
+```sh
+pnpm aek run --config examples/text/evalkit.yaml --judge codex
+```
+
+See [text evaluation](docs/text-evaluation.md) for configuration and the synthetic
+example. Direct text grading requires no collection scenario.
 
 ## Visual evaluation and repeated judges
 

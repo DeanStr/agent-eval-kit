@@ -1,3 +1,4 @@
+import { judgeTextPairwise } from "./text/pairwise.js";
 import { requiredJudgeResult, assertJudgementIdentities, constrainFullPass } from "./judging/contracts.js";
 import { normalizeRubricJudgement } from "./judging/rubric.js";
 import { judgePairwise } from "./visual/pairwise.js";
@@ -384,13 +385,14 @@ export async function judgeArea(options: {
       })
     : { items: [], cases: [], defects: [], notes: "No LLM-graded rubric items." };
   const pairwise = await judgePairwise(options);
+  const textPairwise = await judgeTextPairwise(options);
   const captureResults: JudgedItem[] = options.spec.rubric.filter(item => item.grader.type === "capture").map(item => {
     const evidence = item.scenarios.map(id => options.evidence.find(scenario => scenario.scenarioId === id));
     const checks = evidence.flatMap(scenario => scenario?.captureChecks ?? []);
     const unavailable = evidence.some(scenario => scenario?.outcome !== "completed" || !scenario.captureChecks?.length);
     return { id: item.id, source: "capture", verdict: unavailable ? "cannot_judge" : checks.every(check => check.pass) ? "pass" : "fail", confidence: unavailable ? "low" : "high", reasoning: `${checks.length} instrumented/browser checks; ${checks.filter(check => !check.pass).length} failed.${unavailable ? " Some scenarios or checks were unavailable." : ""}`, evidenceRefs: evidence.flatMap(scenario => scenario ? [`${scenario.scenarioId}/evidence.json`] : []) };
   });
-  const byId = new Map([...commandResults, ...captureResults, ...visualChecks, ...llm.items, ...pairwise.items].map((item) => [item.id, item]));
+  const byId = new Map([...commandResults, ...captureResults, ...visualChecks, ...llm.items, ...pairwise.items, ...textPairwise].map((item) => [item.id, item]));
   return {
     items: options.spec.rubric.flatMap((item) => {
       const result = byId.get(item.id);

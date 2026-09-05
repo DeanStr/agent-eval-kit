@@ -1,3 +1,4 @@
+import { snapshotTextInputs, textInputs, validateTextInputs } from "./text/inputs.js";
 import { snapshotCollectorInputs } from "./collectors/inputs.js";
 import { snapshotVisualInputs, visualInputs, validateVisualInputs } from "./visual/inputs.js";
 import crypto from "node:crypto";
@@ -308,6 +309,7 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
   const sourceSpecs = options.specs.filter((spec) => activeAreaIds.has(spec.id));
   assertScenarioSelectors(specs, options.scenarioIds, selectedSplit);
   await validateVisualInputs(config, sourceSpecs, selectedSplit, options.scenarioIds);
+  validateTextInputs(config, sourceSpecs, selectedSplit);
   if (options.dryRun) {
     for (const spec of specs) {
       console.log(`${spec.id} (${spec.weight}${spec.optional ? ", optional" : ""}) — ${spec.title}`);
@@ -403,6 +405,7 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
   } else {
     snapshotInputs(runDir, config, sourceSpecs, config.paths.fixtures);
     snapshotVisualInputs(config, sourceSpecs, runDir, selectedSplit, receipt.inputs.visual!);
+    snapshotTextInputs(config, sourceSpecs, runDir, selectedSplit, receipt.inputs);
     snapshotCollectorInputs(config, sourceSpecs, runDir, selectedSplit, receipt.inputs, options.scenarioIds);
   }
   const state: RunState = existingState ?? {
@@ -457,6 +460,9 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
     }
     const refreshTargetReceipt = (phase: string) => {
       const refreshed = currentReceipt();
+      if (stableJson(refreshed.inputs.textCandidates) !== stableJson(receipt.inputs.textCandidates)) {
+        throw new Error(`Target ${phase} changed snapshotted candidate text; prepare text before starting a new run`);
+      }
       if (stableJson(refreshed.inputs.collectorSources) !== stableJson(receipt.inputs.collectorSources)) {
         throw new Error(`Target ${phase} changed collector source artifacts; start a new run with the new artifacts`);
       }
@@ -564,6 +570,7 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
           directory: scenarioDir,
           evaluatorOnlyPaths: [
             ...Object.values(visualInputs(config, sourceSpecs, selectedSplit)).map(input => input.file),
+            ...Object.values(textInputs(config, sourceSpecs, selectedSplit)).map(input => input.file),
             options.configFile,
             path.join(path.dirname(path.resolve(options.configFile)), ".env"),
             config.paths.specs,
@@ -584,9 +591,10 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
       }
 
       lifecycle.assertRunning();
-      // Visual graders require sealed evidence even when every scenario was
-      // skipped, dependency-blocked, or reused instead of freshly executed.
-      if (evidence.length) writeArtifactIndex(runDir);
+      // Text inputs are collected directly, without scenario evidence. Seal
+      // them and completed setup before the first vote so a failed judge call
+      // can resume with intact inputs without repeating successful setup.
+      if (evidence.length || spec.rubric.some(item => item.grader.type === "text-pairwise")) writeArtifactIndex(runDir);
       const judged = await judgeArea({
         config,
         spec,

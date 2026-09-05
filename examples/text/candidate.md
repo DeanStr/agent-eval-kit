@@ -1,0 +1,1 @@
+Service B returned transcripts in a median of 12 seconds; Service A took 36 seconds on the same 20 recordings. If waiting time is the problem, B is worth trying. We haven't checked the transcripts against a human reference, so this test doesn't tell us which service made fewer mistakes.

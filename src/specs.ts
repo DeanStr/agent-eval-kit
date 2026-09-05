@@ -1,3 +1,4 @@
+import { textPairwiseSchema } from "./text/contracts.js";
 import { pairwiseSchema, captureSchema, distinctnessSchema, imageRegressionSchema } from "./visual/contracts.js";
 import { collectorSchema } from "./collectors/contracts.js";
 import fs from "node:fs";
@@ -9,6 +10,7 @@ import type { EvalConfig, EvalSpec, EvalSplit, RubricItem, Scenario, ScenarioCas
 
 const graderSchema = z.discriminatedUnion("type", [
   pairwiseSchema,
+  textPairwiseSchema,
   distinctnessSchema,
   imageRegressionSchema,
   z.object({ type: z.literal("capture") }).strict(),
@@ -80,6 +82,9 @@ const rubricSchema = z
     gate: z.boolean().default(false),
   }).strict()
   .superRefine((item, context) => {
+    if (item.grader.type === "text-pairwise" && item.scenarios.length) {
+      context.addIssue({ code: "custom", path: ["scenarios"], message: "text-pairwise reads candidate files directly; scenarios must be empty" });
+    }
     if ((item.grader.type === "manual" || item.grader.type === "hybrid") && !item.manualInstructions) {
       context.addIssue({
         code: "custom",
@@ -95,9 +100,13 @@ const specSchema = z.object({
   weight: z.number().positive(),
   optional: z.boolean().default(false),
   description: z.string().min(1),
-  scenarios: z.array(scenarioSchema).min(1),
+  scenarios: z.array(scenarioSchema).default([]),
   rubric: z.array(rubricSchema).min(1),
-}).strict();
+}).strict().superRefine((spec, context) => {
+  if (!spec.scenarios.length && spec.rubric.some(item => !["command", "manual", "text-pairwise"].includes(item.grader.type))) {
+    context.addIssue({ code: "custom", path: ["scenarios"], message: "This area requires scenarios for its evidence-based graders" });
+  }
+});
 
 const filesystemKey = (value: string) => value.toLowerCase();
 const reservedScenarioArtifactIds = new Set([
