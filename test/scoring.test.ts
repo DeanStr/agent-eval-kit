@@ -36,7 +36,7 @@ const spec: EvalSpec = {
   scenarios: [{ id: "S1", name: "Scenario", instructions: "Do it", successSignals: [], dependsOn: [], requiresAuth: false }],
   rubric: [
     { id: "R1", criterion: "One", weight: 3, tags: ["flow"], scenarios: ["S1"], grader: { type: "llm" }, passCriteria: "" },
-    { id: "R2", criterion: "Two", weight: 2, tags: ["tests"], scenarios: [], grader: { type: "command", output: "exit-code", command: "true" }, passCriteria: "" },
+    { id: "R2", criterion: "Two", weight: 2, tags: ["tests"], scenarios: [], grader: { type: "command", methodFiles: [], output: "exit-code", command: "true" }, passCriteria: "" },
   ],
 };
 

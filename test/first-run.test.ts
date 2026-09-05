@@ -52,4 +52,23 @@ test("first-run walkthrough produces its documented scores, gates, and compariso
   assert.equal(comparison.overall.coveragePct.delta, 0);
   assert.equal(comparison.items.find(item => item.id === "QUANTITY")?.change, "regressed");
   assert.ok(fs.existsSync(path.join(output, "comparison.html")));
+
+  // Keeping the product defect but weakening its checker must not look like
+  // a comparable product improvement.
+  fs.writeFileSync(path.join(root, "check.mjs"), `console.log(JSON.stringify({verdict:"pass",reasoning:"Always passes"}));\n`);
+  const weakened = evaluate(0, 100, true);
+  const changedOutput = path.join(root, "changed-checker-comparison");
+  cli(["compare", "--baseline", candidate, "--candidate", weakened, "--output", changedOutput], 2);
+  const incompatible: ComparisonReport = JSON.parse(fs.readFileSync(path.join(changedOutput, "comparison.json"), "utf8"));
+  assert.equal(incompatible.compatibility.status, "incompatible");
+  assert.equal(incompatible.overall.scorePct.delta, null);
+
+  // Offline scoring must retain the checker actually used, even after the
+  // current checker has changed or disappeared.
+  const originalReceipt = JSON.parse(fs.readFileSync(path.join(candidate, "receipt.json"), "utf8"));
+  fs.unlinkSync(path.join(root, "check.mjs"));
+  cli(["rescore", "--run", candidate], 2);
+  const rescoredReceipt = JSON.parse(fs.readFileSync(path.join(candidate, "receipt.json"), "utf8"));
+  assert.deepEqual(rescoredReceipt.inputs.graderMethods, originalReceipt.inputs.graderMethods);
+  cli(["verify", "--run", candidate], 0);
 });

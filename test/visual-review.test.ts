@@ -109,7 +109,7 @@ test("resume cannot reuse sealed scenarios on a changed startup target before th
   fs.writeFileSync(path.join(root, "grade.cjs"), `process.exit(require('node:fs').existsSync(${JSON.stringify(fail)})?19:0);`);
   const configFile = path.join(root, "evalkit.yaml");
   fs.writeFileSync(configFile, `version: 1\nproject: {name: Partial target}\ntarget:\n  kind: repository\n  start: {command: 'node start.cjs'}\n  ready: {command: 'node ready.cjs', timeoutSeconds: 5, intervalMs: 20}\nagent: {provider: mock}\njudge: {provider: mock}\npaths: {specs: spec.yaml}\n`);
-  fs.writeFileSync(path.join(root, "spec.yaml"), `id: core\ntitle: Core\nweight: 100\ndescription: First-area failure\nscenarios:\n  - {id: SCENE, name: Scene, instructions: Inspect}\nrubric:\n  - id: CHECK\n    criterion: Check\n    weight: 1\n    scenarios: [SCENE]\n    passCriteria: Check passes\n    grader: {type: command, output: exit-code, command: 'node grade.cjs'}\n`);
+  fs.writeFileSync(path.join(root, "spec.yaml"), `id: core\ntitle: Core\nweight: 100\ndescription: First-area failure\nscenarios:\n  - {id: SCENE, name: Scene, instructions: Inspect}\nrubric:\n  - id: CHECK\n    criterion: Check\n    weight: 1\n    scenarios: [SCENE]\n    passCriteria: Check passes\n    grader: {type: command, methodFiles: [], output: exit-code, command: 'node grade.cjs'}\n`);
   const config = loadConfig(configFile), specs = loadSpecs(config.paths.specs);
   const options = { config, configFile, specs, fixtures: {} };
   await assert.rejects(runEvaluation(options), /unexpected exit code 19/);

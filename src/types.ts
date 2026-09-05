@@ -110,6 +110,8 @@ export interface ScenarioCase {
 
 export interface CommandGrader {
   type: "command";
+  /** Checker code and expected data, resolved from project.root. Empty for inline checks. */
+  methodFiles: string[];
   output: "json" | "exit-code";
   command: string;
   cwd?: "project" | "run" | string;
@@ -267,6 +269,7 @@ export interface RunReceipt {
     textReferences?: Record<string, ArtifactReceipt>;
     collectorSources?: Record<string, ArtifactReceipt>;
     collectorMethods?: Record<string, ArtifactReceipt>;
+    graderMethods?: Record<string, ArtifactReceipt>;
     specs: Record<string, ArtifactReceipt & { file: string }>;
     fixtures?: {
       manifest: ArtifactReceipt;

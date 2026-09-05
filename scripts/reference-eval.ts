@@ -100,7 +100,7 @@ async function main(): Promise<void> {
         ],
         rubric: [
           { id: "TOTAL", criterion: `The inspected source implements this contract: ${expected.contract}`, weight: 1, scenarios: ["SOURCE"],
-            grader: agent === "mock" ? { type: "command", output: "json", command: oracleCommand } : { type: "llm" },
+            grader: agent === "mock" ? { type: "command", methodFiles: [path.join(fixtures, "oracle.mjs"), path.join(fixtures, "expected.json")], output: "json", command: oracleCommand } : { type: "llm" },
             passCriteria: "The total export exists and its implementation handles empty carts, quantities greater than one, and multiple line items. This is a source-level criterion: directly inspected code and a complete arithmetic counterexample are sufficient; runtime execution is not required. Missing total is not_found; incorrect arithmetic is fail." },
           ...(values.smoke ? [{ id: "PERSIST", criterion: "The saved display name survives a reload", weight: 1, scenarios: ["PROFILE"], grader: { type: "llm" }, passCriteria: "The supplied before/after screenshot and transcript evidence shows AEK Reference Person saved and still visible after reloading." }] : []),
         ],

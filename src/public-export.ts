@@ -5,7 +5,7 @@ import { StringDecoder } from "node:string_decoder";
 import { loadComparisonInput } from "./compare.js";
 import { assertArtifactIntegrity } from "./integrity.js";
 import { isWithin, prospectiveRealPath, sha256, writeJson } from "./io.js";
-import { loadRunState } from "./runner.js";
+import { loadRunState } from "./run/state.js";
 import type { RunReport } from "./types.js";
 
 export interface PrivacyFinding {

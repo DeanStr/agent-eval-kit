@@ -1,5 +1,33 @@
 # Release validation
 
+## Browser and fixture fail-fast review (0.3.0)
+
+Styled uploads now fall back only when the file chooser wait times out after a successful click. Failed clicks, origin checks, chooser uploads, input discovery, and fallback uploads propagate instead of silently trying another input. Failed form or scroll inspection no longer fabricates an empty option list, editable metadata, or an immovable page. Failed combobox typing also remains an execution error. Configured fixture files that disappear before snapshot creation now stop the run with the missing source path.
+
+Valid chooser absence, custom controls, and absent scroll containers retain their normal behavior. Regression tests cover execution failures separately from successful nested-input fallback and a fixture disappearing after receipt creation.
+
+Validation: all 330 tests, type checking, the build, both browser smoke suites, and diff checks passed. No live subscription providers were invoked.
+
+## Uncommitted-change review: threshold equality (0.3.0)
+
+Review reproduced a floating-point regression in the full-precision threshold change: an exact 29% score or coverage was represented as `28.999999999999996%`, incorrectly failing a 29% requirement and withholding the score. CI and score withholding now share a comparison that allows only machine-level arithmetic roundoff at equality. It does not use display rounding as a tolerance.
+
+The new regression test failed before the fix. It covers exact decimal boundaries for score, coverage, and withholding, and confirms that real deficits of 1e-8 percentage points still fail. The existing 99.9999%-versus-100% regression remains covered. The browser extraction preserves all 11 moved method bodies; review found no further actionable issues in the grader provenance or run recovery changes.
+
+Validation: all 315 tests, type checking, the build, and diff checks passed. No live subscription providers were invoked.
+
+## Command grader provenance and precise thresholds (0.3.0)
+
+Command graders now require an explicit `methodFiles` list. Declare checker scripts, their evaluator dependencies and configuration, and expected-result files; use `[]` only for a fully inline check. These files are snapshotted, hidden from workspace collection, checked before and after execution, and included in the evaluator fingerprint. Changed checker logic makes comparisons incompatible. Offline rescore preserves the original checker hashes even if the current checker changes or disappears. AEK does not infer dependencies from commands or imports.
+
+Run, rescore, and finalize thresholds and score withholding now derive from full-precision area weights. A value of 99.9999% no longer satisfies a 100% threshold despite displaying as 100%. Display percentages remain rounded.
+
+Run state/locking, interrupted-write recovery, input snapshots, and receipt updates now have dedicated modules under `src/run/`. Browser forms, pointer/scroll interactions, and uploads use explicit session-owned interaction contexts. The extracted browser implementations retain their previous behavior; origin enforcement remains in the session. See [internal boundaries](internal-boundaries.md).
+
+This changes the evaluator method and command grader contract. Update command specs and regenerate runs and baselines; no migration layer is provided.
+
+Validated locally on 2026-09-05: type checking, all 314 tests, both browser smoke suites, production-package installation smoke (including the build), all seven deterministic reference cases, and diff checks passed. Regression coverage includes checker/snapshot tampering, checker self-modification, incompatible checker comparisons, offline provenance retention, and score/coverage rounding boundaries. No live subscription providers were invoked.
+
 ## Judging review/fix loop (0.2.2)
 
 The requested `codex exec review --uncommitted -m gpt-6-astra -c 'model_reasoning_effort="medium"'` review completed on 2026-09-05 with no actionable findings in its first round. Type checking, all 286 tests, and diff checks passed. No implementation fixes or finding dismissals were needed. See the [captured result and review decisions](review-loop-judging-2026-09-05.md).

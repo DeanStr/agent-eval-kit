@@ -131,6 +131,7 @@ rubric:
     scenarios: []
     grader:
       type: command
+      methodFiles: [evals/check.mjs]
       output: json
       command: node evals/check.mjs
       timeoutSeconds: 60

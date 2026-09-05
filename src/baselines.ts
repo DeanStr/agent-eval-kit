@@ -4,7 +4,7 @@ import path from "node:path";
 import { loadComparisonInput } from "./compare.js";
 import { artifactIndexRoot, assertArtifactIntegrity, type ArtifactIndex } from "./integrity.js";
 import { isPortablePathComponent, sha256, stableJson, writeJson } from "./io.js";
-import { loadRunState } from "./runner.js";
+import { loadRunState } from "./run/state.js";
 import type { EvalConfig, RunReceipt, RunReport } from "./types.js";
 
 export interface BaselinePromotion {

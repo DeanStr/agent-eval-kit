@@ -52,7 +52,7 @@ test("offline mock runs the full persistence, command-grader, and report pipelin
       weight: 1,
       tags: ["test"],
       scenarios: [],
-      grader: { type: "command", output: "exit-code", command: `${JSON.stringify(process.execPath)} -e "process.exit(0)"` },
+      grader: { type: "command", methodFiles: [], output: "exit-code", command: `${JSON.stringify(process.execPath)} -e "process.exit(0)"` },
       passCriteria: "exit zero",
     }],
   };
@@ -183,7 +183,7 @@ test("resume accepts a sealed report containing an unavailable completed-area su
         scenarios: [],
         grader: index === 0
           ? { type: "llm" }
-          : { type: "command", output: "exit-code", command: `${JSON.stringify(process.execPath)} -e "process.exit(0)"` },
+          : { type: "command", methodFiles: [], output: "exit-code", command: `${JSON.stringify(process.execPath)} -e "process.exit(0)"` },
         passCriteria: "exit zero",
       }],
     };
@@ -393,7 +393,7 @@ test("split-inapplicable areas are omitted and an entirely empty split fails bef
     sourceFile: activeFile, scenarios: [],
     rubric: [{
       id: "ACTIVE", criterion: "Command passes", weight: 1, tags: [], scenarios: [],
-      grader: { type: "command", output: "exit-code", command: `${JSON.stringify(process.execPath)} -e "process.exit(0)"` },
+      grader: { type: "command", methodFiles: [], output: "exit-code", command: `${JSON.stringify(process.execPath)} -e "process.exit(0)"` },
       passCriteria: "Command completes.",
     }],
   };
@@ -558,7 +558,7 @@ test("command-grader target mutations are receipted and remain resumable", async
     sourceFile: specFile, scenarios: [],
     rubric: [{
       id: "BUILD", criterion: "Build passes", weight: 1, tags: [], scenarios: [],
-      grader: { type: "command", output: "exit-code", command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify(commandScript)}` },
+      grader: { type: "command", methodFiles: [], output: "exit-code", command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify(commandScript)}` },
       passCriteria: "Command completes.",
     }],
   };
@@ -657,7 +657,7 @@ test("a rerun setup refreshes the receipt before resumed work is sealed", async 
     sourceFile: specFile, scenarios: [],
     rubric: [{
       id: "WAIT", criterion: "Wait while the first target exits", weight: 1, tags: [], scenarios: [],
-      grader: { type: "command", output: "exit-code", command: `${node} -e ${JSON.stringify("setTimeout(()=>process.exit(0),400)")}` },
+      grader: { type: "command", methodFiles: [], output: "exit-code", command: `${node} -e ${JSON.stringify("setTimeout(()=>process.exit(0),400)")}` },
       passCriteria: "Command completes.",
     }],
   };
@@ -754,7 +754,7 @@ test("a run fails when its managed target exits after readiness", async () => {
     sourceFile: specFile, scenarios: [],
     rubric: [{
       id: "WAIT", criterion: "Wait while target exits", weight: 1, tags: [], scenarios: [],
-      grader: { type: "command", output: "exit-code", command: `${node} -e "setTimeout(() => process.exit(0), 400)"` },
+      grader: { type: "command", methodFiles: [], output: "exit-code", command: `${node} -e "setTimeout(() => process.exit(0), 400)"` },
       passCriteria: "Command completes.",
     }],
   };

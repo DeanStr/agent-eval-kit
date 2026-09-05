@@ -32,7 +32,7 @@ for (const phase of ["setup", "readiness", "grading", "campaign"] as const) {
       fs.writeFileSync(path.join(root, "spec.yaml"), YAML.stringify({
         id: "core", title: "Core", description: "Cancellation fixture", weight: 100,
         scenarios: [{ id: "S1", name: "Inspect", instructions: "Inspect" }],
-        rubric: [{ id: "R1", criterion: "Wait", weight: 1, passCriteria: "Returns", grader: { type: "command", output: "exit-code", command: command("grader") } }],
+        rubric: [{ id: "R1", criterion: "Wait", weight: 1, passCriteria: "Returns", grader: { type: "command", methodFiles: [], output: "exit-code", command: command("grader") } }],
       }));
       const campaignDir = path.join(root, "campaign");
       const args = phase === "campaign" ? ["campaign", "--repetitions", "3", "--output", campaignDir] : ["run"];

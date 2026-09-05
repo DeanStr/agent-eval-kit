@@ -5,7 +5,7 @@ import path from "node:path";
 import { fork } from "node:child_process";
 import { once } from "node:events";
 import test from "node:test";
-import { withRunLock } from "../src/runner.js";
+import { withRunLock } from "../src/run/state.js";
 
 test("stale run recovery excludes contenders throughout acquisition and permits recovery after owner death", { timeout: 15_000 }, async (context) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-lock-race-"));
@@ -13,7 +13,7 @@ test("stale run recovery excludes contenders throughout acquisition and permits 
   fs.writeFileSync(path.join(root, ".run.lock"), JSON.stringify({ pid: 2147483647, token: "stale" }));
   fs.writeFileSync(worker, `
     import fs from 'node:fs';
-    import { withRunLock } from ${JSON.stringify(new URL("../src/runner.ts", import.meta.url).href)};
+    import { withRunLock } from ${JSON.stringify(new URL("../src/run/state.ts", import.meta.url).href)};
     const root = process.argv[2];
     const original = fs.readFileSync;
     let first = true;

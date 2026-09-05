@@ -68,8 +68,8 @@ test("CLI execution faults fail without thresholds while valid abstentions remai
       spec.rubric[0].gate = false;
       if (fault.startsWith("judge") || fault === "abstention") spec.rubric[0].grader = { type: "llm" };
       else spec.rubric[0].grader = fault === "command-json"
-        ? { type: "command", output: "json", command: `${JSON.stringify(process.execPath)} -e 'console.log(JSON.stringify({verdict:"faill",reasoning:"broken"}))'` }
-        : { type: "command", output: "exit-code", command: `${JSON.stringify(process.execPath)} -e "process.exit(127)"` };
+        ? { type: "command", methodFiles: [], output: "json", command: `${JSON.stringify(process.execPath)} -e 'console.log(JSON.stringify({verdict:"faill",reasoning:"broken"}))'` }
+        : { type: "command", methodFiles: [], output: "exit-code", command: `${JSON.stringify(process.execPath)} -e "process.exit(127)"` };
       fs.writeFileSync(specFile, YAML.stringify(spec));
       const result = spawnSync(process.execPath, [tsxCli, cli, "run"], {
         cwd: root, encoding: "utf8", timeout: 20_000,
@@ -119,7 +119,7 @@ rubric:
     weight: 1
     gate: true
     scenarios: []
-    grader: { type: command, output: exit-code, command: ${JSON.stringify(failingCommand)} }
+    grader: { type: command, methodFiles: [], output: exit-code, command: ${JSON.stringify(failingCommand)} }
     passCriteria: The command exits successfully.
 `,
   );

@@ -13,13 +13,13 @@ rubric:
     weight: 3
     gate: true
     scenarios: []
-    grader: { type: command, output: json, command: node check.mjs quantity }
+    grader: { type: command, methodFiles: [check.mjs], output: json, command: node check.mjs quantity }
     passCriteria: Two items priced at 500 cents total 1000 cents.
   - id: EMPTY
     criterion: An empty cart totals zero
     weight: 1
     scenarios: []
-    grader: { type: command, output: json, command: node check.mjs empty }
+    grader: { type: command, methodFiles: [check.mjs], output: json, command: node check.mjs empty }
     passCriteria: An empty list totals zero cents.
   - id: RECEIPT
     criterion: A reviewer approves the receipt wording

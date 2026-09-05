@@ -298,10 +298,15 @@ grader: { type: llm }
 grader:
   type: command
   output: exit-code          # use json for the structured object above
-  command: pnpm test
+  command: node evals/check.mjs
+  methodFiles: [evals/check.mjs, evals/expected.json]
   cwd: project                # project | run | path relative to project
   timeoutSeconds: 300
 ```
+
+`methodFiles` is required. List every checker script, checker dependency, configuration file, and expected-result file that defines the grading method, excluding the product implementation being evaluated. Paths resolve from `project.root`; explicitly declared absolute paths are also supported for shared external checkers. Use `[]` only when the complete check is inline in `command` and has no external evaluator inputs. AEK does not infer dependencies from shell commands or imports.
+
+These files are hashed into the evaluator fingerprint, snapshotted under `inputs/grader-methods/`, hidden from workspace collection, and verified before and after each command grader. Changing a declared checker makes comparisons incompatible and prevents resume; offline rescore keeps the original checker provenance. Missing files fail validation before execution.
 
 Command graders receive `AEK_PROJECT_ROOT`, `AEK_RUN_DIR`, and `AEK_RUBRIC_ID`.
 
@@ -464,6 +469,8 @@ aek run --fail-under-score 85 --fail-under-coverage 90
 
 The same flags work with `rescore` and `finalize`. Critical rubric items marked `gate: true` are always enforced as hard gates. Artifacts are written first; any failed or unavailable critical gate or numeric threshold exits with status `2`. A withheld or unavailable score cannot pass `--fail-under-score`, even if its provisional numeric value is high. Invalid thresholds and execution errors use status `1`.
 
+Run, rescore, and finalize thresholds and score withholding use full-precision weights, allowing only machine-level arithmetic roundoff at equality. Display percentages are rounded: a displayed 100% may still fail a 100% requirement; the failure message includes the unrounded measurement.
+
 ## Compare runs
 
 Compare two run directories—or two explicit `report.json` files whose parent directories are sealed runs—without another agent call:
@@ -584,6 +591,7 @@ Public exports are stored beside runs under `exports/<run-id>/` by default. Camp
 ## Development
 
 See [shared judging contracts](docs/judging-contracts.md) for identity, evidence, image-access, and case-aggregation rules across grading modes.
+See [internal boundaries](docs/internal-boundaries.md) for run recovery, input provenance, browser interactions, and scoring responsibilities.
 
 ```bash
 pnpm typecheck

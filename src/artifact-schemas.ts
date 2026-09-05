@@ -68,7 +68,7 @@ const receiptTarget = z.object({
 const receipt = z.object({
   schemaVersion: z.literal(1), evaluationFingerprint: id, inputFingerprint: id,
   inputs: z.object({
-    config: artifact, methodSha256: id, visual: record(artifact).optional(), textCandidates: record(artifact).optional(), textReferences: record(artifact).optional(), collectorSources: record(artifact).optional(), collectorMethods: record(artifact).optional(),
+    config: artifact, methodSha256: id, visual: record(artifact).optional(), textCandidates: record(artifact).optional(), textReferences: record(artifact).optional(), collectorSources: record(artifact).optional(), collectorMethods: record(artifact).optional(), graderMethods: record(artifact).optional(),
     specs: record(artifact.extend({ file: id })),
     fixtures: z.object({ manifest: artifact, files: record(artifact.extend({ configuredPath: text })) }).optional(),
     selection: z.object({ areas: strings, scenarios: strings.optional(), split: z.enum(["development", "evaluation", "all"]).optional() }),

@@ -183,6 +183,9 @@ function compatibility(
   if (baseline.inputs.methodSha256 !== candidate.inputs.methodSha256) {
     differences.push("Evaluator configuration, provider version, scoring, variables, or instructions changed.");
   }
+  if (stableValue(recordHashes(baseline.inputs.graderMethods)) !== stableValue(recordHashes(candidate.inputs.graderMethods))) {
+    differences.push("One or more declared command grader method files changed.");
+  }
   if (stableValue(baseline.inputs.selection) !== stableValue(candidate.inputs.selection)) {
     differences.push("Selected areas or scenarios changed.");
   }

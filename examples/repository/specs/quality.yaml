@@ -23,12 +23,62 @@ rubric:
     weight: 3
     tags: [correctness, types]
     scenarios: []
-    grader: { type: command, output: exit-code, command: pnpm typecheck, timeoutSeconds: 180 }
+    grader: { type: command, methodFiles: [package.json, pnpm-lock.yaml, tsconfig.json], output: exit-code, command: pnpm typecheck, timeoutSeconds: 180 }
     passCriteria: The typecheck command exits zero.
   - id: REPO-03
     criterion: Automated tests pass
     weight: 3
     tags: [correctness, tests]
     scenarios: []
-    grader: { type: command, output: exit-code, command: pnpm test, timeoutSeconds: 300 }
+    grader:
+      type: command
+      output: exit-code
+      command: pnpm test
+      timeoutSeconds: 300
+      methodFiles:
+        - package.json
+        - pnpm-lock.yaml
+        - test/artifact-schemas.test.ts
+        - test/auth.test.ts
+        - test/baselines.test.ts
+        - test/browser-elements.test.ts
+        - test/browser-mcp.test.ts
+        - test/campaign-compare.test.ts
+        - test/campaign.test.ts
+        - test/cancellation.test.ts
+        - test/cases-splits.test.ts
+        - test/ci.test.ts
+        - test/cli.test.ts
+        - test/command-collector.test.ts
+        - test/command-inputs.test.ts
+        - test/compare.test.ts
+        - test/config-specs.test.ts
+        - test/credentials.test.ts
+        - test/doctor.test.ts
+        - test/evidence-mcp.test.ts
+        - test/first-run.test.ts
+        - test/graders.test.ts
+        - test/init.test.ts
+        - test/integrity.test.ts
+        - test/io.test.ts
+        - test/judge-contracts.test.ts
+        - test/lifecycle.test.ts
+        - test/platform.test.ts
+        - test/process.test.ts
+        - test/prompts.test.ts
+        - test/providers.test.ts
+        - test/public-export.test.ts
+        - test/receipts.test.ts
+        - test/report-finalize.test.ts
+        - test/run-lock.test.ts
+        - test/runner.test.ts
+        - test/scenario.test.ts
+        - test/scoring.test.ts
+        - test/text-pairwise.test.ts
+        - test/visual-checks.test.ts
+        - test/visual-contracts.test.ts
+        - test/visual-integration.test.ts
+        - test/visual-review.test.ts
+        - test/visual.test.ts
+        - test/workspace-mcp.test.ts
     passCriteria: The test command exits zero.

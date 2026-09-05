@@ -94,12 +94,12 @@ test("command graders enforce explicit output contracts and fail on execution er
   const items: RubricItem[] = [
     {
       id: "TIMEOUT", criterion: "Must finish", weight: 1, tags: [], scenarios: [],
-      grader: { type: "command", output: "exit-code", command: command(`${optimistic};setInterval(function(){},1000)`), timeoutSeconds: 0.05 },
+      grader: { type: "command", methodFiles: [], output: "exit-code", command: command(`${optimistic};setInterval(function(){},1000)`), timeoutSeconds: 0.05 },
       passCriteria: "The command exits successfully.",
     },
     {
       id: "NONZERO", criterion: "Must exit zero", weight: 1, tags: [], scenarios: [],
-      grader: { type: "command", output: "exit-code", command: command(`${optimistic};process.exit(1)`) },
+      grader: { type: "command", methodFiles: [], output: "exit-code", command: command(`${optimistic};process.exit(1)`) },
       passCriteria: "The command exits successfully.",
     },
   ];
@@ -112,7 +112,7 @@ test("command graders enforce explicit output contracts and fail on execution er
   await assert.rejects(grade(items[0]), /timed out/);
   assert.equal((await grade(items[1])).items[0].verdict, "fail");
   for (const [exit, verdict] of ["pass", "fail", "partial", "cannot_judge", "not_found"].entries()) {
-    const result = await grade({ ...items[1], grader: { type: "command", output: "exit-code", command: command(`process.exit(${exit})`) } });
+    const result = await grade({ ...items[1], grader: { type: "command", methodFiles: [], output: "exit-code", command: command(`process.exit(${exit})`) } });
     assert.equal(result.items[0].verdict, verdict);
   }
   for (const [code, expected] of [
@@ -122,11 +122,11 @@ test("command graders enforce explicit output contracts and fail on execution er
     [`${optimistic};process.exit(1)`, /JSON grader exited 1/],
     ['console.log(JSON.stringify({verdict:"pass",reasoning:"ok",unexpected:true}))', /invalid structured output/],
   ] as const) {
-    await assert.rejects(grade({ ...items[1], grader: { type: "command", output: "json", command: command(code) } }), expected);
+    await assert.rejects(grade({ ...items[1], grader: { type: "command", methodFiles: [], output: "json", command: command(code) } }), expected);
   }
-  const json = await grade({ ...items[1], grader: { type: "command", output: "json", command: command('console.log(JSON.stringify({verdict:"fail",reasoning:"Real defect"}))') } });
+  const json = await grade({ ...items[1], grader: { type: "command", methodFiles: [], output: "json", command: command('console.log(JSON.stringify({verdict:"fail",reasoning:"Real defect"}))') } });
   assert.equal(json.items[0].verdict, "fail");
-  await assert.rejects(grade({ ...items[1], grader: { type: "command", output: "exit-code", command: command('process.exit(127)') } }), /unexpected exit code 127/);
+  await assert.rejects(grade({ ...items[1], grader: { type: "command", methodFiles: [], output: "exit-code", command: command('process.exit(127)') } }), /unexpected exit code 127/);
   assert.ok(fs.existsSync(path.join(root, "area", "graders", "TIMEOUT.stdout.txt")));
 });
 

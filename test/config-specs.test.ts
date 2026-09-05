@@ -12,7 +12,7 @@ test("command grader output mode is explicit and strictly validated", () => {
   const root = temporary();
   const file = path.join(root, "spec.yaml");
   for (const mode of ["", ", output: auto", ", output: json", ", output: exit-code"]) {
-    fs.writeFileSync(file, `id: core\ntitle: Core\nweight: 100\ndescription: Contract\nscenarios:\n  - { id: S1, name: Inspect, instructions: Inspect }\nrubric:\n  - id: R1\n    criterion: Works\n    weight: 1\n    passCriteria: Works\n    grader: { type: command, command: test${mode} }\n`);
+    fs.writeFileSync(file, `id: core\ntitle: Core\nweight: 100\ndescription: Contract\nscenarios:\n  - { id: S1, name: Inspect, instructions: Inspect }\nrubric:\n  - id: R1\n    criterion: Works\n    weight: 1\n    passCriteria: Works\n    grader: { type: command, methodFiles: [], command: test${mode} }\n`);
     if (mode === "" || mode.endsWith("auto")) assert.throws(() => loadSpecs(file), /output/);
     else assert.equal(loadSpecs(file)[0].rubric[0].grader.type, "command");
   }

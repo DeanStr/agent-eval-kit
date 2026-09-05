@@ -1,3 +1,4 @@
+import { graderMethodReceipts } from "./judging/command-inputs.js";
 import { textInputDefinitions, textInputs } from "./text/inputs.js";
 import { TEXT_METHOD_VERSION } from "./text/contracts.js";
 import { collectorInputDefinitions, collectorInputs } from "./collectors/inputs.js";
@@ -373,6 +374,7 @@ export function buildRunReceipt(options: {
       judge: { provider: config.judge.provider, model: config.judge.model, cliVersion: versions.get(config.judge.provider)! },
     };
   })();
+  const graderMethods = graderMethodReceipts(config, specs, options.split, options.evidenceProvenance);
   const collectorSources = options.evidenceProvenance ? options.evidenceProvenance.inputs.collectorSources : Object.fromEntries(Object.entries(collectorInputs(config, specs, options.split, options.scenarioIds)).map(([key, { sha256, bytes }]) => [key, { sha256, bytes }]));
   const collectorMethods = options.evidenceProvenance ? options.evidenceProvenance.inputs.collectorMethods : Object.fromEntries(Object.entries(collectorInputs(config, specs, options.split, options.scenarioIds, "methods")).map(([key, { sha256, bytes }]) => [key, { sha256, bytes }]));
   const textReceipts = (kind: "textCandidates" | "textReferences") => {
@@ -400,6 +402,7 @@ export function buildRunReceipt(options: {
   const method = {
     textMethodVersion: Object.keys(textCandidates).length ? TEXT_METHOD_VERSION : undefined,
     collectorMethods,
+    graderMethods,
     evidenceRuntime,
     visualMethodVersion: config.browser.diagnostics || specs.some(spec => spec.scenarios.some(scenario => scenario.capture) || spec.rubric.some(item => ["capture", "pairwise", "image-distinctness", "image-regression"].includes(item.grader.type))) ? VISUAL_METHOD_VERSION : undefined,
     kitVersion: KIT_VERSION,
@@ -471,6 +474,7 @@ export function buildRunReceipt(options: {
       textReferences,
       collectorSources,
       collectorMethods,
+      graderMethods,
       specs: specReceipts,
       fixtures: fixtureReceipt,
       selection,

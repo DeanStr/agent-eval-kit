@@ -4,12 +4,18 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { errors } from "playwright";
+import { BrowserForms } from "../src/browser/forms.js";
+import { BrowserPointer } from "../src/browser/pointer.js";
+import { upload } from "../src/browser/uploads.js";
+import type { BrowserInteractionContext } from "../src/browser/interaction-context.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { browserActionResultIsError, type BrowserMcpContext } from "../src/browser/context.js";
 import { browserMcpLaunch } from "../src/mcp-config.js";
 import { writeJson } from "../src/io.js";
-import { BrowserSession, OriginBoundaryError } from "../src/browser/session.js";
+import { BrowserSession } from "../src/browser/session.js";
+import { OriginBoundaryError } from "../src/browser/interaction-context.js";
 
 test("browser action failures remain errors after leading diagnostic notes", () => {
   assert.equal(browserActionResultIsError("NOTE: native dialog was accepted\nBLOCKED: external navigation"), true);
@@ -332,7 +338,7 @@ test("styled uploads never attach fixtures after an off-origin redirect", async 
     Object.defineProperty(session.page, "waitForEvent", {
       value: async () => {
         await new Promise((resolve) => setTimeout(resolve, 50));
-        throw new Error("no file chooser");
+        throw new errors.TimeoutError("no file chooser");
       },
     });
 
@@ -846,5 +852,86 @@ test("browser MCP halts after a saved authenticated session remains on a login w
     }
   } finally {
     server.close();
+  }
+});
+
+
+test("browser inspection failures remain execution errors", async t => {
+  for (const operation of ["options", "field metadata", "container scroll", "page scroll"] as const) {
+    await t.test(operation, async () => {
+      const failure = new Error("Execution context was destroyed");
+      let evaluations = 0;
+      const loc = {
+        evaluate: async () => {
+          evaluations++;
+          if (operation === "options") return "div";
+          if (operation === "field metadata" && evaluations === 1) return "input";
+          throw failure;
+        },
+        scrollIntoViewIfNeeded: async () => {},
+        click: async () => {},
+        fill: async () => assert.fail("must not fill after failed inspection"),
+      };
+      const scope = { evaluate: async () => { throw failure; } };
+      const context = {
+        refLocator: async () => loc,
+        refMissing: async () => false,
+        frameEditors: new Map(), refFrames: new Map(),
+        actionTimeoutMs: 100,
+        enforceOrigin: async () => null,
+        drainNotes: () => "",
+        page: { mainFrame: () => scope, waitForTimeout: async () => {}, evaluate: scope.evaluate },
+      } as unknown as BrowserInteractionContext;
+      const action = operation === "options" ? new BrowserForms(context).select("e1", "Blue")
+        : operation === "field metadata" ? new BrowserForms(context).fill("e1", "value")
+        : new BrowserPointer(context).scroll("down", operation === "container scroll" ? "e1" : undefined);
+      await assert.rejects(action, error => error === failure);
+    });
+  }
+});
+
+test("uploads fall back only for an absent chooser, never for execution failures", async t => {
+  for (const phase of ["fingerprint", "chooser", "click", "origin", "setFiles", "count", "fresh upload", "absent chooser"] as const) {
+    await t.test(phase, async () => {
+      const failure = phase === "click" ? new errors.TimeoutError("click failed") : new Error(`${phase} failed`);
+      let fallbackUploads = 0;
+      let scans = 0;
+      const fresh = {
+        first() { return this; },
+        count: async () => { if (phase === "count") throw failure; return 1; },
+        setInputFiles: async () => { if (phase === "fresh upload") throw failure; fallbackUploads++; },
+      };
+      const frame = {
+        evaluate: async () => { if (phase === "fingerprint") throw failure; },
+        locator: () => { scans++; return fresh; },
+      };
+      const loc = {
+        evaluate: async () => "button",
+        click: async () => { if (phase === "click") throw failure; },
+      };
+      const context = {
+        refLocator: async () => loc,
+        refMissing: async () => false,
+        allowedFrames: async () => [frame, frame],
+        enforceOrigin: async () => { if (phase === "origin") throw failure; return null; },
+        drainNotes: () => "",
+        page: {
+          waitForTimeout: async () => {},
+          waitForEvent: async () => {
+            if (phase === "chooser") throw failure;
+            if (["click", "count", "fresh upload", "absent chooser"].includes(phase)) throw new errors.TimeoutError("no chooser");
+            return { setFiles: async () => { if (phase === "setFiles") throw failure; } };
+          },
+        },
+      } as unknown as BrowserInteractionContext;
+      if (phase === "absent chooser") {
+        assert.match(await upload(context, "e1", "/tmp/fixture.txt"), /Uploaded fixture.txt via a file input/);
+        assert.equal(fallbackUploads, 1);
+      } else {
+        await assert.rejects(upload(context, "e1", "/tmp/fixture.txt"), error => error === failure);
+        assert.equal(fallbackUploads, 0);
+        assert.equal(scans, ["count", "fresh upload"].includes(phase) ? 1 : 0);
+      }
+    });
   }
 });

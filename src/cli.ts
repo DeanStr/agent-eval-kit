@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
-import { validateVisualInputs } from "./visual/inputs.js";
-import { validateTextInputs } from "./text/inputs.js";
+import { validateEvaluationInputs } from "./run/inputs.js";
 import path from "node:path";
 import YAML from "yaml";
 import { captureAuth } from "./auth.js";
@@ -39,7 +38,8 @@ import {
   writeReportArtifactsRecoverably,
 } from "./report.js";
 import { buildRunReceipt } from "./receipts.js";
-import { loadRunState, runEvaluation, withRunLock } from "./runner.js";
+import { runEvaluation } from "./runner.js";
+import { loadRunState, withRunLock } from "./run/state.js";
 import { buildReport, scoreArea } from "./scoring.js";
 import { assertScenarioSelectors, assertScenarioTargetCompatibility, loadFixtures, loadSpecFile, loadSpecs, materializeSpecs, selectSpecs } from "./specs.js";
 import { initializeProject } from "./templates.js";
@@ -583,8 +583,7 @@ async function main(): Promise<void> {
   const allSpecs = loadSpecs(config.paths.specs);
   assertScenarioTargetCompatibility(allSpecs, config.target);
   if (args.command === "validate") {
-    await validateVisualInputs(config, allSpecs);
-    validateTextInputs(config, allSpecs);
+    await validateEvaluationInputs(config, allSpecs);
     loadFixtures(config.paths.fixtures);
     const templates = allSpecs.reduce((n, spec) => n + spec.scenarios.length, 0);
     const executions = materializeSpecs(allSpecs).reduce((n, spec) => n + spec.scenarios.length, 0);

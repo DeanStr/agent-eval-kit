@@ -1,3 +1,4 @@
+import { assertGraderMethods } from "./judging/command-inputs.js";
 import { judgeTextPairwise } from "./text/pairwise.js";
 import { requiredJudgeResult, assertJudgementIdentities, constrainFullPass } from "./judging/contracts.js";
 import { normalizeRubricJudgement } from "./judging/rubric.js";
@@ -55,6 +56,7 @@ async function runCommandGrader(options: {
   fs.mkdirSync(directory, { recursive: true });
   const stdoutFile = path.join(directory, `${safeName(item.id)}.stdout.txt`);
   const stderrFile = path.join(directory, `${safeName(item.id)}.stderr.txt`);
+  assertGraderMethods(config, item, runDir);
   const shell = shellInvocation(item.grader.command);
   const result = await spawnCaptured({
     command: shell.command,
@@ -70,6 +72,7 @@ async function runCommandGrader(options: {
     stdoutFile,
     stderrFile,
   });
+  assertGraderMethods(config, item, runDir);
   const diagnostic = `Command grader ${item.id}; see ${stderrFile} and ${stdoutFile}`;
   if (result.timedOut) throw new Error(`${diagnostic}: timed out after ${item.grader.timeoutSeconds ?? 300}s`);
   if (result.exitCode === null) throw new Error(`${diagnostic}: terminated by ${result.signal ?? "an unknown signal"}`);

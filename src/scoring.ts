@@ -11,7 +11,7 @@ import type {
   Verdict,
 } from "./types.js";
 import { KIT_VERSION } from "./version.js";
-import { calculateScoreSlice } from "./score-slice.js";
+import { aggregateAreaMeasurements, belowPercentageThreshold, calculateScoreSlice } from "./score-slice.js";
 
 function verdictPoints(verdict: Verdict, partialCredit: number): number | null {
   switch (verdict) {
@@ -241,22 +241,6 @@ export function scoreArea(options: {
   };
 }
 
-function aggregateAreas(areas: AreaResult[]): { scorePct: number | null; coveragePct: number } {
-  const presentWeight = areas.reduce((sum, area) => sum + area.weight, 0);
-  const scored = areas.filter((area) => area.scorePct !== null);
-  const scoredWeight = scored.reduce((sum, area) => sum + area.weight, 0);
-  return {
-    scorePct:
-      scoredWeight > 0
-        ? round(scored.reduce((sum, area) => sum + area.scorePct! * area.weight, 0) / scoredWeight)
-        : null,
-    coveragePct:
-      presentWeight > 0
-        ? round(areas.reduce((sum, area) => sum + area.coveragePct * area.weight, 0) / presentWeight)
-        : 0,
-  };
-}
-
 function aggregateTags(areas: AreaResult[]): Record<string, ScoreSlice> {
   const tags = new Map<string, Slice>();
   for (const area of areas) {
@@ -305,7 +289,7 @@ export function buildReport(options: {
   receipt: RunReceipt;
 }): RunReport {
   const required = options.areas.filter((area) => !area.optional);
-  const aggregate = aggregateAreas(required);
+  const aggregate = aggregateAreaMeasurements(required);
   const blocking = options.areas.flatMap((area) =>
     area.gates
       .filter((gate) => gate.status !== "passed")
@@ -328,9 +312,9 @@ export function buildReport(options: {
       judge: { provider: options.config.judge.provider, model: options.config.judge.model },
     },
     areas: options.areas,
-    overallScorePct: aggregate.scorePct,
-    overallCoveragePct: aggregate.coveragePct,
-    scoreWithheld: aggregate.coveragePct < options.config.scoring.minimumCoverage,
+    overallScorePct: aggregate.scorePct === null ? null : round(aggregate.scorePct),
+    overallCoveragePct: round(aggregate.coveragePct),
+    scoreWithheld: belowPercentageThreshold(aggregate.coveragePct, options.config.scoring.minimumCoverage),
     byTag: aggregateTags(required),
     byStratum: aggregateStrata(required),
     manualPending: options.areas.reduce((sum, area) => sum + area.pendingManual.length, 0),

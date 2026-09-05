@@ -1,7 +1,8 @@
+import { inputFileReceipt } from "../input-files.js";
 import fs from "node:fs";
 import path from "node:path";
 import { collectionManifestSchema } from "./contracts.js";
-import { collectorInputPath, sourceReceipt } from "./inputs.js";
+import { collectorInputPath } from "./inputs.js";
 import { stableJson, writeJson } from "../io.js";
 import { shellInvocation, spawnCaptured } from "../providers/process.js";
 import { imageBytes, sourceImage } from "../visual/images.js";
@@ -35,7 +36,7 @@ export async function collectCommand(config: EvalConfig, scenario: Scenario, dir
         const expected = receipt.inputs.collectorMethods?.[key];
         if (!expected) throw new Error(`Missing collector method receipt: ${key}`);
         for (const file of [path.resolve(config.project.root, configured), collectorInputPath(runDir, key, "methods")]) {
-          if (stableJson(sourceReceipt(file)) !== stableJson(expected)) throw new Error(`Collector method changed: ${key}; start a new run`);
+          if (stableJson(inputFileReceipt(file)) !== stableJson(expected)) throw new Error(`Collector method changed: ${key}; start a new run`);
         }
       }
     };
@@ -44,7 +45,7 @@ export async function collectCommand(config: EvalConfig, scenario: Scenario, dir
       const key = `${scenario.id}/${name}`;
       const expected = receipt.inputs.collectorSources?.[key];
       const file = collectorInputPath(runDir, key);
-      if (!expected || stableJson(sourceReceipt(file)) !== stableJson(expected)) throw new Error(`Collector source snapshot mismatch: ${key}`);
+      if (!expected || stableJson(inputFileReceipt(file)) !== stableJson(expected)) throw new Error(`Collector source snapshot mismatch: ${key}`);
       return [name, { path: file, ...expected }];
     }));
     const outputDir = path.join(directory, "collector-output");
@@ -62,7 +63,7 @@ export async function collectCommand(config: EvalConfig, scenario: Scenario, dir
     verifyMethods();
     for (const [name, source] of Object.entries(sources)) {
       const { path: file, ...expected } = source;
-      if (stableJson(sourceReceipt(file)) !== stableJson(expected)) throw new Error(`Collector modified source snapshot: ${name}`);
+      if (stableJson(inputFileReceipt(file)) !== stableJson(expected)) throw new Error(`Collector modified source snapshot: ${name}`);
     }
     if (result.timedOut) throw new Error(`Collector ${scenario.id} timed out after ${collect.timeoutSeconds}s`);
     if (result.exitCode !== 0) throw new Error(`Collector ${scenario.id} exited ${result.exitCode ?? result.signal}; see collector.stderr.log`);

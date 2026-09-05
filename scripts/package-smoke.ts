@@ -45,7 +45,7 @@ try {
   fs.writeFileSync(path.join(consumer, "evals/specs/core.yaml"), YAML.stringify({
     id: "core", title: "Installed package", description: "Production dependency smoke", weight: 100,
     scenarios: [{ id: "S1", name: "Inspect", instructions: "Inspect the project" }],
-    rubric: [{ id: "R1", criterion: "Installed CLI runs", weight: 1, gate: true, grader: { type: "command", output: "exit-code", command: "node -e \"process.exit(0)\"" }, passCriteria: "Exit zero" }],
+    rubric: [{ id: "R1", criterion: "Installed CLI runs", weight: 1, gate: true, grader: { type: "command", methodFiles: [], output: "exit-code", command: "node -e \"process.exit(0)\"" }, passCriteria: "Exit zero" }],
   }));
   await run(cli, ["validate"], consumer);
   await run(cli, ["run", "--fail-under-score", "100", "--fail-under-coverage", "100"], consumer);
