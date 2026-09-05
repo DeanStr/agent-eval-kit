@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { caseJudgeRequests } from "../src/prompts.js";
+import { caseJudgeRequests } from "../src/judging/evidence.js";
 import { loadSpecs, materializeSpec } from "../src/specs.js";
 import type { ScenarioEvidence } from "../src/types.js";
 

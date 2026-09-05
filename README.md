@@ -77,6 +77,8 @@ The adapter contracts follow the official automation surfaces: [Codex non-intera
 
 ## Quick start
 
+New to AEK? Start with [your first evaluation](docs/first-run.md): run a small offline example, learn to read score, coverage, and gates, then introduce and compare a deliberate defect.
+
 From this repository:
 
 ```bash
@@ -258,7 +260,7 @@ scenarios:
 
 Case variables override same-named project variables for that execution. Object strata normalize to stable `dimension=value` labels; the list form is accepted when labels are already normalized. Reports show automatic score and coverage slices for each stratum and retain the case ID and split, but never copy case variables into the public-export format.
 
-Run a split with `aek run --split development` or `aek run --split evaluation`. The CLI defaults to `development`, protecting reserved evaluation cases from routine tuning; `--split all` is an explicit diagnostic option. Scenarios or cases without an explicit split are shared and run in either selection, so existing suites remain compatible. An LLM or hybrid rubric referencing a matrix scenario is evaluated across the selected cases, with a separate automatic diagnostic verdict for every stable rubric/case pair. Its aggregate full `pass` requires every applicable case to pass. Command and manual-only rubrics remain rubric-level checks.
+Run a split with `aek run --split development` or `aek run --split evaluation`. The CLI defaults to `development`, protecting reserved evaluation cases from routine tuning; `--split all` is an explicit diagnostic option. Scenarios or cases without an explicit split are shared and run in either selection, so existing suites remain compatible. An LLM or hybrid rubric referencing a matrix scenario is evaluated across the selected cases, with a separate automatic diagnostic verdict for every stable rubric/case pair. Its aggregate full `pass` requires every applicable case to pass. A proposed full pass with any unavailable case becomes `cannot_judge`; mixed fully observed outcomes become `partial`. Command and manual-only rubrics remain rubric-level checks.
 
 If a split leaves an area with no applicable rubric items, that area is omitted from the execution and receipt rather than reported as zero coverage. A selection with no applicable rubric items fails before a run directory is created or a provider starts.
 
@@ -427,7 +429,7 @@ aek campaign compare \
   --fail-on-regression
 ```
 
-The comparison reports each case's mean verdict value across repetitions, improvement/regression and coverage/add/remove states, stratum-level mean deltas, and a deterministic 95% paired-case bootstrap interval. The resampling unit is the matched case, so large matrices do not get confused with random repetition noise. Numeric results are withheld when evaluator fingerprints differ unless `--allow-incompatible` is explicitly recorded. `--fail-on-regression` exits with status `2` after writing the JSON and HTML reports if a case regresses, loses coverage, or disappears, or if the campaign mean score or critical-gate pass rate falls.
+The comparison reports each case's mean verdict value across repetitions, improvement/regression and coverage/add/remove states, stratum-level mean deltas, and a deterministic 95% paired-case bootstrap interval. The resampling unit is the matched case, so large matrices do not get confused with random repetition noise. Numeric results are withheld when evaluator fingerprints differ unless `--allow-incompatible` is explicitly recorded. `--fail-on-regression` exits with status `2` after writing the JSON and HTML reports if a case regresses, loses coverage, or disappears, or if the campaign mean score, critical-gate pass rate, or completion rate falls. Completion rate is completed runs divided by attempted runs; pending repetitions are excluded. It is checked even for campaigns without case results. Execution failures remain separate from product scores and evidence coverage.
 
 ## CI thresholds
 
@@ -513,7 +515,9 @@ The offline `mock` provider exists for harness tests. It does not inspect a targ
 - Real scenario and judge providers execute from disposable working directories outside the target's instruction-file scope. Provider arguments that could import external instructions, sessions, agents, or rules are rejected; Claude also receives an isolated configuration home containing only copied subscription credentials. Browser actions use the allowlisted Playwright MCP; workspace inspection uses a path-contained, read-only MCP with list/read/literal-search tools. The workspace view hides the eval config, specs, fixture manifest, named fixture files, prior runs, and VCS metadata. Executable project checks belong in explicitly configured command graders.
 - Repository scenario prompts contain scenario instructions and success signals, but not rubric criteria or pass thresholds. Attempts by Codex or Claude to use provider-native shell/file/web tools across the MCP evidence boundary invalidate the scenario.
 - Judges cannot revisit the target and receive only the evidence bundle plus capped, round-robin screenshot attachments.
-- Judges receive canonical IDs for scenario records, observations, screenshots, and transcript steps. Unknown citations are discarded; non-`cannot_judge` verdicts left without a valid supplied evidence ID are downgraded to `cannot_judge`, and uncited defects are dropped.
+- Judges receive canonical IDs for scenario records, observations, screenshots, and transcript steps. Unknown or out-of-scope citations, non-`cannot_judge` verdicts without citations, and defects without reached evidence fail the judge contract with retained diagnostics. Explicit abstentions may omit citations.
+- Screenshot citations in non-abstaining item/case verdicts and defects require actual image access: a selected direct attachment for Codex, or a successful evidence MCP view for other judges. Unselected images and failed views cannot support visual claims. Text-only judgments and explicit abstentions do not require image views.
+- Judges must return exactly the requested rubric and case identities. Missing, unexpected, or duplicate results abort the run; only an explicit `cannot_judge` counts as an abstention.
 - Raw provider output is retained. Provider timeouts, nonzero exits, evidence-boundary violations, malformed structured answers or events, missing scenario finalization, and corrupt transcripts abort the run with diagnostics instead of being mislabeled as model uncertainty. A valid judge abstention still becomes unavailable coverage.
 - Command strings in configuration are trusted project code. Review them before running an eval kit from someone else.
 
@@ -555,6 +559,8 @@ Run state retains one-off provider, model, URL, turn-budget, scenario, area, and
 Public exports are stored beside runs under `exports/<run-id>/` by default. Campaign comparisons are written below the candidate campaign under `comparisons/vs-<baseline-campaign-id>/`.
 
 ## Development
+
+See [shared judging contracts](docs/judging-contracts.md) for identity, evidence, image-access, and case-aggregation rules across grading modes.
 
 ```bash
 pnpm typecheck

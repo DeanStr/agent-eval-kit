@@ -307,3 +307,49 @@ test("ordinary browser PNG capture preserves its format when clipping and retain
     assert.equal(diagnostics.checks[0].pass, false);
   } finally { await session.stop(); }
 });
+
+test("resumed mixed-grader areas require fresh ordinary image views and retain completed pairwise votes", async t => {
+  const value = await fixture(t);
+  value.config.judge.provider = "claude";
+  const readable = { id: "READABLE", criterion: "Readable", weight: 1, tags: [], scenarios: ["SCENE"], grader: { type: "llm" as const }, passCriteria: "Readable image" };
+  value.specs[0].rubric.unshift(readable);
+  const ordinaryCount = path.join(value.root, "ordinary-count"), repair = path.join(value.root, "repair");
+  fs.writeFileSync(value.fail, "fail second pair vote");
+  fs.writeFileSync(path.join(value.root, "bin", "claude"), `#!${process.execPath}
+const fs=require('node:fs');const args=process.argv.slice(2);
+if(args.includes('--version')){console.log('claude fixture 1');process.exit(0)}
+const mcp=JSON.parse(fs.readFileSync(args[args.indexOf('--mcp-config')+1],'utf8')).mcpServers.evidence;
+const context=JSON.parse(fs.readFileSync(mcp.args.at(-1),'utf8'));
+const pair=Object.hasOwn(context.screenshots,'A');
+const counter=pair?${JSON.stringify(value.counter)}:${JSON.stringify(ordinaryCount)};
+const count=Number(fs.existsSync(counter)?fs.readFileSync(counter,'utf8'):0)+1;
+fs.writeFileSync(counter,String(count));
+if(pair&&count===2&&fs.existsSync(${JSON.stringify(value.fail)}))process.exit(19);
+if(pair||count===1||fs.existsSync(${JSON.stringify(repair)})){
+ for(const reference of Object.keys(context.screenshots))fs.appendFileSync(context.transcriptFile,JSON.stringify({at:new Date().toISOString(),tool:'view_screenshot',reference,result:'Viewed'})+'\\n');
+}
+const ref=Object.keys(context.screenshots)[0];
+const judgement={verdict:'pass',confidence:'high',reasoning:'Readable',evidenceRefs:[ref]};
+const result=pair?{preferred:'equivalent',confidence:0.95,reasoning:'Equivalent',findings:[]}:
+ {items:[{id:'READABLE',...judgement}],cases:[{rubricId:'READABLE',caseId:'default',...judgement}],defects:[],notes:''};
+console.log(JSON.stringify({type:'result',structured_output:result}));
+`, { mode: 0o755 });
+  const options = { config: value.config, configFile: value.configFile, specs: value.specs, fixtures: {} };
+  await assert.rejects(runEvaluation(options), /Pairwise judge execution failed/);
+  const runDir = path.join(value.config.paths.runs, fs.readdirSync(value.config.paths.runs)[0]);
+  const transcript = "areas/visual/_judge/evidence-transcript.ndjson";
+  const index = JSON.parse(fs.readFileSync(path.join(runDir, "artifact-index.json"), "utf8"));
+  assert.ok(index.entries.some((entry: { path: string }) => entry.path === transcript), "the old ordinary views were sealed by the first pair vote");
+  const voteFile = path.join(runDir, "areas/visual/pairwise/VISUAL/SCENE/1/vote-01/vote.json");
+  const vote = fs.readFileSync(voteFile, "utf8");
+  const evidence = fs.readFileSync(path.join(runDir, "SCENE/evidence.json"), "utf8");
+  fs.rmSync(value.fail);
+  await assert.rejects(runEvaluation({ ...options, resumeDir: runDir }), /screenshot contract violation/);
+  fs.writeFileSync(repair, "view images on next attempt");
+  const resumed = await runEvaluation({ ...options, resumeDir: runDir });
+  assert.equal(resumed.report?.areas[0].items.find(item => item.id === "READABLE")?.verdict, "pass");
+  assert.equal(fs.readFileSync(voteFile, "utf8"), vote);
+  assert.equal(fs.readFileSync(path.join(runDir, "SCENE/evidence.json"), "utf8"), evidence);
+  assert.equal(Number(fs.readFileSync(value.counter, "utf8")), 3, "reuse completed pair vote");
+  assert.equal(verifyArtifactIndex(runDir, { require: true }).ok, true);
+});

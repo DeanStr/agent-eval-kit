@@ -181,3 +181,38 @@ test("headline regression gates retain decreases below campaign display precisio
     "campaign mean score dropped <0.001 points",
   ]);
 });
+
+test("campaign completion regression is gated independently of case and product scores", () => {
+  const source = campaign("source", [["one", "pass"]]).runs[0];
+  assert.equal(source.status, "complete");
+  if (source.status !== "complete") throw new Error("Expected complete fixture");
+  const make = (id: string, outcomes: boolean[], fingerprint = source.evaluationFingerprint) => buildCampaignReport({
+    campaignId: id, project: "Demo", startedAt: "now", plannedRepetitions: 10,
+    runs: outcomes.map((complete, index) => complete ? {
+      ...source, ordinal: index + 1, runId: `${id}-${index}`, evaluationFingerprint: fingerprint,
+      scorePct: 100, coveragePct: 100, scoreWithheld: false, gatesPassed: true, cases: [],
+    } : { ordinal: index + 1, status: "failed", error: "grader crashed" }),
+  });
+  const baseline = make("before", [true, true, true]);
+  const candidate = make("after", [true, false, false]);
+  const result = compareCampaigns(baseline, candidate);
+  assert.deepEqual(result.cases, []);
+  assert.equal(result.overall.completionRate.baseline, 1, "pending repetitions do not reduce completion rate");
+  assert.equal(result.overall.completionRate.candidate, 1 / 3);
+  assert.equal(result.overall.scoreMeanPct.delta, 0, "execution failures are not zero product scores");
+  assert.equal(result.overall.evidenceCoverageMeanPct.delta, 0);
+  assert.equal(result.overall.criticalGatePassRate.delta, 0);
+  assert.deepEqual(campaignComparisonFailures(result, { failOnRegression: true }), ["campaign completion rate dropped 66.667 percentage points"]);
+  assert.deepEqual(campaignComparisonFailures(result, {}), []);
+  assert.deepEqual(campaignComparisonFailures(compareCampaigns(candidate, make("longer", [true, false, false, true, false, false])), { failOnRegression: true }), []);
+  assert.deepEqual(campaignComparisonFailures(compareCampaigns(candidate, baseline), { failOnRegression: true }), []);
+  const incompatible = make("different", [true, false], "different");
+  assert.equal(compareCampaigns(baseline, incompatible).overall.completionRate.delta, null);
+  assert.equal(compareCampaigns(baseline, incompatible, { allowIncompatible: true }).overall.completionRate.delta, -0.5);
+  const failed = compareCampaigns(baseline, make("failed", [false, false]), { allowIncompatible: true });
+  assert.equal(failed.overall.completionRate.candidate, 0);
+  assert.ok(campaignComparisonFailures(failed, { failOnRegression: true }).some(message => /completion rate dropped/.test(message)));
+  const pending = compareCampaigns(baseline, make("pending", []));
+  assert.equal(pending.overall.completionRate.candidate, null);
+  assert.ok(campaignComparisonFailures(pending, { failOnRegression: true }).some(message => /completion rate is unavailable/.test(message)));
+});

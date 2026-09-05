@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import YAML from "yaml";
+import { buildCampaignReport } from "../src/campaign.js";
 import { writeArtifactIndex } from "../src/integrity.js";
 
 const kitRoot = path.resolve(import.meta.dirname, "..");
@@ -44,7 +45,7 @@ function runCli(cwd: string, args: string[]) {
 }
 
 test("CLI execution faults fail without thresholds while valid abstentions remain reports", () => {
-  for (const fault of ["command-exit", "command-json", "judge-exit", "judge-timeout", "judge-schema", "scenario-exit", "abstention"]) {
+  for (const fault of ["command-exit", "command-json", "judge-exit", "judge-timeout", "judge-schema", "judge-omission", "scenario-exit", "abstention"]) {
     const root = temporary();
     try {
       writeProject(root);
@@ -53,6 +54,7 @@ test("CLI execution faults fail without thresholds while valid abstentions remai
       const answer = { items: [{ id: "R1", verdict: "cannot_judge", confidence: "low", reasoning: "Evidence is inconclusive", evidenceRefs: [] }], cases: [], defects: [], notes: "" };
       const behavior = fault === "judge-timeout" ? "setInterval(() => {}, 1000);"
         : fault === "judge-schema" ? 'console.log(JSON.stringify({type:"result",structured_output:{invalid:true}}));'
+        : fault === "judge-omission" ? 'console.log(JSON.stringify({type:"result",structured_output:{items:[],cases:[],defects:[],notes:""}}));'
         : fault === "abstention" ? `console.log(JSON.stringify({type:"result",structured_output:${JSON.stringify(answer)}}));`
         : 'console.error("provider execution failed"); process.exit(7);';
       fs.writeFileSync(path.join(bin, "claude"), `#!${process.execPath}\nif (process.argv.includes("--version")) { console.log("test-provider 1.0"); } else { ${behavior} }\n`, { mode: 0o755 });
@@ -431,4 +433,30 @@ rubric:
   const invalidOriginalScoring = runCli(root, ["rescore", "--run", runDir]);
   assert.equal(invalidOriginalScoring.status, 1);
   assert.match(invalidOriginalScoring.stderr, /Original resolved config snapshot has invalid scoring settings/);
+});
+
+
+test("CLI campaign regression gate writes completion rates before exiting 2", t => {
+  const root = temporary();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const id of ["before", "after"]) {
+    const report = buildCampaignReport({
+      campaignId: id, project: "CLI", startedAt: "now", plannedRepetitions: 3,
+      runs: [1, 2, 3].map(ordinal => id === "after" && ordinal > 1
+        ? { ordinal, status: "failed", error: "grader crashed" }
+        : { ordinal, status: "complete", runId: `${id}-${ordinal}`, runDir: `/runs/${id}-${ordinal}`,
+          evaluationFingerprint: "e".repeat(64), inputFingerprint: "f".repeat(64),
+          scorePct: 100, coveragePct: 100, scoreWithheld: false, gatesPassed: true, items: [], cases: [] }),
+    });
+    fs.writeFileSync(path.join(root, `${id}.json`), JSON.stringify(report));
+  }
+  const output = path.join(root, "comparison");
+  const result = runCli(root, ["campaign", "compare", "--baseline", path.join(root, "before.json"),
+    "--candidate", path.join(root, "after.json"), "--output", output, "--fail-on-regression"]);
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stderr, /completion rate dropped/);
+  const comparison = JSON.parse(fs.readFileSync(path.join(output, "campaign-comparison.json"), "utf8"));
+  assert.equal(comparison.overall.completionRate.candidate, 1 / 3);
+  const html = fs.readFileSync(path.join(output, "campaign-comparison.html"), "utf8");
+  assert.match(html, /Completion rate.*100% → 33.333%/);
 });

@@ -28,6 +28,7 @@ export interface CampaignComparisonReport {
   candidate: { campaignId: string; project: string; completedRuns: number };
   compatibility: { status: "compatible" | "incompatible" | "unknown"; overridden: boolean; reasons: string[] };
   overall: {
+    completionRate: { baseline: number | null; candidate: number | null; delta: number | null };
     scoreMeanPct: { baseline: number | null; candidate: number | null; delta: number | null };
     criticalGatePassRate: { baseline: number | null; candidate: number | null; delta: number | null };
     evidenceCoverageMeanPct: { baseline: number | null; candidate: number | null; delta: number | null };
@@ -225,6 +226,10 @@ export function compareCampaigns(
   if (baseline.project !== candidate.project) warnings.push(`Project changed from ${baseline.project} to ${candidate.project}.`);
   const { score: baselineScore, gates: baselineGates, coverage: baselineCoverage } = headlineMetrics(baseline);
   const { score: candidateScore, gates: candidateGates, coverage: candidateCoverage } = headlineMetrics(candidate);
+  // Pending repetitions are excluded; execution failures remain separate from product scores.
+  const completionRate = (campaign: CampaignReport) => campaign.runs.length
+    ? campaign.runs.filter(run => run.status === "complete").length / campaign.runs.length : null;
+  const baselineCompletion = completionRate(baseline), candidateCompletion = completionRate(candidate);
   return {
     schemaVersion: 1,
     createdAt: new Date().toISOString(),
@@ -232,6 +237,11 @@ export function compareCampaigns(
     candidate: { campaignId: candidate.campaignId, project: candidate.project, completedRuns: candidate.coverage.completedRuns },
     compatibility: { status, overridden: Boolean(options.allowIncompatible), reasons },
     overall: {
+      completionRate: {
+        baseline: baselineCompletion,
+        candidate: candidateCompletion,
+        delta: numericAllowed && baselineCompletion !== null && candidateCompletion !== null ? candidateCompletion - baselineCompletion : null,
+      },
       evidenceCoverageMeanPct: {
         baseline: baselineCoverage,
         candidate: candidateCoverage,
@@ -311,6 +321,12 @@ export function campaignComparisonFailures(
     failures.push(`evaluator inputs are ${report.compatibility.status}`);
   }
   if (options.failOnRegression) {
+    const completion = report.overall.completionRate;
+    if (completion.baseline !== null && completion.candidate === null) {
+      failures.push("candidate campaign completion rate is unavailable despite an available baseline rate");
+    } else if ((completion.delta ?? 0) < 0) {
+      failures.push(`campaign completion rate dropped ${displayDrop(completion.delta! * 100)} percentage points`);
+    }
     const cases = report.summary.regressed + report.summary.lostCoverage + report.summary.removed;
     if (cases) failures.push(`${cases} case regression(s), coverage loss(es), or removal(s)`);
     const coverage = report.overall.evidenceCoverageMeanPct;
@@ -351,7 +367,7 @@ export function writeCampaignComparisonArtifacts(directory: string, report: Camp
   writeJson(json, report);
   const rows = report.cases.map((item) => `<tr><td>${escapeHtml(item.areaId)}</td><td>${escapeHtml(item.rubricId)}</td><td>${escapeHtml(item.caseId)}</td><td>${escapeHtml(item.strata.join(", ") || "—")}</td><td>${item.baselineMean ?? "—"}</td><td>${item.candidateMean ?? "—"}</td><td>${item.baselineRuns}/${item.baselineTotalRuns} → ${item.candidateRuns}/${item.candidateTotalRuns}</td><td>${escapeHtml(item.change)}</td><td class="${["regressed", "lost_coverage", "removed"].includes(item.change) ? "bad" : ["improved", "gained_coverage", "added"].includes(item.change) ? "good" : ""}">${item.delta === null ? escapeHtml(item.change) : `${item.delta > 0 ? "+" : ""}${item.delta}`}</td></tr>`).join("");
   const strataRows = report.strata.map((item) => `<tr><td>${escapeHtml(item.stratum)}</td><td>${item.matchedCases}</td><td>${item.meanDelta > 0 ? "+" : ""}${item.meanDelta}</td></tr>`).join("");
-  fs.writeFileSync(html, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Campaign comparison</title><style>body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;color:#1f2328;max-width:1120px;margin:2rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #d0d7de;padding:.45rem .65rem;text-align:left}th{background:#f6f8fa}.good{color:#1a7f37;font-weight:650}.bad,.warn{color:#cf222e;font-weight:650}code{font-size:.9em}</style></head><body><h1>Campaign comparison</h1><p><code>${escapeHtml(report.baseline.campaignId)}</code> → <code>${escapeHtml(report.candidate.campaignId)}</code> · compatibility <strong class="${report.compatibility.status === "compatible" ? "good" : "warn"}">${report.compatibility.status}</strong></p><p><strong>Campaign mean score:</strong> ${percent(report.overall.scoreMeanPct.baseline)} → ${percent(report.overall.scoreMeanPct.candidate)} · Δ ${report.overall.scoreMeanPct.delta === null ? "—" : `${report.overall.scoreMeanPct.delta > 0 ? "+" : ""}${round(report.overall.scoreMeanPct.delta)}`} points<br><strong>Mean evidence coverage:</strong> ${percent(report.overall.evidenceCoverageMeanPct.baseline)} → ${percent(report.overall.evidenceCoverageMeanPct.candidate)}<br><strong>Critical-gate pass rate:</strong> ${report.overall.criticalGatePassRate.baseline === null ? "—" : `${round(report.overall.criticalGatePassRate.baseline * 100)}%`} → ${report.overall.criticalGatePassRate.candidate === null ? "—" : `${round(report.overall.criticalGatePassRate.candidate * 100)}%`}</p><p><strong>Mean paired-case delta:</strong> ${report.pairedCases.meanDelta === null ? "unavailable" : `${report.pairedCases.meanDelta > 0 ? "+" : ""}${report.pairedCases.meanDelta}`}${report.pairedCases.confidenceInterval95 ? ` · 95% bootstrap ${report.pairedCases.confidenceInterval95.lower} to ${report.pairedCases.confidenceInterval95.upper}` : ""}</p><p>${report.summary.improved} improved · ${report.summary.regressed} regressed · ${report.summary.gainedCoverage} gained coverage · ${report.summary.lostCoverage} lost coverage · ${report.summary.added} added · ${report.summary.removed} removed · ${report.summary.unchanged} unchanged · ${report.summary.unavailable} unavailable</p><h2>Cases</h2><table><thead><tr><th>Area</th><th>Rubric</th><th>Case</th><th>Strata</th><th>Baseline mean</th><th>Candidate mean</th><th>Judgeable / attempted</th><th>Change</th><th>Δ / status</th></tr></thead><tbody>${rows}</tbody></table><h2>Strata</h2>${strataRows ? `<table><thead><tr><th>Stratum</th><th>Cases</th><th>Mean Δ</th></tr></thead><tbody>${strataRows}</tbody></table>` : "<p>No strata available.</p>"}<h2>Warnings</h2><ul>${report.warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>None</li>"}</ul></body></html>`);
+  fs.writeFileSync(html, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Campaign comparison</title><style>body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;color:#1f2328;max-width:1120px;margin:2rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #d0d7de;padding:.45rem .65rem;text-align:left}th{background:#f6f8fa}.good{color:#1a7f37;font-weight:650}.bad,.warn{color:#cf222e;font-weight:650}code{font-size:.9em}</style></head><body><h1>Campaign comparison</h1><p><code>${escapeHtml(report.baseline.campaignId)}</code> → <code>${escapeHtml(report.candidate.campaignId)}</code> · compatibility <strong class="${report.compatibility.status === "compatible" ? "good" : "warn"}">${report.compatibility.status}</strong></p><p><strong>Completion rate (completed / attempted):</strong> ${report.overall.completionRate.baseline === null ? "—" : percent(report.overall.completionRate.baseline * 100)} → ${report.overall.completionRate.candidate === null ? "—" : percent(report.overall.completionRate.candidate * 100)}<br><strong>Campaign mean score:</strong> ${percent(report.overall.scoreMeanPct.baseline)} → ${percent(report.overall.scoreMeanPct.candidate)} · Δ ${report.overall.scoreMeanPct.delta === null ? "—" : `${report.overall.scoreMeanPct.delta > 0 ? "+" : ""}${round(report.overall.scoreMeanPct.delta)}`} points<br><strong>Mean evidence coverage:</strong> ${percent(report.overall.evidenceCoverageMeanPct.baseline)} → ${percent(report.overall.evidenceCoverageMeanPct.candidate)}<br><strong>Critical-gate pass rate:</strong> ${report.overall.criticalGatePassRate.baseline === null ? "—" : `${round(report.overall.criticalGatePassRate.baseline * 100)}%`} → ${report.overall.criticalGatePassRate.candidate === null ? "—" : `${round(report.overall.criticalGatePassRate.candidate * 100)}%`}</p><p><strong>Mean paired-case delta:</strong> ${report.pairedCases.meanDelta === null ? "unavailable" : `${report.pairedCases.meanDelta > 0 ? "+" : ""}${report.pairedCases.meanDelta}`}${report.pairedCases.confidenceInterval95 ? ` · 95% bootstrap ${report.pairedCases.confidenceInterval95.lower} to ${report.pairedCases.confidenceInterval95.upper}` : ""}</p><p>${report.summary.improved} improved · ${report.summary.regressed} regressed · ${report.summary.gainedCoverage} gained coverage · ${report.summary.lostCoverage} lost coverage · ${report.summary.added} added · ${report.summary.removed} removed · ${report.summary.unchanged} unchanged · ${report.summary.unavailable} unavailable</p><h2>Cases</h2><table><thead><tr><th>Area</th><th>Rubric</th><th>Case</th><th>Strata</th><th>Baseline mean</th><th>Candidate mean</th><th>Judgeable / attempted</th><th>Change</th><th>Δ / status</th></tr></thead><tbody>${rows}</tbody></table><h2>Strata</h2>${strataRows ? `<table><thead><tr><th>Stratum</th><th>Cases</th><th>Mean Δ</th></tr></thead><tbody>${strataRows}</tbody></table>` : "<p>No strata available.</p>"}<h2>Warnings</h2><ul>${report.warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>None</li>"}</ul></body></html>`);
   return { json, html };
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "agent-eval-kit",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "description": "Provider-neutral project evaluation harness powered by Codex, Claude Code, or Grok Build subscriptions.",
   "type": "module",
   "bin": {

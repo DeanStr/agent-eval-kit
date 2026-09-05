@@ -1,3 +1,5 @@
+import { requiredJudgeResult, aggregateCaseVerdicts, assertJudgementIdentities } from "../judging/contracts.js";
+import { assertScreenshotAccess } from "../evidence/inspection.js";
 import fs from "node:fs";
 import path from "node:path";
 import { randomInt } from "node:crypto";
@@ -5,7 +7,7 @@ import { z } from "zod";
 import { runProvider } from "../providers/index.js";
 import { EVIDENCE_TOOL_NAMES, evidenceMcpLaunch, writeMcpConfig } from "../mcp-config.js";
 import { sha256, writeJson } from "../io.js";
-import { caseJudgeRequests } from "../prompts.js";
+import { caseJudgeRequests } from "../judging/evidence.js";
 import type { Defect, EvalConfig, EvalSpec, JudgedCase, JudgedItem, ProviderInvocation, RubricItem, ScenarioEvidence, Verdict } from "../types.js";
 import { pairResultSchema, type PairResult, type VoteSummary } from "./contracts.js";
 import { compareImages, inspectImage, normalizeImage, statisticChanges } from "./images.js";
@@ -19,33 +21,9 @@ export function pairOutcome(result: PairResult, candidateIsA: boolean, minimumCo
   if (result.preferred === "equivalent") return "equivalent";
   return result.preferred === (candidateIsA ? "A" : "B") ? "win" : "loss";
 }
-export function aggregateVerdicts(values: Verdict[]): Verdict {
-  if (!values.length || values.includes("cannot_judge")) return "cannot_judge";
-  if (values.every(value => value === "pass")) return "pass";
-  if (values.every(value => value === "fail")) return "fail";
-  return "partial";
-}
-
-const imageViewSchema = z.object({
-  at: z.iso.datetime(), tool: z.literal("view_screenshot"), reference: z.string(),
-  result: z.string(), isError: z.boolean().optional(),
-}).strict();
-
 export function assertPairInspection(directory: string, preferred: PairResult["preferred"]): void {
-  const transcript = path.join(directory, "evidence-transcript.ndjson");
-  const viewed = new Set<string>();
-  if (fs.existsSync(transcript)) {
-    for (const [index, line] of fs.readFileSync(transcript, "utf8").split("\n").entries()) {
-      if (!line.trim()) continue;
-      let value: unknown;
-      try { value = JSON.parse(line); } catch { throw new Error(`Invalid image-view transcript JSON: ${transcript}:${index + 1}`); }
-      const parsed = imageViewSchema.safeParse(value);
-      if (!parsed.success) throw new Error(`Invalid image-view transcript record: ${transcript}:${index + 1}: ${parsed.error.message}`);
-      if (!parsed.data.isError) viewed.add(parsed.data.reference);
-    }
-  }
-  if (preferred !== "abstain" && (!viewed.has("A") || !viewed.has("B")))
-    throw new Error(`Pairwise judge contract violation: ${preferred} requires successful views of both A and B; missing ${["A", "B"].filter(label => !viewed.has(label)).join(", ")}. See ${directory}`);
+  assertScreenshotAccess({ directory, access: "mcp", selectedRefs: ["A", "B"],
+    requiredRefs: preferred === "abstain" ? [] : ["A", "B"], context: "Pairwise judge" });
 }
 
 async function invokePair(config: EvalConfig, item: RubricItem, directory: string, a: Buffer, b: Buffer): Promise<PairResult> {
@@ -149,16 +127,25 @@ export async function judgePairwise(options: {
           votes: votes.map(vote => ({ outcome: pairOutcome(vote.raw, vote.candidateIsA, grader.voting.minimumConfidence), reasoning: vote.raw.reasoning })),
         }));
       }
-      scenarioResults.push({ id: scenarioId, verdict: aggregateVerdicts(summaries.map(s => pairwiseVoteVerdict(s.decision, grader.policy))), refs: [candidateRef], votes: summaries });
+      scenarioResults.push({ id: scenarioId, verdict: aggregateCaseVerdicts(summaries.map(s => pairwiseVoteVerdict(s.decision, grader.policy))), refs: [candidateRef], votes: summaries });
     }
-    const verdict = aggregateVerdicts(scenarioResults.map(result => result.verdict));
+    const verdict = aggregateCaseVerdicts(scenarioResults.map(result => result.verdict));
     const { verdict: _diagnosticVerdict, ...statistics } = evaluateStatistics([...statisticSamples.values()]);
     writeJson(path.join(options.areaDirectory, "pairwise", item.id, "statistics.json"), statistics);
     const counts: Record<string, number> = {};
     for (const summary of scenarioResults.flatMap(r => r.votes)) for (const [key, count] of Object.entries(summary.counts)) counts[key] = (counts[key] ?? 0) + count;
     const summaries = scenarioResults.flatMap(r => r.votes);
     const judged: JudgedItem = { id: item.id, comparisons, source: "pairwise", verdict, confidence: verdict === "cannot_judge" ? "low" : "high", reasoning: `Blind ${grader.policy} comparisons: ${scenarioResults.map(r => `${r.id}=${r.verdict}`).join(", ")}. Every reference must pass.`, evidenceRefs: scenarioResults.flatMap(r => r.refs), votes: { attempted: summaries.reduce((n, s) => n + s.attempted, 0), judgeable: summaries.reduce((n, s) => n + s.judgeable, 0), counts, decision: verdict } };
-    const cases: JudgedCase[] = caseJudgeRequests([item], evidence).map(request => ({ ...request, areaId: spec.id, source: "pairwise", verdict: aggregateVerdicts(request.scenarioIds.map(id => scenarioResults.find(r => r.id === id)?.verdict ?? "cannot_judge")), confidence: judged.confidence, reasoning: judged.reasoning, evidenceRefs: scenarioResults.filter(r => request.scenarioIds.includes(r.id)).flatMap(r => r.refs) }));
+    const cases: JudgedCase[] = caseJudgeRequests([item], evidence).map(request => ({
+      ...request, areaId: spec.id, source: "pairwise",
+      verdict: aggregateCaseVerdicts(request.scenarioIds.map(id => requiredJudgeResult(
+        scenarioResults.find(r => r.id === id),
+        `pairwise scenario ${id} for case ${request.rubricId}/${request.caseId} in ${options.areaDirectory}`,
+      ).verdict)),
+      confidence: judged.confidence, reasoning: judged.reasoning,
+      evidenceRefs: scenarioResults.filter(r => request.scenarioIds.includes(r.id)).flatMap(r => r.refs),
+    }));
+    assertJudgementIdentities({ items: [judged], cases }, { items: [item], cases: caseJudgeRequests([item], evidence) }, options.areaDirectory);
     return { item: judged, cases, defects };
   });
   return { items: results.map(r => r.item), cases: results.flatMap(r => r.cases), defects: results.flatMap(r => r.defects) };

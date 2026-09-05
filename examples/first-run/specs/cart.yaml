@@ -1,0 +1,30 @@
+id: cart
+title: Cart totals
+weight: 100
+description: Small deterministic checks and a pending human review.
+scenarios:
+  - id: DEMO
+    name: Offline demonstration
+    kind: workspace
+    instructions: Placeholder for the offline mock collector; command graders provide the measured evidence.
+rubric:
+  - id: QUANTITY
+    criterion: Quantities contribute to the total
+    weight: 3
+    gate: true
+    scenarios: []
+    grader: { type: command, output: json, command: node check.mjs quantity }
+    passCriteria: Two items priced at 500 cents total 1000 cents.
+  - id: EMPTY
+    criterion: An empty cart totals zero
+    weight: 1
+    scenarios: []
+    grader: { type: command, output: json, command: node check.mjs empty }
+    passCriteria: An empty list totals zero cents.
+  - id: RECEIPT
+    criterion: A reviewer approves the receipt wording
+    weight: 1
+    scenarios: []
+    grader: { type: manual }
+    manualInstructions: Review the receipt wording with the product owner before marking this complete.
+    passCriteria: A reviewer confirms the wording is suitable.

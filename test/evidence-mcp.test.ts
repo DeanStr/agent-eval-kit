@@ -7,6 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { EvidenceMcpContext } from "../src/evidence/context.js";
 import { writeJson } from "../src/io.js";
+import { inspectedScreenshots } from "../src/evidence/inspection.js";
 import { evidenceMcpLaunch } from "../src/mcp-config.js";
 
 test("evidence MCP exposes only explicitly selected screenshots", async () => {
@@ -20,7 +21,7 @@ test("evidence MCP exposes only explicitly selected screenshots", async () => {
   writeJson(contextFile, {
     attachmentRoot: attachments,
     screenshots: { "S1/screenshots/selected.jpg": "selected.jpg" },
-    transcriptFile: path.join(directory, "transcript.ndjson"),
+    transcriptFile: path.join(directory, "evidence-transcript.ndjson"),
     maxToolCalls: 2,
   } satisfies EvidenceMcpContext);
   const launch = evidenceMcpLaunch(contextFile);
@@ -40,6 +41,7 @@ test("evidence MCP exposes only explicitly selected screenshots", async () => {
     const denied = await client.callTool({ name: "view_screenshot", arguments: { ref: "../not-selected.jpg" } });
     assert.equal(denied.isError, true);
     assert.match(JSON.stringify(denied.content), /Unknown screenshot reference/);
+    assert.deepEqual([...inspectedScreenshots(directory)], ["S1/screenshots/selected.jpg"]);
   } finally {
     await client.close().catch(() => {});
     await transport.close().catch(() => {});

@@ -1,0 +1,4 @@
+// Prices and totals are integer cents.
+export function total(lines) {
+  return lines.reduce((sum, line) => sum + line.priceCents * line.quantity, 0);
+}

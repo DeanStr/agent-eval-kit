@@ -1,63 +1,5 @@
+import { caseJudgeRequests } from "./judging/evidence.js";
 import type { EvalConfig, EvalSpec, RubricItem, Scenario, ScenarioEvidence } from "./types.js";
-
-export interface CaseJudgeRequest {
-  rubricId: string;
-  caseId: string;
-  scenarioIds: string[];
-  strata: string[];
-  split?: "development" | "evaluation";
-}
-
-export function caseJudgeRequests(items: RubricItem[], evidence: ScenarioEvidence[]): CaseJudgeRequest[] {
-  return items.flatMap((item) => {
-    if (!item.scenarios.length) return [];
-    const relevant = evidence.filter((scenario) => item.scenarios.includes(scenario.scenarioId));
-    const shared = relevant.filter((scenario) => !scenario.caseId);
-    const byCase = new Map<string, ScenarioEvidence[]>();
-    for (const scenario of relevant) {
-      if (!scenario.caseId) continue;
-      const members = byCase.get(scenario.caseId) ?? [];
-      members.push(scenario);
-      byCase.set(scenario.caseId, members);
-    }
-    if (!byCase.size) {
-      return [{
-        rubricId: item.id,
-        caseId: "default",
-        scenarioIds: relevant.map((scenario) => scenario.scenarioId),
-        strata: [...new Set(relevant.flatMap((scenario) => scenario.strata ?? []))].sort(),
-        split: relevant.map((scenario) => scenario.split).find(Boolean),
-      }];
-    }
-
-    return [...byCase.entries()].sort(([left], [right]) => left.localeCompare(right)).flatMap(([caseId, members]) => {
-      const byIdentity = new Map<string, ScenarioEvidence[]>();
-      for (const scenario of members) {
-        const identity = JSON.stringify({
-          strata: [...new Set(scenario.strata ?? [])].sort(),
-          split: scenario.split,
-        });
-        const matching = byIdentity.get(identity) ?? [];
-        matching.push(scenario);
-        byIdentity.set(identity, matching);
-      }
-      const disambiguate = byIdentity.size > 1;
-      return [...byIdentity.values()]
-        .map((caseMembers) => {
-          const sources = [...new Set(caseMembers.map((scenario) => scenario.sourceScenarioId ?? scenario.scenarioId))].sort();
-          const allMembers = [...shared, ...caseMembers];
-          return {
-            rubricId: item.id,
-            caseId: disambiguate ? `${sources.join("+")}/${caseId}` : caseId,
-            scenarioIds: allMembers.map((scenario) => scenario.scenarioId),
-            strata: [...new Set(caseMembers.flatMap((scenario) => scenario.strata ?? []))].sort(),
-            split: caseMembers.map((scenario) => scenario.split).find(Boolean),
-          };
-        })
-        .sort((left, right) => left.caseId.localeCompare(right.caseId));
-    });
-  });
-}
 
 export function scenarioPrompt(options: {
   config: EvalConfig;
@@ -144,15 +86,6 @@ function compactEvidence(evidence: ScenarioEvidence[], attachments: Record<strin
   }));
 }
 
-export function canonicalEvidenceRefs(evidence: ScenarioEvidence[]): Set<string> {
-  return new Set(evidence.flatMap((scenario) => [
-    `${scenario.scenarioId}/evidence.json`,
-    ...scenario.observations.map((_text, index) => `${scenario.scenarioId}/evidence.json#observation-${index + 1}`),
-    ...scenario.screenshots.map((shot) => `${scenario.scenarioId}/${shot.path}`),
-    ...scenario.transcript.map((entry) => `${scenario.scenarioId}/${scenario.kind}-transcript.ndjson#step-${entry.step}`),
-  ]));
-}
-
 export function judgePrompt(options: {
   config: EvalConfig;
   spec: EvalSpec;
@@ -170,14 +103,15 @@ export function judgePrompt(options: {
     `For criteria explicitly about source code, directly inspected code and a logically complete counterexample may prove a defect without execution. Identify the relevant source lines and distinguish a static deduction from an observed runtime result. Do not apply this exception to runtime, integration, or persistence claims.`,
     `A form or code symbol existing is not proof the workflow works. Require persisted outputs, command results, or before/after states when the criterion calls for them.`,
     `Still images establish only the visible sampled states, not continuous motion, sound, interaction, or runtime correctness. Collector extraction descriptions and adapter metrics are instrumented claims; source hashes establish artifact identity, not the truth of those claims.`,
-    `Every verdict needs concrete evidenceRefs. Never turn an agent/harness timeout, missing authentication, or low evidence coverage into a product defect.`,
+    `Every non-abstaining verdict needs concrete evidenceRefs; cannot_judge may use an empty array. Never turn an agent/harness timeout, missing authentication, or low evidence coverage into a product defect.`,
+    `Cite a screenshot only if it is attached or you successfully viewed it through the evidence MCP. Screenshot labels and metadata alone are not visual evidence. Explicit cannot_judge may name an unavailable screenshot to explain an abstention.`,
     `Copy evidenceRefs only from the supplied recordRef or ref fields. A reference not present in those fields is invalid.`,
     options.screenshotAccess === "mcp"
       ? `Screenshots marked visualAvailable are available through the evidence MCP. Call view_screenshot with their exact ref when visual evidence is material to a verdict.`
       : options.screenshotAccess === "attached"
         ? `Screenshots marked visualAvailable are attached to this request; their attachment file names are listed in EVIDENCE_JSON.`
         : `No screenshot attachment was selected for this judgement; rely only on the supplied textual evidence.`,
-    `Return exactly one item for every rubric id, in the given order. Full pass on an aggregate item requires all applicable cases to pass; use partial for mixed case outcomes. Independently list only defects in the evaluated project.`,
+    `Return exactly one item for every rubric id, in the given order. Full pass on an aggregate item requires all applicable cases to pass; use partial for mixed case outcomes. Independently list only defects in the evaluated project, each citing evidence from completed or feature_not_found scenarios.`,
     caseRequests.length
       ? `Also return exactly one case judgement for every rubricId/caseId pair in CASE_REQUESTS_JSON. Judge each case only from its listed scenarioIds. These diagnostic case judgements do not replace the aggregate rubric verdict.`
       : `Return an empty cases array because no rubric has scenario-backed cases.`,

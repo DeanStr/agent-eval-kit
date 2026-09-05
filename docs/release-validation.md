@@ -1,5 +1,43 @@
 # Release validation
 
+## Judging review/fix loop (0.2.2)
+
+The requested `codex exec review --uncommitted -m gpt-6-astra -c 'model_reasoning_effort="medium"'` review completed on 2026-09-05 with no actionable findings in its first round. Type checking, all 286 tests, and diff checks passed. No implementation fixes or finding dismissals were needed. See the [captured result and review decisions](review-loop-judging-2026-09-05.md).
+
+## Fail-fast judge claims and aggregation (0.2.2)
+
+Rubric and case claims now reject unknown or out-of-scope citations and non-abstaining verdicts without citations. Defects must cite reached evidence; unsupported defects and invalid references within otherwise valid citation lists are rejected instead of discarded. Errors identify the claim and retained diagnostics. Explicit abstentions may omit citations, blocked cases still reduce coverage, and configured low-confidence voting remains an abstention.
+
+Missing repeated-vote or pairwise scenario results now raise execution contract errors before aggregation. Prompts and documentation describe the stricter citation rules. Regression coverage exercises single/repeated rejection, prevents malformed votes from being journaled, verifies repaired output succeeds, and preserves blocked-case coverage.
+
+Validation: all 286 tests passed, along with type checking, the build, and `git diff --check`. No live subscription providers were invoked.
+
+## Uncommitted-change review: ordinary judge image access (0.2.2)
+
+The review reproduced one issue: an ordinary judge rerun in a partially completed area could inherit a prior invocation's image-view transcript. A later pairwise vote can seal those files before another vote fails, so resume legitimately retains the old transcript. The fresh judge could then cite an image without viewing it.
+
+Fresh ordinary invocations now remove the previous image-view transcript before launching the provider. Completed repeated votes bypass this launch path and retain their sealed transcripts. A regression test failed before the fix, and an integration test verifies actual area recovery: the first attempt seals an ordinary judgement and a pairwise vote, the next attempt rejects missing fresh views, and the repaired attempt completes while retaining the original collected evidence and completed pairwise vote. No other actionable findings were identified in the reviewed diff.
+
+Validation: all 284 tests passed, type checking passed, production-package smoke (including the build) passed, and `git diff --check` passed. No live subscription providers were invoked. Changes remain uncommitted.
+
+## Shared judging contracts and first-run guide (0.2.2)
+
+Identity checks, stable case requests, canonical citations, rubric normalization, screenshot access, and case aggregation now have shared implementations under `src/judging/` and `src/evidence/inspection.ts`. Saved repeated votes also require the exact requested identities. Single and repeated rubric modes constrain a proposed full pass with the same all-member aggregate; any unavailable case makes that derived aggregate unavailable, all observed negative cases yield fail, and mixed observed outcomes yield partial. Independent non-pass rubric verdicts remain authoritative; pairwise results are derived directly from all required comparisons. The kit version advances because this resolves earlier single/repeated aggregation differences. Regenerate runs and baselines for this method. See [shared judging contracts](judging-contracts.md).
+
+The [first-run guide](first-run.md) uses the copyable `examples/first-run` cart fixture without browser or subscription dependencies. An end-to-end CLI test verifies its 100% score / 80% coverage baseline, deliberately broken 25% score / 80% coverage candidate, critical gate failure, compatible comparison, retained evidence, and expected exit codes.
+
+Validated locally on 2026-09-05: all 282 tests passed, plus type checking, the build included in production-package smoke, package smoke, all seven deterministic reference variants, and diff checks. The new guide links resolve. No live subscription providers or human calibration reviewers were invoked.
+
+## Judge contracts and campaign completion (0.2.1)
+
+Ordinary rubric and case screenshot citations, including defect citations, now require selected direct attachments or successful MCP image views. Ordinary and pairwise judges share transcript validation; failed or malformed views cannot establish access. Text-only evidence and explicit abstentions remain valid. Missing, unexpected, and duplicate rubric/case identities are execution-contract errors rather than substituted abstentions. Invalid repeated votes are not journaled and can be retried.
+
+Campaign comparisons now show and gate completion rate (completed / attempted repetitions) independently of score, evidence coverage, and critical gates. Pending repetitions are excluded; execution failures do not receive invented product scores. This detects completion regressions in command-only campaigns with no case measurements.
+
+The kit version advances to invalidate reuse under the older judge contract. Regenerate runs and baselines for the new method; no migration or publication is included.
+
+Validated locally on 2026-09-05: all 278 tests passed, plus type checking, build, production-package smoke, and all seven deterministic reference variants. Focused follow-up tests verify equal completion rates across unequal campaign sizes and transcript validation against the real evidence MCP. CLI checks confirm missing judge results fail the run with retained diagnostics and released locks, and completion regressions write JSON/HTML before exiting 2. No live subscription providers or human calibration reviewers were invoked.
+
 ## Codex review/fix loop (0.2.0)
 
 Validated locally on 2026-09-05 through four `codex exec review --uncommitted` rounds using `gpt-6-astra` at medium reasoning effort. Fixed three actionable findings: Chromium provenance now uses the configured launch mode, browser probing respects split and scenario selection, and skipped/dependency-blocked area evidence is sealed before visual grading. The final review reported no actionable regressions; no findings were dismissed. All 242 tests, type checking, build, and production-package smoke passed. See [the per-round findings and decisions](review-loop-2026-09-05.md).
