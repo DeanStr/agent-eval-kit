@@ -1,3 +1,4 @@
+import type { TextPairwiseGrader } from "./text/contracts.js";
 import type { CaptureConfig, CaptureCheck, DiagnosticPolicy, BrowserDiagnostic, PairwiseGrader, VotingPolicy, VoteSummary, DistinctnessGrader, ImageRegressionGrader } from "./visual/contracts.js";
 export const PROVIDERS = ["codex", "claude", "grok", "mock"] as const;
 export type ProviderId = (typeof PROVIDERS)[number];
@@ -129,7 +130,7 @@ export interface HybridGrader {
   autoShare: number;
 }
 
-export type Grader = CommandGrader | LlmGrader | ManualGrader | HybridGrader | PairwiseGrader | DistinctnessGrader | ImageRegressionGrader | { type: "capture" };
+export type Grader = TextPairwiseGrader | CommandGrader | LlmGrader | ManualGrader | HybridGrader | PairwiseGrader | DistinctnessGrader | ImageRegressionGrader | { type: "capture" };
 
 export interface RubricItem {
   id: string;
@@ -231,7 +232,7 @@ export interface JudgedItem {
   confidence: "high" | "medium" | "low";
   reasoning: string;
   evidenceRefs: string[];
-  source: "llm" | "command" | "manual" | "pairwise" | "capture" | "image-distinctness" | "image-regression";
+  source: "text-pairwise" | "llm" | "command" | "manual" | "pairwise" | "capture" | "image-distinctness" | "image-regression";
   votes?: VoteSummary;
   comparisons?: string[];
   /** Populated by scoreArea, using the actual weights and evidence coverage. */
@@ -262,6 +263,8 @@ export interface RunReceipt {
     config: ArtifactReceipt;
     methodSha256: string;
     visual?: Record<string, ArtifactReceipt>;
+    textCandidates?: Record<string, ArtifactReceipt>;
+    textReferences?: Record<string, ArtifactReceipt>;
     collectorSources?: Record<string, ArtifactReceipt>;
     collectorMethods?: Record<string, ArtifactReceipt>;
     specs: Record<string, ArtifactReceipt & { file: string }>;

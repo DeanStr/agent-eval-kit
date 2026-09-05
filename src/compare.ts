@@ -189,6 +189,9 @@ function compatibility(
   if (stableValue(recordHashes(baseline.inputs.specs)) !== stableValue(recordHashes(candidate.inputs.specs))) {
     differences.push("One or more evaluation specs changed.");
   }
+  if (stableValue(recordHashes(baseline.inputs.textReferences)) !== stableValue(recordHashes(candidate.inputs.textReferences))) {
+    differences.push("One or more text references or style targets changed.");
+  }
   const beforeFixtures = baseline.inputs.fixtures;
   const afterFixtures = candidate.inputs.fixtures;
   if (beforeFixtures?.manifest.sha256 !== afterFixtures?.manifest.sha256) {

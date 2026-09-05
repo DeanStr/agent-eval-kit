@@ -1,0 +1,9 @@
+version: 1
+project: { name: Text style comparison, root: . }
+target: { kind: repository }
+agent: { provider: mock }
+judge: { provider: mock, timeoutSeconds: 300 }
+paths:
+  specs: specs
+  runs: .agent-eval/runs
+scoring: { minimumCoverage: 100 }

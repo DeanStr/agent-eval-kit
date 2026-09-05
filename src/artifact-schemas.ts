@@ -50,7 +50,7 @@ const judgement = {
   verdict, confidence: z.enum(["high", "medium", "low"]), reasoning: text, evidenceRefs: strings,
 };
 const item = z.object({
-  ...judgement, id, source: z.enum(["llm", "command", "manual", "pairwise", "capture", "image-distinctness", "image-regression"]),
+  ...judgement, id, source: z.enum(["text-pairwise", "llm", "command", "manual", "pairwise", "capture", "image-distinctness", "image-regression"]),
   components: z.object({ automatic: verdict.optional(), manual: verdict.optional() }).optional(),
   score: scoreSliceSchema,
   comparisons: strings.optional(),
@@ -68,7 +68,7 @@ const receiptTarget = z.object({
 const receipt = z.object({
   schemaVersion: z.literal(1), evaluationFingerprint: id, inputFingerprint: id,
   inputs: z.object({
-    config: artifact, methodSha256: id, visual: record(artifact).optional(), collectorSources: record(artifact).optional(), collectorMethods: record(artifact).optional(),
+    config: artifact, methodSha256: id, visual: record(artifact).optional(), textCandidates: record(artifact).optional(), textReferences: record(artifact).optional(), collectorSources: record(artifact).optional(), collectorMethods: record(artifact).optional(),
     specs: record(artifact.extend({ file: id })),
     fixtures: z.object({ manifest: artifact, files: record(artifact.extend({ configuredPath: text })) }).optional(),
     selection: z.object({ areas: strings, scenarios: strings.optional(), split: z.enum(["development", "evaluation", "all"]).optional() }),

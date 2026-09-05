@@ -1,0 +1,1 @@
+I measured how long each search took because the pauses kept breaking my concentration. Most queries finished before I noticed a delay. The slowest few took more than a second, and those were the ones I remembered. Optimizing the average would have missed the problem.

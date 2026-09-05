@@ -100,3 +100,9 @@ export async function mapConcurrent<T, R>(items: T[], concurrency: number, worke
   if (failed) throw error;
   return results;
 }
+
+export function pairOutcome(result: { preferred: "A" | "B" | "equivalent" | "abstain"; confidence: number }, candidateIsA: boolean, minimumConfidence: number): string {
+  if (result.preferred === "abstain" || result.confidence < minimumConfidence) return "abstain";
+  if (result.preferred === "equivalent") return "equivalent";
+  return result.preferred === (candidateIsA ? "A" : "B") ? "win" : "loss";
+}

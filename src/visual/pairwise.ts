@@ -13,14 +13,10 @@ import { pairResultSchema, type PairResult, type VoteSummary } from "./contracts
 import { compareImages, inspectImage, normalizeImage, statisticChanges } from "./images.js";
 import { visualEvidenceReader } from "./inputs.js";
 import { evaluateStatistics, type StatisticSample } from "./statistics.js";
-import { decideVotes, journalVote, mapConcurrent, pairwiseVoteVerdict } from "./votes.js";
+import { decideVotes, journalVote, mapConcurrent, pairOutcome, pairwiseVoteVerdict } from "./votes.js";
 import { comparisonHtml } from "./report.js";
 
-export function pairOutcome(result: PairResult, candidateIsA: boolean, minimumConfidence: number): string {
-  if (result.preferred === "abstain" || result.confidence < minimumConfidence) return "abstain";
-  if (result.preferred === "equivalent") return "equivalent";
-  return result.preferred === (candidateIsA ? "A" : "B") ? "win" : "loss";
-}
+export { pairOutcome } from "./votes.js";
 export function assertPairInspection(directory: string, preferred: PairResult["preferred"]): void {
   assertScreenshotAccess({ directory, access: "mcp", selectedRefs: ["A", "B"],
     requiredRefs: preferred === "abstain" ? [] : ["A", "B"], context: "Pairwise judge" });

@@ -108,8 +108,8 @@ export function scoreArea(options: {
     // Unscoped LLM and hybrid criteria are backed by the area's evidence as a
     // whole. They still need at least one scenario that actually reached the
     // product; an empty selector must not turn an entirely blocked area into
-    // judgeable evidence. Command graders are independent of scenario reach.
-    const backingWasReached = rubric.grader.type === "command" || (rubric.scenarios.length
+    // judgeable evidence. Command and direct text graders are independent of scenario reach.
+    const backingWasReached = rubric.grader.type === "command" || rubric.grader.type === "text-pairwise" || (rubric.scenarios.length
       ? rubric.scenarios.some((id) => looked.has(id))
       : looked.size > 0);
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import { validateVisualInputs } from "./visual/inputs.js";
+import { validateTextInputs } from "./text/inputs.js";
 import path from "node:path";
 import YAML from "yaml";
 import { captureAuth } from "./auth.js";
@@ -583,6 +584,7 @@ async function main(): Promise<void> {
   assertScenarioTargetCompatibility(allSpecs, config.target);
   if (args.command === "validate") {
     await validateVisualInputs(config, allSpecs);
+    validateTextInputs(config, allSpecs);
     loadFixtures(config.paths.fixtures);
     const templates = allSpecs.reduce((n, spec) => n + spec.scenarios.length, 0);
     const executions = materializeSpecs(allSpecs).reduce((n, spec) => n + spec.scenarios.length, 0);

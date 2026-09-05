@@ -1,0 +1,30 @@
+id: writing
+title: Writing style and taste
+weight: 100
+description: Compare passages directly, using a reference to express the desired taste.
+scenarios: []
+rubric:
+  - id: TARGET-STYLE
+    criterion: Which passage would you prefer to read in an independent technical experiment report?
+    passCriteria: The candidate is at least as well written as the reference, judged holistically.
+    weight: 1
+    gate: true
+    tags: [writing, taste]
+    grader:
+      type: text-pairwise
+      candidate: candidate.md
+      references: [{ file: reference.md }]
+      policy: non_regression
+      voting: { minimumVotes: 3, maximumVotes: 5, agreement: 0.8 }
+  - id: REVISION-STYLE
+    criterion: Which passage better achieves the style and editorial taste of R?
+    passCriteria: The candidate improves on the original in the direction of the style target.
+    weight: 1
+    tags: [writing, revision]
+    grader:
+      type: text-pairwise
+      candidate: candidate.md
+      references: [{ file: original.md }]
+      styleTarget: { file: reference.md }
+      policy: preference
+      voting: { minimumVotes: 3, maximumVotes: 5, agreement: 0.8 }
