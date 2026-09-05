@@ -1,0 +1,14 @@
+version: 1
+project: { name: Text editorial quality comparison, root: . }
+target: { kind: repository }
+agent: { provider: mock }
+judge: { provider: mock, timeoutSeconds: 300 }
+paths:
+  specs: specs/quality.yaml
+  runs: .agent-eval/runs
+scoring: { minimumCoverage: 100 }
+instructions: |
+  Compare the complete texts for overall editorial quality for their intended
+  technical audience. Judge holistically; consider clarity, organization, and the
+  experience of reading the text. Do not favor length alone or infer authorship.
+  This is separate from the voice comparison. Factual verification is also separate.

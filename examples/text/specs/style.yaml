@@ -5,8 +5,8 @@ description: Compare passages directly, using a reference to express the desired
 scenarios: []
 rubric:
   - id: TARGET-STYLE
-    criterion: Which passage would you prefer to read in an independent technical experiment report?
-    passCriteria: The candidate is at least as well written as the reference, judged holistically.
+    criterion: Which of A and B has the more natural and convincing authorial voice for an engineering blog?
+    passCriteria: The candidate voice is at least as natural and convincing as the reference voice. Editorial polish cannot compensate for weaker voice.
     weight: 1
     gate: true
     tags: [writing, taste]
@@ -17,9 +17,10 @@ rubric:
       policy: non_regression
       voting: { minimumVotes: 3, maximumVotes: 5, agreement: 0.8 }
   - id: REVISION-STYLE
-    criterion: Which passage better achieves the style and editorial taste of R?
-    passCriteria: The candidate improves on the original in the direction of the style target.
+    criterion: Which version would fit more naturally alongside R in an engineering blog, based on how the author sounds?
+    passCriteria: The candidate has a more natural and convincing voice in the spirit of R than the original. Editorial polish cannot compensate for weaker voice.
     weight: 1
+    gate: true
     tags: [writing, revision]
     grader:
       type: text-pairwise

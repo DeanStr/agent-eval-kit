@@ -1,0 +1,17 @@
+id: quality
+title: Overall editorial quality
+weight: 100
+description: Compare editorial quality independently of the voice evaluation.
+scenarios: []
+rubric:
+  - id: EDITORIAL-QUALITY
+    criterion: Which complete passage is better written overall for its intended technical audience?
+    passCriteria: The candidate preserves or improves overall editorial quality relative to the original.
+    weight: 1
+    gate: true
+    grader:
+      type: text-pairwise
+      candidate: candidate.md
+      references: [{ file: original.md }]
+      policy: non_regression
+      voting: { minimumVotes: 3, maximumVotes: 5, agreement: 0.8 }
