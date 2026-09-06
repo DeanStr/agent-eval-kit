@@ -173,7 +173,7 @@ export async function spawnCaptured(options: {
     };
 
     const stop = () => {
-      if (termination) return;
+      if (termination !== undefined) return;
       termination = terminateProcessTree(child);
       void termination.then(
         () => {

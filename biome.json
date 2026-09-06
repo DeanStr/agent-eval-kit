@@ -36,6 +36,10 @@
       },
       "suspicious": {
         "noAssignInExpressions": "off"
+      },
+      "nursery": {
+        "noFloatingPromises": "error",
+        "noMisusedPromises": "error"
       }
     }
   }

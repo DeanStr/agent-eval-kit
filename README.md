@@ -607,7 +607,7 @@ pnpm smoke:package
 pnpm build
 ```
 
-Code linting uses [Biome](https://biomejs.dev/) with its recommended preset. Run `pnpm lint:fix` to apply safe fixes. Run `pnpm format` to format code and `pnpm format:check` to verify formatting. Formatting uses two spaces and a 100-column line width; CI enforces it. Import organization is disabled. The configuration allows non-null assertions, string concatenation, explicit null guards, and assignments in loop conditions to preserve existing code conventions. Lint warnings fail CI.
+Code linting uses [Biome](https://biomejs.dev/) with its recommended preset. Run `pnpm lint:fix` to apply safe fixes. Run `pnpm format` to format code and `pnpm format:check` to verify formatting. Formatting uses two spaces and a 100-column line width; CI enforces it. Import organization is disabled. The configuration allows non-null assertions, string concatenation, explicit null guards, and assignments in loop conditions to preserve existing code conventions. Lint warnings fail CI. The `noFloatingPromises` and `noMisusedPromises` rules are explicitly enforced as errors.
 
 The fast browser smoke covers the basic contract. The full regression fixture covers SPA click targets, custom dropdowns, rich-text editors, temporal inputs, iframes, open shadow DOM, modal scoping, overlays, nested upload controls, drag-and-drop, inner scroll containers, origin containment, synthesized labels, ref-budget collapse, and bounded screenshots.
 

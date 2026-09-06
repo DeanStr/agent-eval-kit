@@ -257,6 +257,7 @@ function preflight(tool: string, input: Record<string, unknown>) {
     record({ step, at: new Date().toISOString(), tool, input, result, isError: true });
     return { content: [{ type: "text" as const, text: result }], isError: true };
   }
+  return undefined;
 }
 
 const server = new McpServer({ name: "agent-eval-browser", version: "0.1.0" });
