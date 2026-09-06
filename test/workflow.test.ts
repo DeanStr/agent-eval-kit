@@ -319,12 +319,13 @@ test("outputs require declared types and real successful evidence; bindings reta
       { outcome: "completed", outputs: output } as Pick<ScenarioEvidence, "outcome" | "outputs">,
     ],
   ]);
-  assert.deepEqual(bindInputs(consumer, evidence).id, {
+  const declarations = new Map([["CREATE", declaration]]);
+  assert.deepEqual(bindInputs(consumer, evidence, declarations).id, {
     ...output.record,
     scenarioId: "CREATE",
     output: "record",
   });
-  assert.throws(() => bindInputs(consumer, new Map()), /did not complete/);
+  assert.throws(() => bindInputs(consumer, new Map(), declarations), /did not complete/);
 });
 
 test("missing outputs block downstream execution without fabricated values or scores", async () => {

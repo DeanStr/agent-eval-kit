@@ -14,7 +14,11 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { browserActionResultIsError, type BrowserMcpContext } from "../src/browser/context.js";
 import { browserMcpLaunch } from "../src/mcp-config.js";
-import { writeJson } from "../src/io.js";
+import { readNdjson, writeJson } from "../src/io.js";
+import { validateCheckpoints } from "../src/checkpoints.js";
+import { validateOutputs } from "../src/workflow.js";
+import { validateEvidenceFiles } from "../src/evidence/files.js";
+import type { TranscriptEntry } from "../src/types.js";
 import { BrowserSession } from "../src/browser/session.js";
 import { OriginBoundaryError } from "../src/browser/interaction-context.js";
 
@@ -822,10 +826,15 @@ test("browser MCP never captures evidence after an action redirects off-origin",
   assert.ok(externalAddress && typeof externalAddress !== "string");
   const externalUrl = `http://127.0.0.1:${externalAddress.port}/private`;
 
-  const target = http.createServer((_request, response) => {
+  let deferredRedirect: http.ServerResponse | undefined;
+  const target = http.createServer((request, response) => {
+    if (request.url === "/deferred-redirect") {
+      deferredRedirect = response;
+      return;
+    }
     response.writeHead(200, { "content-type": "text/html" });
     response.end(
-      `<!doctype html><title>Allowed page</title><label>Redirect <input oninput="if(this.value.startsWith('delayed')){setTimeout(()=>location.href='${externalUrl}',500)}else{location.href='${externalUrl}'}"></label>`,
+      `<!doctype html><title>Allowed page</title><label>Redirect <input oninput="if(this.value.startsWith('delayed')){fetch('/deferred-redirect').then(()=>location.href='${externalUrl}')}else{location.href='${externalUrl}'}"></label>`,
     );
   });
   await new Promise<void>((resolve) => target.listen(0, "127.0.0.1", resolve));
@@ -860,6 +869,14 @@ test("browser MCP never captures evidence after an action redirects off-origin",
     }
     assert.ok(externalLoads > previous, "the off-origin page did not finish loading");
   };
+  const releaseDeferredRedirect = async () => {
+    const deadline = Date.now() + 5_000;
+    while (!deferredRedirect && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(deferredRedirect, "the page did not request its deferred redirect");
+    deferredRedirect.writeHead(204).end();
+    deferredRedirect = undefined;
+  };
   try {
     await client.connect(transport);
     const navigation = await client.callTool({ name: "navigate", arguments: { url: targetUrl } });
@@ -873,11 +890,13 @@ test("browser MCP never captures evidence after an action redirects off-origin",
       arguments: { ref: inputRef, text: "leave" },
     });
     await waitForExternalLoad(priorLoads);
-    assert.equal(rejectedFill.isError, true);
-    assert.match(JSON.stringify(rejectedFill.content), /page navigated off-target/);
-
     const safeScroll = await client.callTool({ name: "scroll", arguments: { direction: "down" } });
-    assert.notEqual(safeScroll.isError, true);
+    // Navigation can commit after fill returns. Either its postflight or the
+    // next action's preflight must contain it before dispatching another action.
+    const scrollBoundary = rejectedFill.isError ? rejectedFill : safeScroll;
+    assert.equal(scrollBoundary.isError, true);
+    assert.match(JSON.stringify(scrollBoundary.content), /page navigated off-target/);
+    if (rejectedFill.isError) assert.notEqual(safeScroll.isError, true);
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.equal(externalWheelEvents, 0);
 
@@ -892,9 +911,11 @@ test("browser MCP never captures evidence after an action redirects off-origin",
       arguments: { ref: beforePressRef, text: "leave for keypress" },
     });
     await waitForExternalLoad(priorLoads);
-    assert.equal(rejectedKeypressFill.isError, true);
     const safePress = await client.callTool({ name: "press", arguments: { key: "Enter" } });
-    assert.notEqual(safePress.isError, true);
+    const pressBoundary = rejectedKeypressFill.isError ? rejectedKeypressFill : safePress;
+    assert.equal(pressBoundary.isError, true);
+    assert.match(JSON.stringify(pressBoundary.content), /page navigated off-target/);
+    if (rejectedKeypressFill.isError) assert.notEqual(safePress.isError, true);
     assert.equal(externalKeypresses, 0);
 
     const afterPress = await client.callTool({ name: "snapshot", arguments: {} });
@@ -908,6 +929,7 @@ test("browser MCP never captures evidence after an action redirects off-origin",
       arguments: { ref: afterPressRef, text: "delayed screenshot" },
     });
     assert.notEqual(delayedScreenshotFill.isError, true);
+    await releaseDeferredRedirect();
     await waitForExternalLoad(priorLoads);
 
     const rejected = await client.callTool({
@@ -934,6 +956,7 @@ test("browser MCP never captures evidence after an action redirects off-origin",
       arguments: { ref: restoredRef, text: "delayed done" },
     });
     assert.notEqual(delayedDoneFill.isError, true);
+    await releaseDeferredRedirect();
     await waitForExternalLoad(priorLoads);
     const done = await client.callTool({
       name: "done",
@@ -957,6 +980,7 @@ test("browser MCP never captures evidence after an action redirects off-origin",
   } finally {
     await client.close().catch(() => {});
     await transport.close().catch(() => {});
+    deferredRedirect?.destroy();
     target.close();
     external.close();
     fs.rmSync(directory, { recursive: true, force: true });
@@ -1040,6 +1064,106 @@ test("browser MCP halts after a saved authenticated session remains on a login w
     }
   } finally {
     server.close();
+  }
+});
+
+test("browser publications commit only after authentication postflight succeeds", async (t) => {
+  const server = http.createServer((request, response) => {
+    if (request.url === "/export") {
+      response.writeHead(200, {
+        "content-type": "text/csv",
+        "content-disposition": "attachment; filename=report.csv",
+      });
+      response.end("name\nAlice\n");
+    } else {
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end('<!doctype html><a href="/export">Export report</a>');
+    }
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const origin = `http://127.0.0.1:${address.port}`;
+  for (const publication of ["checkpoint", "publish_output", "download"]) {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "aek-publication-postflight-"));
+    const context = {
+      targetUrl: origin,
+      allowedOrigins: [origin],
+      evidenceDir: directory,
+      fixtureFiles: {},
+      expectAuthenticated: true,
+      headless: true,
+      viewport: { width: 800, height: 600 },
+      actionTimeoutMs: 5_000,
+      checkpoints: { earlier: "Earlier check", later: "Later check" },
+      outputs: { report: { type: "string" } },
+    } satisfies BrowserMcpContext;
+    const contextFile = path.join(directory, "context.json");
+    writeJson(contextFile, context);
+    const transport = new StdioClientTransport({
+      ...browserMcpLaunch(contextFile),
+      stderr: "pipe",
+    });
+    const client = new Client({ name: "aek-publication-test", version: "1" });
+    try {
+      await client.connect(transport);
+      const navigation = await client.callTool({ name: "navigate", arguments: { url: origin } });
+      assert.notEqual(navigation.isError, true);
+      for (const call of [
+        { name: "checkpoint", arguments: { name: "earlier", evidenceRefs: ["step:1"] } },
+        {
+          name: "publish_output",
+          arguments: { name: "report", value: "original", evidenceRefs: ["step:1"] },
+        },
+      ])
+        assert.notEqual((await client.callTool(call)).isError, true);
+      const login = await client.callTool({
+        name: "navigate",
+        arguments: { url: `${origin}/login` },
+      });
+      assert.notEqual(login.isError, true);
+      const ref = JSON.stringify(login.content).match(/\[(e\d+)\]/)?.[1];
+      assert.ok(ref);
+      const call =
+        publication === "checkpoint"
+          ? { name: publication, arguments: { name: "later", evidenceRefs: ["step:1"] } }
+          : publication === "publish_output"
+            ? {
+                name: publication,
+                arguments: { name: "report", value: "overwritten", evidenceRefs: ["step:1"] },
+              }
+            : { name: publication, arguments: { ref, label: "report" } };
+      const blocked = await client.callTool(call);
+      assert.equal(blocked.isError, true, publication);
+      assert.match(JSON.stringify(blocked.content), /started with saved authentication/);
+      const transcript = readNdjson<TranscriptEntry>(
+        path.join(directory, "browser-transcript.ndjson"),
+      );
+      const checkpoints = validateCheckpoints(
+        context,
+        JSON.parse(fs.readFileSync(path.join(directory, "checkpoints.json"), "utf8")),
+        transcript,
+      );
+      assert.deepEqual(Object.keys(checkpoints), ["earlier"]);
+      const outputs = validateOutputs(
+        context,
+        JSON.parse(fs.readFileSync(path.join(directory, "outputs.json"), "utf8")),
+        transcript,
+      );
+      assert.equal(outputs.report!.value, "original");
+      assert.equal(fs.existsSync(path.join(directory, "files.json")), false);
+      assert.equal(fs.existsSync(path.join(directory, "files")), false);
+      validateEvidenceFiles([], transcript);
+      assert.equal(
+        JSON.parse(fs.readFileSync(path.join(directory, "browser-result.json"), "utf8")).outcome,
+        "blocked",
+      );
+    } finally {
+      await client.close();
+      await transport.close();
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   }
 });
 

@@ -79,10 +79,11 @@ const scenarioSchema = z
     kind: z.enum(["browser", "workspace", "command"]).optional(),
     persona: z.string().min(1).optional(),
     allowedPersonas: z.array(artifactIdSchema).min(1).max(8).optional(),
+    checkpoints: z.record(artifactIdSchema, z.string().trim().min(1)).optional(),
     outputs: z
       .record(
         artifactIdSchema,
-        z.object({ type: z.enum(["string", "number", "boolean", "url"]) }).strict(),
+        z.object({ type: z.enum(["string", "number", "boolean", "url", "file"]) }).strict(),
       )
       .optional(),
     inputs: z
@@ -107,6 +108,11 @@ const rubricSchema = z
     // Command graders derive artifact filenames from rubric IDs too.
     id: artifactIdSchema,
     criterion: z.string().min(1),
+    applicability: z
+      .object({ applicable: z.boolean(), reason: z.string().trim().min(1) })
+      .strict()
+      .optional(),
+    checkpoints: z.record(artifactIdSchema, z.array(artifactIdSchema).min(1)).optional(),
     weight: z.number().positive(),
     tags: z.array(z.string().min(1)).default(["general"]),
     scenarios: z.array(z.string().min(1)).default([]),
@@ -118,6 +124,20 @@ const rubricSchema = z
   })
   .strict()
   .superRefine((item, context) => {
+    if (item.gate && item.applicability?.applicable === false) {
+      context.addIssue({
+        code: "custom",
+        path: ["applicability"],
+        message: "Critical gates cannot be excluded; change the declared suite policy explicitly",
+      });
+    }
+    if (item.checkpoints && !["llm", "hybrid"].includes(item.grader.type)) {
+      context.addIssue({
+        code: "custom",
+        path: ["checkpoints"],
+        message: "Checkpoint selectors require llm or hybrid grading",
+      });
+    }
     if (item.grader.type === "text-pairwise" && item.scenarios.length) {
       context.addIssue({
         code: "custom",
@@ -391,6 +411,17 @@ function readSpecs(
           problems.push(`${item.id}: image-distinctness requires 2–100 materialized scenarios`);
       }
 
+      for (const [scenarioId, names] of Object.entries(item.checkpoints ?? {})) {
+        if (!item.scenarios.includes(scenarioId))
+          problems.push(`${item.id}: checkpoint scenario ${scenarioId} must be in scenarios`);
+        if (new Set(names).size !== names.length)
+          problems.push(`${item.id}: duplicate checkpoint selectors`);
+        for (const name of names)
+          if (
+            !Object.hasOwn(spec.scenarios.find((s) => s.id === scenarioId)?.checkpoints ?? {}, name)
+          )
+            problems.push(`${item.id}: unknown checkpoint ${scenarioId}.${name}`);
+      }
       for (const scenarioId of item.scenarios) {
         if (!localScenarios.has(scenarioId)) {
           problems.push(`${item.id} references unknown scenario ${scenarioId} in area ${spec.id}`);
@@ -449,15 +480,33 @@ export function assertScenarioTargetCompatibility(
   target: Pick<EvalConfig["target"], "kind" | "url">,
 ): void {
   const problems: string[] = [];
+  const scenarios = new Map(specs.flatMap((spec) => spec.scenarios.map((s) => [s.id, s] as const)));
   for (const spec of specs) {
     for (const scenario of spec.scenarios) {
       const kind = scenario.kind ?? (target.kind === "web" ? "browser" : "workspace");
+      if (
+        kind === "workspace" &&
+        Object.values(scenario.outputs ?? {}).some((o) => o.type === "file")
+      )
+        problems.push(
+          `${scenario.id}: file outputs require browser downloads or command collection`,
+        );
+      for (const [name, binding] of Object.entries(scenario.inputs ?? {}))
+        if (
+          kind !== "command" &&
+          scenarios.get(binding.from)?.outputs?.[binding.output]?.type === "file"
+        )
+          problems.push(
+            `${scenario.id}: file input ${name} requires command collection to access retained bytes`,
+          );
       if ((kind === "command") !== Boolean(scenario.collect))
         problems.push(
           `${scenario.id}: command mode requires collect, and collect requires command mode`,
         );
-      if ((scenario.collect || scenario.capture) && (scenario.outputs || scenario.inputs))
-        problems.push(`${scenario.id}: input/output bindings currently require agent collection`);
+      if (scenario.capture && (scenario.outputs || scenario.inputs || scenario.checkpoints))
+        problems.push(
+          `${scenario.id}: controlled captures cannot declare workflow bindings or checkpoints`,
+        );
       if (scenario.allowedPersonas && (kind !== "browser" || scenario.capture))
         problems.push(`${scenario.id}: allowedPersonas requires agent-driven browser collection`);
       if (scenario.collect && scenario.persona)
@@ -549,13 +598,36 @@ export function materializeSpec(
     scenarios.push(...instances);
   }
   const rubric: RubricItem[] = spec.rubric.flatMap((item) => {
+    if (item.applicability?.applicable === false) return [];
     if (!item.scenarios.length) return [{ ...item }];
     const references = item.scenarios.flatMap(
       (id) => expandedBySource.get(id)?.map((scenario) => scenario.id) ?? [],
     );
-    return references.length ? [{ ...item, scenarios: references }] : [];
+    return references.length
+      ? [
+          {
+            ...item,
+            scenarios: references,
+            ...(item.checkpoints
+              ? {
+                  checkpoints: Object.fromEntries(
+                    Object.entries(item.checkpoints).flatMap(([id, names]) =>
+                      (expandedBySource.get(id) ?? []).map((s) => [s.id, names]),
+                    ),
+                  ),
+                }
+              : {}),
+          },
+        ]
+      : [];
   });
-  return { ...spec, scenarios, rubric };
+  const exclusions = [
+    ...(spec.exclusions ?? []),
+    ...spec.rubric
+      .filter((item) => item.applicability?.applicable === false)
+      .map((item) => ({ id: item.id, weight: item.weight, reason: item.applicability!.reason })),
+  ];
+  return { ...spec, scenarios, rubric, ...(exclusions.length ? { exclusions } : {}) };
 }
 
 export function materializeSpecs(
@@ -566,6 +638,13 @@ export function materializeSpecs(
   // otherwise demand an area that the executable workflow does not need.
   const active = specs.map((spec) => ({
     ...spec,
+    exclusions: [
+      ...(spec.exclusions ?? []),
+      ...spec.rubric
+        .filter((item) => item.applicability?.applicable === false)
+        .map((item) => ({ id: item.id, weight: item.weight, reason: item.applicability!.reason })),
+    ],
+    rubric: spec.rubric.filter((item) => item.applicability?.applicable !== false),
     scenarios: spec.scenarios.filter((scenario) =>
       scenario.cases?.length
         ? scenario.cases.some((item) => splitMatches(item.split ?? scenario.split, selectedSplit))
@@ -600,13 +679,31 @@ export function materializeSpecs(
   for (const spec of active)
     if (scored.has(spec.id))
       spec.scenarios.forEach((scenario) => {
-        include(scenario.id);
+        const source = specs.find((source) => source.id === spec.id)!;
+        const onlyExcluded =
+          source.rubric.some(
+            (item) =>
+              item.applicability?.applicable === false && item.scenarios.includes(scenario.id),
+          ) &&
+          !spec.rubric.some(
+            (item) =>
+              (!item.scenarios.length && ["llm", "hybrid"].includes(item.grader.type)) ||
+              item.scenarios.includes(scenario.id),
+          );
+        if (!onlyExcluded) include(scenario.id);
       });
   // Areas without scoring items contribute only prerequisites, never score weight.
   return active.flatMap((spec) => {
-    if (scored.has(spec.id)) return [materializeSpec(spec, selectedSplit, specs)];
+    if (scored.has(spec.id))
+      return [
+        materializeSpec(
+          { ...spec, scenarios: spec.scenarios.filter((scenario) => required.has(scenario.id)) },
+          selectedSplit,
+          specs,
+        ),
+      ];
     const scenarios = spec.scenarios.filter((scenario) => required.has(scenario.id));
-    return scenarios.length
+    return scenarios.length || spec.exclusions.length
       ? [materializeSpec({ ...spec, scenarios, rubric: [] }, selectedSplit, specs)]
       : [];
   });

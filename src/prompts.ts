@@ -46,6 +46,9 @@ export function scenarioPrompt(options: {
     scenario.allowedPersonas
       ? `ALLOWED PERSONAS: ${scenario.allowedPersonas.join(", ")}. Use switch_persona to change isolated browser identity, including anonymous when declared. Never sign in as another identity inside the current context.`
       : "",
+    scenario.checkpoints
+      ? `CHECKPOINTS: ${JSON.stringify(scenario.checkpoints)}. Call checkpoint immediately after exercising each declared check, citing its actual tool steps. This records reach, not success.`
+      : "",
     `INSTRUCTIONS:\n${scenario.instructions}`,
     scenario.successSignals.length
       ? `SUCCESS SIGNALS TO SEEK (not assumptions):\n- ${scenario.successSignals.join("\n- ")}`
@@ -77,6 +80,12 @@ function compactEvidence(
       text,
     })),
     collectorEvidenceRefs: scenario.evidenceRefs,
+    files: scenario.files?.map((file) => ({ ...file, ref: `${scenario.scenarioId}/${file.path}` })),
+    checkpoints: Object.entries(scenario.checkpoints ?? {}).map(([name, value]) => ({
+      name,
+      ...value,
+      ref: `${scenario.scenarioId}/evidence.json#checkpoint-${name}`,
+    })),
     inputs: scenario.inputs,
     outputs: scenario.outputs,
     screenshots: scenario.screenshots.map((shot) => {
@@ -121,6 +130,8 @@ export function judgePrompt(options: {
     `Still images establish only the visible sampled states, not continuous motion, sound, interaction, or runtime correctness. Collector extraction descriptions and adapter metrics are instrumented claims; source hashes establish artifact identity, not the truth of those claims.`,
     `Every non-abstaining verdict needs concrete evidenceRefs; cannot_judge may use an empty array. Never turn an agent/harness timeout, missing authentication, or low evidence coverage into a product defect.`,
     `Cite a screenshot only if it is attached or you successfully viewed it through the evidence MCP. Screenshot labels and metadata alone are not visual evidence. Explicit cannot_judge may name an unavailable screenshot to explain an abstention.`,
+    `File hashes establish identity, not content correctness. A supplied text preview supports only its visible excerpt; truncated previews cannot establish claims about the full file. Binary file contents require deterministic checks.`,
+    `A rubric with checkpoint selectors requires those checks to have been exercised. Cite only its checkpoint records, the steps those records cite, or images/files captured at those steps. A later blocked outcome does not erase those checks. A checkpoint is not a passing verdict.`,
     `Copy evidenceRefs only from the supplied recordRef or ref fields. A reference not present in those fields is invalid.`,
     options.screenshotAccess === "mcp"
       ? `Screenshots marked visualAvailable are available through the evidence MCP. Call view_screenshot with their exact ref when visual evidence is material to a verdict.`
@@ -141,6 +152,7 @@ export function judgePrompt(options: {
         criterion: item.criterion,
         scenarios: item.scenarios,
         passCriteria: item.passCriteria,
+        checkpoints: item.checkpoints,
         evidenceToLookFor: item.evidence,
       })),
       null,

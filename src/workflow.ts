@@ -1,3 +1,5 @@
+import { validateCheckpoints } from "./checkpoints.js";
+import { evidenceFileSchema, validateEvidenceFiles } from "./evidence/files.js";
 import { z } from "zod";
 import { httpUrlSchema } from "./config.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -13,7 +15,7 @@ import type {
   TranscriptEntry,
 } from "./types.js";
 
-const outputSchema = z
+export const outputSchema = z
   .object({
     value: z.union([z.string().min(1).max(4000), z.number().finite(), z.boolean()]),
     evidenceRefs: z.array(z.string().min(1)).min(1).max(20),
@@ -24,14 +26,24 @@ export function validateOutputs(
   scenario: Pick<Scenario, "outputs">,
   raw: unknown,
   transcript: TranscriptEntry[],
+  files: import("./types.js").EvidenceFile[] = [],
 ): Record<string, ScenarioOutput> {
   const outputs = z.record(z.string(), outputSchema).parse(raw);
+  for (const entry of transcript.filter(
+    (entry) => entry.tool === "publish_output" && !entry.isError,
+  ))
+    if (typeof entry.input.name !== "string" || !Object.hasOwn(outputs, entry.input.name))
+      throw new Error(
+        `Successful output publication at step ${entry.step} is missing its metadata`,
+      );
   const refs = new Set(
     transcript
       .filter(
         (entry) =>
           !entry.isError &&
-          !["observe", "publish_output", "done", "switch_persona"].includes(entry.tool),
+          !["observe", "publish_output", "done", "switch_persona", "checkpoint"].includes(
+            entry.tool,
+          ),
       )
       .map((entry) => `step:${entry.step}`),
   );
@@ -42,12 +54,19 @@ export function validateOutputs(
         : undefined;
     if (!declaration) throw new Error(`Undeclared scenario output ${name}`);
     const type = declaration.type;
-    if (typeof output.value !== (type === "url" ? "string" : type))
+    if (typeof output.value !== (["url", "file"].includes(type) ? "string" : type))
       throw new Error(`Output ${name} must have type ${type}`);
     if (type === "url" && !httpUrlSchema.safeParse(output.value).success) {
       throw new Error(
         `Output ${name} must be an absolute HTTP(S) URL without credentials or access tokens; use saved personas`,
       );
+    }
+    if (type === "file") {
+      const file = files.find((file) => file.path === output.value);
+      if (!file) throw new Error(`Output ${name} must name a retained evidence file path`);
+      evidenceFileSchema.parse(file);
+      if (!output.evidenceRefs.includes(`step:${file.step}`))
+        throw new Error(`Output ${name} must cite its file collection step`);
     }
     for (const ref of output.evidenceRefs)
       if (!refs.has(ref))
@@ -92,13 +111,20 @@ export function assertSavedWorkflowEvidence(scenario: Scenario, evidence: Scenar
         fail(`completed scenario is missing required output ${name}`);
     }
   }
-  validateOutputs(scenario, evidence.outputs ?? {}, evidence.transcript);
+  validateOutputs(scenario, evidence.outputs ?? {}, evidence.transcript, evidence.files);
+  validateCheckpoints(scenario, evidence.checkpoints ?? {}, evidence.transcript);
+  validateEvidenceFiles(
+    evidence.files ?? [],
+    evidence.transcript,
+    evidence.outcome === "completed" ? scenario.collect?.files : [],
+  );
 }
 
 /** Explicit bindings carry source provenance, never a shared mutable variable bag. */
 export function bindInputs(
-  scenario: Scenario,
-  evidence: Map<string, Pick<ScenarioEvidence, "outcome" | "outputs">>,
+  scenario: Pick<Scenario, "inputs">,
+  evidence: Map<string, Pick<ScenarioEvidence, "outcome" | "outputs" | "files">>,
+  declarations: ReadonlyMap<string, Pick<Scenario, "outputs">>,
 ): Record<string, BoundInput> {
   return Object.fromEntries(
     Object.entries(scenario.inputs ?? {}).map(([name, binding]) => {
@@ -111,7 +137,23 @@ export function bindInputs(
           : undefined;
       if (!output)
         throw new Error(`Input ${name}: output ${binding.from}.${binding.output} is unavailable`);
-      return [name, { ...output, scenarioId: binding.from, output: binding.output }];
+      const declaration = declarations.get(binding.from)?.outputs?.[binding.output];
+      if (!declaration)
+        throw new Error(
+          `Input ${name}: output ${binding.from}.${binding.output} has no declaration`,
+        );
+      const file =
+        declaration.type === "file"
+          ? source.files?.find((file) => file.path === output.value)
+          : undefined;
+      if (declaration.type === "file" && !file)
+        throw new Error(
+          `Input ${name}: file output ${binding.from}.${binding.output} has no retained file receipt`,
+        );
+      return [
+        name,
+        { ...output, scenarioId: binding.from, output: binding.output, ...(file ? { file } : {}) },
+      ];
     }),
   );
 }
@@ -178,6 +220,9 @@ export function registerOutputTool(
           { ...(options.outputs === undefined ? {} : { outputs: options.outputs }) },
           { ...prior, [name]: { value, evidenceRefs } },
           readNdjson<TranscriptEntry>(options.transcriptFile),
+          fs.existsSync(path.join(options.directory, "files.json"))
+            ? JSON.parse(fs.readFileSync(path.join(options.directory, "files.json"), "utf8"))
+            : [],
         );
         writeJson(file, outputs);
         return `Output ${name} recorded with evidence provenance.`;

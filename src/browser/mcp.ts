@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { retainEvidenceFile, MAX_EVIDENCE_FILE_BYTES } from "../evidence/files.js";
+import { registerCheckpointTool } from "../checkpoints.js";
 import { registerOutputTool } from "../workflow.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -6,13 +8,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { BrowserSession } from "./session.js";
+import { clickDownload } from "./download.js";
 import { OriginBoundaryError } from "./interaction-context.js";
 import {
   browserActionResultIsError,
   type BrowserMcpContext,
   type BrowserResultState,
 } from "./context.js";
-import type { ScreenshotRef, TranscriptEntry } from "../types.js";
+import type { EvidenceFile, ScreenshotRef, TranscriptEntry } from "../types.js";
 import { writeJson } from "../io.js";
 
 const contextFile = process.argv[2];
@@ -35,6 +38,7 @@ let step = 0;
 let lastShotUrl: string | undefined;
 const observations: string[] = [];
 const screenshots: ScreenshotRef[] = [];
+const files: EvidenceFile[] = [];
 let authenticationExpected = context.expectAuthenticated === true;
 let loggedOutStreak = 0;
 let sessionLost: string | undefined;
@@ -157,19 +161,14 @@ function serializeTool<T>(action: () => Promise<T>): Promise<T> {
   return result;
 }
 
-function callTool(
-  tool: string,
-  input: Record<string, unknown>,
-  action: (session: BrowserSession) => Promise<string>,
-) {
+// Publication callbacks run synchronously after origin and authentication checks.
+type ToolAction = (session: BrowserSession) => Promise<string | (() => string)>;
+
+function callTool(tool: string, input: Record<string, unknown>, action: ToolAction) {
   return serializeTool(() => executeTool(tool, input, action));
 }
 
-async function executeTool(
-  tool: string,
-  input: Record<string, unknown>,
-  action: (session: BrowserSession) => Promise<string>,
-) {
+async function executeTool(tool: string, input: Record<string, unknown>, action: ToolAction) {
   const blocked = preflight(tool, input);
   if (blocked) return blocked;
   try {
@@ -186,7 +185,8 @@ async function executeTool(
       });
       return { content: [{ type: "text" as const, text: originBlock }], isError: true };
     }
-    let result = await action(session);
+    const actionResult = await action(session);
+    let result = typeof actionResult === "string" ? actionResult : "";
     let isError = browserActionResultIsError(result);
     // Every browser action shares one authoritative postflight. Individual
     // methods also check at sensitive points, but native inputs, waits, and
@@ -221,6 +221,7 @@ async function executeTool(
         isError = true;
       }
     }
+    if (!isError && typeof actionResult === "function") result = actionResult();
     record({ step, at: new Date().toISOString(), tool, input, result: clip(result), isError });
     if (!isError) await autoCapture(tool);
     return {
@@ -379,6 +380,92 @@ server.registerTool(
 );
 
 server.registerTool(
+  "download",
+  {
+    description:
+      "Click a referenced download control and retain the actual file as evidence (20 MiB maximum). Use a unique label. Returns metadata and a bounded text preview when the server declares a text format.",
+    inputSchema: { ref: z.string(), label: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/) },
+  },
+  ({ ref, label }) =>
+    callTool("download", { ref, label }, async (session) => {
+      if (files.some((file) => file.label === label))
+        throw new Error(`Duplicate download label ${label}`);
+      const page = session.page!;
+      const mediaTypes = new Map<string, string>();
+      const responseListener = (response: import("playwright").Response) => {
+        const mediaType = response.headers()["content-type"];
+        if (mediaType) mediaTypes.set(response.url(), mediaType);
+      };
+      page.on("response", responseListener);
+      try {
+        const download = await clickDownload(
+          page,
+          async () => {
+            const result = await session.click(ref);
+            if (browserActionResultIsError(result)) throw new Error(result);
+          },
+          context.actionTimeoutMs,
+        );
+        const url = download.url();
+        const originUrl = url.startsWith("blob:") ? new URL(url).origin : url;
+        if (!session.isAllowedUrl(originUrl)) {
+          await download.cancel();
+          throw new Error("Download URL is outside allowed origins");
+        }
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const chunks: Buffer[] = [];
+        let size = 0;
+        try {
+          await Promise.race([
+            (async () => {
+              const stream = await download.createReadStream();
+              for await (const chunk of stream) {
+                const bytes = Buffer.from(chunk);
+                size += bytes.length;
+                if (size > MAX_EVIDENCE_FILE_BYTES) {
+                  stream.destroy();
+                  throw new Error("Download exceeds 20 MiB");
+                }
+                chunks.push(bytes);
+              }
+              const failure = await download.failure();
+              if (failure) throw new Error(`Download failed: ${failure}`);
+            })(),
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(
+                () => reject(new Error("Download timed out")),
+                context.actionTimeoutMs,
+              );
+            }),
+          ]);
+        } catch (error) {
+          await download.cancel();
+          throw error;
+        } finally {
+          clearTimeout(timer);
+        }
+        return () => {
+          const file = retainEvidenceFile({
+            directory: context.evidenceDir,
+            label,
+            filename: download.suggestedFilename(),
+            mediaType: mediaTypes.get(url) ?? "application/octet-stream",
+            bytes: Buffer.concat(chunks),
+            step,
+            persona: activePersona,
+            url,
+          });
+          files.push(file);
+          writeJson(path.join(context.evidenceDir, "files.json"), files);
+          return JSON.stringify(file);
+        };
+      } finally {
+        page.off("response", responseListener);
+      }
+    }),
+);
+
+server.registerTool(
   "fill",
   {
     description:
@@ -530,11 +617,18 @@ server.registerTool(
     }),
 );
 
+registerCheckpointTool(server, {
+  checkpoints: context.checkpoints,
+  directory: context.evidenceDir,
+  transcriptFile,
+  call: (input, action) => callTool("checkpoint", input, async () => action),
+});
+
 registerOutputTool(server, {
   ...(context.outputs === undefined ? {} : { outputs: context.outputs }),
   directory: context.evidenceDir,
   transcriptFile,
-  call: (input, action) => callTool("publish_output", input, async () => action()),
+  call: (input, action) => callTool("publish_output", input, async () => action),
 });
 
 server.registerTool(

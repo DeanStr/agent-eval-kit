@@ -1,3 +1,4 @@
+import { outputSchema } from "../workflow.js";
 import { z } from "zod";
 import { isPortablePathComponent } from "../io.js";
 
@@ -15,18 +16,21 @@ export const collectorSchema = z
     timeoutSeconds: z.number().positive().max(3600).default(300),
     sources: z
       .record(label, z.string().min(1))
-      .refine(
-        (v) => Object.keys(v).length > 0 && Object.keys(v).length <= 20,
-        "declare 1–20 source artifacts",
-      ),
+      .refine((v) => Object.keys(v).length <= 20, "declare at most 20 source artifacts")
+      .default({}),
+    files: z
+      .array(label)
+      .max(30)
+      .refine((v) => new Set(v).size === v.length, "file labels must be unique")
+      .optional(),
     images: z
       .array(label)
-      .min(1)
       .max(30)
       .refine(
         (v) => new Set(v.map((s) => s.toLowerCase())).size === v.length,
         "image labels must be unique ignoring case",
-      ),
+      )
+      .default([]),
   })
   .strict();
 
@@ -35,6 +39,23 @@ export const collectionManifestSchema = z
     version: z.literal(1),
     outcome: z.enum(["completed", "blocked"]),
     summary: z.string().min(1),
+    outputs: z.record(label, outputSchema).default({}),
+    checkpoints: z
+      .record(label, z.object({ evidenceRefs: z.array(z.literal("step:1")).length(1) }).strict())
+      .default({}),
+    files: z
+      .array(
+        z
+          .object({
+            label,
+            path: z.string().min(1),
+            mediaType: z.string().min(1),
+            filename: z.string().min(1),
+          })
+          .strict(),
+      )
+      .max(30)
+      .default([]),
     observations: z.array(z.string().min(1)).max(100),
     images: z
       .array(
@@ -48,6 +69,7 @@ export const collectionManifestSchema = z
           })
           .strict(),
       )
-      .max(30),
+      .max(30)
+      .default([]),
   })
   .strict();

@@ -15,14 +15,17 @@ export function belowPercentageThreshold(actual: number, minimum: number): boole
  * Compute from retained weights, never display percentages, for every decision.
  */
 export function aggregateAreaMeasurements(
-  areas: Pick<AreaResult, "optional" | "weight" | "earned" | "judgeable" | "total">[],
+  areas: Pick<
+    AreaResult,
+    "optional" | "weight" | "earned" | "judgeable" | "total" | "exclusions"
+  >[],
 ): { scorePct: number | null; coveragePct: number } {
   let weight = 0,
     scoredWeight = 0,
     score = 0,
     coverage = 0;
   for (const area of areas) {
-    if (area.optional) continue;
+    if (area.optional || (area.total === 0 && area.exclusions?.length)) continue;
     const ratios = scoreRatios(area);
     weight += area.weight;
     coverage += ratios.coverage * area.weight;

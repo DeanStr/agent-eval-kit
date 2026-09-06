@@ -169,3 +169,59 @@ The deterministic cart suite now has seven implementations and seven independent
 For the next calibration dataset, select representative browser persistence, command-line error-handling, and repository source-analysis tasks. For each task, retain a working implementation and a seeded defective implementation; have two maintainers independently record the expected verdict and supporting evidence before running judges, and resolve disagreements in the expectation record. Keep evaluation cases separate from prompt-tuning cases. Run at least three repetitions of each collector/judge pairing and retain failures and abstentions in the denominators. Report results by task family and pairing, including false alarms, missed defects, abstentions, and exact agreement. Live execution and human review remain necessary before claiming this broader calibration is complete.
 
 Validated locally on 2026-09-05: all 205 tests passed, including deterministic concurrent-lock recovery, weighted and semantic verdict comparison, campaign coverage, and nested artifact-validation regressions. Type checking, the build, both browser smoke suites, all seven deterministic reference variants, and the production-package smoke passed. The final uncommitted-change review also verified incompatible-item handling and rejection of campaign summaries that disagree with their run records; type checking, the build, all 205 tests, and the production-package smoke passed after these corrections. No live subscription providers or human calibration reviewers were invoked.
+
+### File evidence and evaluation scope (0.4.0)
+
+Browser downloads and command collectors now retain file bytes, hashes, format metadata,
+and collection provenance. Command collectors support scalar/file outputs and verified
+file inputs. The package exports deterministic JSON/CSV/ZIP inspection helpers.
+Named evidence checkpoints let explicitly scoped criteria remain judgeable after a
+later scenario blockage. Evaluator-declared applicability exclusions have separate
+reporting and do not reduce coverage. These changes advance the evaluation method
+version; regenerate prior runs and baselines instead of treating them as compatible.
+
+Target preparation now records success/failure per run, including every campaign
+repetition. Resume skips only sealed successful preparation and retries failures.
+See [file evidence and scope](file-evidence.md) and [state preparation](evidence-workflows.md#preparing-state-for-repeated-runs)
+for contracts, examples, and limits.
+
+Validated locally on 2026-09-06 with Node 24.18.0: all 387 tests passed using
+`node --import tsx --test --test-concurrency=4 test/*.test.ts`. Unbounded-concurrency
+runs exposed a timing-sensitive existing off-origin redirect test; it passed in
+isolation and in both bounded full-suite runs. Type checking, lint, formatting,
+both browser smoke suites, and all seven deterministic reference variants passed.
+The production-package smoke rebuilt and installed the tarball without development
+dependencies and verified both matching and deliberately incorrect CSV exports
+through the packaged file helper. No live subscription providers were invoked.
+
+Follow-up review corrected scalar/file binding ambiguity, missing checkpoint
+requirements and prototype-named checkpoint lookups, concurrent workspace transcript
+steps, download clicks that could outlive a timeout, and incomplete ZIP integrity
+checks. Regression tests cover failed-download cleanup, shared checkpoints across
+matrix cases, ZIP descriptors and trailing compressed bytes. The browser redirect
+test now checks containment across action boundaries and explicitly releases delayed
+redirects instead of depending on timer scheduling.
+
+After these corrections, the normal `pnpm test` command passed all 390 tests with
+default concurrency. Type checking, lint, formatting, the build, and the installed
+production-package smoke also passed. No live subscription providers were invoked.
+
+The subsequent fail-fast review made a completed command collector's missing required
+outputs an execution error; collectors must explicitly report `blocked` when outputs
+are unavailable. Successful download, checkpoint, and output publications must retain
+their metadata during collection, resume, and rejudging. Resume validates sealed setup
+records before deciding whether to retry or skip preparation, rejecting malformed or
+contradictory records without rerunning setup. Valid blocked scenarios and unpublished
+optional evidence still reduce coverage normally.
+
+After these fail-fast changes, all 391 tests passed with the normal `pnpm test`
+command. Type checking, lint, formatting, and the production-package smoke (including
+a fresh build) also passed. No live subscription providers were invoked.
+
+The subsequent requested Codex review/fix loop completed three rounds using
+`gpt-6-astra` with high reasoning effort. It corrected browser metadata publication
+before failed postflight checks, retained-path collisions between distinct file
+labels, and ZIP filename decoding that ignored the encoding flag. The final review
+reported no actionable findings; all 394 tests, type checking, lint, formatting,
+the production-package smoke with a fresh build, and whitespace checks passed.
+See the [round-by-round findings and decisions](review-loop-2026-09-06.md).

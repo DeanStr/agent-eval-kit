@@ -74,6 +74,15 @@ try {
   );
   const cli = path.join(consumer, "node_modules/.bin/aek");
   assert.match(await run(cli, ["--help"], consumer), /Agent Eval Kit/);
+  // Exercise file collection and the public parser from a production-only install.
+  const fileExample = path.join(consumer, "file-example");
+  fs.cpSync(path.join(kitRoot, "examples/files"), fileExample, {
+    recursive: true,
+    filter: (source) => path.basename(source) !== ".agent-eval",
+  });
+  await run(cli, ["run", "--fail-under-score", "100", "--fail-under-coverage", "100"], fileExample);
+  fs.writeFileSync(path.join(fileExample, "records.json"), JSON.stringify([{ id: "wrong" }]));
+  await run(cli, ["run", "--fail-under-score", "100"], fileExample, 2);
   await run(cli, ["init"], consumer);
   const configFile = path.join(consumer, "evalkit.yaml");
   const config = YAML.parse(fs.readFileSync(configFile, "utf8"));
@@ -220,7 +229,7 @@ try {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
   console.log(
-    "Package smoke passed: tarball install, executable bin, init, validate, run, collect, judge, release promotion, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
+    "Package smoke passed: tarball install, file collector/checker pass and failure, executable bin, init, validate, run, collect, judge, release promotion, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
   );
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { registerCheckpointTool } from "../checkpoints.js";
 import { registerOutputTool } from "../workflow.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -127,11 +128,7 @@ function textFile(relative: string, maximumBytes = 1_000_000): string | undefine
   return buffer.toString("utf8");
 }
 
-async function callTool(
-  tool: string,
-  input: Record<string, unknown>,
-  action: () => string | Promise<string>,
-) {
+async function callTool(tool: string, input: Record<string, unknown>, action: () => string) {
   step += 1;
   if (context.maxToolCalls !== undefined && step > context.maxToolCalls) {
     const result = `ERROR: workspace tool-call budget (${context.maxToolCalls}) exhausted. Record what remains unverified and finish.`;
@@ -139,7 +136,9 @@ async function callTool(
     return { content: [{ type: "text" as const, text: result }], isError: true };
   }
   try {
-    const result = await action();
+    // Workspace actions are synchronous. Do not yield between incrementing the
+    // step, publishing checkpoint/output artifacts, and recording that step.
+    const result = action();
     record({ step, at: new Date().toISOString(), tool, input, result: result.slice(0, 8_000) });
     return { content: [{ type: "text" as const, text: `${result}\nEvidence step: ${step}` }] };
   } catch (error) {
@@ -267,6 +266,13 @@ server.registerTool(
       return "Observation recorded.";
     }),
 );
+
+registerCheckpointTool(server, {
+  checkpoints: context.checkpoints,
+  directory: context.evidenceDir,
+  transcriptFile,
+  call: (input, action) => callTool("checkpoint", input, action),
+});
 
 registerOutputTool(server, {
   ...(context.outputs === undefined ? {} : { outputs: context.outputs }),

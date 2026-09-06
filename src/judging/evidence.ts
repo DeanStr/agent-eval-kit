@@ -1,3 +1,4 @@
+import { checkpointRefs, selectedCheckpoints } from "../checkpoints.js";
 import { omitUndefined } from "../invariants.js";
 import type { RubricItem, ScenarioEvidence } from "../types.js";
 
@@ -80,10 +81,21 @@ export function canonicalEvidenceRefs(evidence: ScenarioEvidence[]): Set<string>
       ...scenario.observations.map(
         (_text, index) => `${scenario.scenarioId}/evidence.json#observation-${index + 1}`,
       ),
+      ...(scenario.files ?? []).map((file) => `${scenario.scenarioId}/${file.path}`),
+      ...checkpointRefs(scenario, Object.keys(scenario.checkpoints ?? {})),
       ...scenario.screenshots.map((shot) => `${scenario.scenarioId}/${shot.path}`),
       ...scenario.transcript.map(
         (entry) => `${scenario.scenarioId}/${scenario.kind}-transcript.ndjson#step-${entry.step}`,
       ),
     ]),
+  );
+}
+
+export function rubricEvidenceRefs(rubric: RubricItem, evidence: ScenarioEvidence[]): Set<string> {
+  return new Set(
+    evidence.flatMap((scenario) => {
+      const names = selectedCheckpoints(rubric, scenario.scenarioId);
+      return names ? checkpointRefs(scenario, names) : [...canonicalEvidenceRefs([scenario])];
+    }),
   );
 }

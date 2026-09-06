@@ -1,3 +1,4 @@
+import { checkpointRefs, rubricWasReached } from "../checkpoints.js";
 import type { z } from "zod";
 import type { judgementOutputValidator } from "../schemas.js";
 import type {
@@ -9,7 +10,7 @@ import type {
   RubricItem,
   ScenarioEvidence,
 } from "../types.js";
-import { canonicalEvidenceRefs, caseJudgeRequests } from "./evidence.js";
+import { canonicalEvidenceRefs, caseJudgeRequests, rubricEvidenceRefs } from "./evidence.js";
 import { assertScreenshotAccess } from "../evidence/inspection.js";
 import { assertJudgementIdentities, constrainFullPass } from "./contracts.js";
 
@@ -71,13 +72,19 @@ export function normalizeRubricJudgement(options: {
       (scenario) => scenario.outcome === "completed" || scenario.outcome === "feature_not_found",
     ),
   );
+  for (const scenario of evidence)
+    for (const ref of checkpointRefs(scenario, Object.keys(scenario.checkpoints ?? {})))
+      reachedAreaRefs.add(ref);
   const byId = new Map(judgement.items.map((item) => [item.id, item]));
   const normalized = items.map((rubric) => {
     const item = byId.get(rubric.id)!;
     const rubricEvidence = rubric.scenarios.length
       ? evidence.filter((scenario) => rubric.scenarios.includes(scenario.scenarioId))
       : evidence;
-    const allowedRefs = canonicalEvidenceRefs(rubricEvidence);
+    const allowedRefs =
+      item.verdict === "cannot_judge"
+        ? canonicalEvidenceRefs(rubricEvidence)
+        : rubricEvidenceRefs(rubric, rubricEvidence);
     const evidenceRefs = checkedEvidenceRefs(
       item.evidenceRefs,
       allowedRefs,
@@ -95,7 +102,11 @@ export function normalizeRubricJudgement(options: {
     const caseEvidence = evidence.filter((scenario) =>
       request.scenarioIds.includes(scenario.scenarioId),
     );
-    const allowedCaseRefs = canonicalEvidenceRefs(caseEvidence);
+    const rubric = items.find((rubric) => rubric.id === request.rubricId)!;
+    const allowedCaseRefs =
+      item.verdict === "cannot_judge"
+        ? canonicalEvidenceRefs(caseEvidence)
+        : rubricEvidenceRefs(rubric, caseEvidence);
     const evidenceRefs = checkedEvidenceRefs(
       item.evidenceRefs,
       allowedCaseRefs,
@@ -105,16 +116,31 @@ export function normalizeRubricJudgement(options: {
     );
     const caseSpecificEvidence = caseEvidence.filter((scenario) => scenario.caseId);
     const evidenceThatMustReach = caseSpecificEvidence.length ? caseSpecificEvidence : caseEvidence;
-    const caseWasReached = evidenceThatMustReach.some(
-      (scenario) => scenario.outcome === "completed" || scenario.outcome === "feature_not_found",
+    // A matrix case requires shared checks and its own instances, not other cases.
+    const scopedRubric = (scenarioIds: string[]) => ({
+      ...rubric,
+      scenarios: scenarioIds,
+      checkpoints: Object.fromEntries(
+        Object.entries(rubric.checkpoints ?? {}).filter(([id]) => scenarioIds.includes(id)),
+      ),
+    });
+    const missingCheckpointScenario = Object.keys(rubric.checkpoints ?? {}).some(
+      (id) => !evidence.some((scenario) => scenario.scenarioId === id),
     );
+    const caseWasReached =
+      !missingCheckpointScenario &&
+      rubricWasReached(scopedRubric(request.scenarioIds), caseEvidence) &&
+      rubricWasReached(
+        scopedRubric(evidenceThatMustReach.map((s) => s.scenarioId)),
+        evidenceThatMustReach,
+      );
     if (item.verdict !== "cannot_judge" && !caseWasReached) {
       return {
         areaId: spec.id,
         ...request,
         verdict: "cannot_judge",
         confidence: "low",
-        reasoning: `Evidence contract violation: no case-specific scenario completed or established that the feature was not found. Original reasoning: ${item.reasoning}`,
+        reasoning: `Evidence contract violation: required checkpoints or case-specific scenario evidence were not reached. Original reasoning: ${item.reasoning}`,
         evidenceRefs: [],
         source: "llm",
       };

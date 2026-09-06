@@ -32,7 +32,7 @@ and bind each input explicitly to a dependency's named output:
     submit a review. Reload and verify the review persisted.
 ```
 
-Supported output types are `string`, `number`, `boolean`, and `url`. Values are
+Supported output types are `string`, `number`, `boolean`, `url`, and `file`. File outputs name retained evidence files with verified receipts; see [file evidence](file-evidence.md). Other values are
 scalars; strings are nonempty and limited to 4,000 characters. URL values must be
 absolute HTTP(S) URLs without credential-bearing query/fragment parameters or
 embedded credentials. Outputs are retained evidence: use non-secret record IDs
@@ -47,14 +47,18 @@ must still verify the record and its state. The judge receives input/output
 provenance too. Output values are data, not additional evaluator instructions.
 
 All declared outputs are required for successful completion. If a scenario cannot
-observe one, it should finish `blocked` and explain why. A claimed completion with
-missing outputs is also recorded as blocked; dependent scenarios do not run.
+observe one, it should finish `blocked` and explain why. Agent completion with
+unpublished outputs is recorded as blocked; dependent scenarios do not run.
+Command collectors must explicitly report `blocked`; claiming `completed` while
+omitting required outputs is an execution error. Successful output publication
+without retained metadata is an execution error for every collector.
 Invalid declarations, cycles, types, or fabricated evidence references are errors,
 not scored product failures. Agent tool errors are reported so they can be corrected.
 
-Bindings currently support agent-driven browser and workspace collection. Command
-collectors and controlled captures retain their existing artifact contracts and
-reject input/output declarations.
+Scalar bindings support agent-driven browser/workspace collection and command
+collectors. Browser downloads and command collectors can publish file outputs;
+command collectors receive verified copies of bound files. Controlled captures retain their independent
+reset contract and reject workflow input/output declarations.
 
 `--areas` must include prerequisite areas (including optional ones when needed).
 When a split removes every rubric item from a prerequisite area, its required

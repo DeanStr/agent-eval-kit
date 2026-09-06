@@ -727,7 +727,7 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
     assert.equal(result.cases.find((item) => item.caseId === "c")?.verdict, "cannot_judge");
     assert.match(
       result.cases.find((item) => item.caseId === "c")?.reasoning ?? "",
-      /no case-specific scenario.*completed/,
+      /case-specific scenario evidence were not reached/,
     );
     assert.deepEqual(result.cases.find((item) => item.caseId === "c")?.evidenceRefs, []);
     assert.equal(requireDefined(result.items[0], "result.items[0]").verdict, "cannot_judge");

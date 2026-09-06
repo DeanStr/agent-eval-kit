@@ -203,6 +203,7 @@ function publicReport(report: RunReport, artifactRootSha256: string, sourceRepor
       title: area.title,
       optional: area.optional,
       weight: area.weight,
+      applicabilityExclusions: area.exclusions ?? [],
       scorePct: area.scorePct,
       coveragePct: area.coveragePct,
       gates: area.gates,

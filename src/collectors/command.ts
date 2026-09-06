@@ -1,3 +1,11 @@
+import { validateOutputs } from "../workflow.js";
+import { validateCheckpoints } from "../checkpoints.js";
+import {
+  containedFile,
+  retainEvidenceFile,
+  readEvidenceFile,
+  MAX_EVIDENCE_FILE_BYTES,
+} from "../evidence/files.js";
 import { inputFileReceipt } from "../input-files.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -27,6 +35,7 @@ export async function collectCommand(
   config: EvalConfig,
   scenario: Scenario,
   directory: string,
+  inputs: Record<string, import("../types.js").BoundInput> = {},
 ): Promise<ScenarioEvidence> {
   const collect = scenario.collect!;
   const runDir = path.dirname(directory);
@@ -42,6 +51,7 @@ export async function collectCommand(
     ...(scenario.caseId === undefined ? {} : { caseId: scenario.caseId }),
     ...(scenario.strata === undefined ? {} : { strata: scenario.strata }),
     ...(scenario.split === undefined ? {} : { split: scenario.split }),
+    inputs,
     outcome: "agent_error",
     summary: "Command collection did not complete.",
     observations: [],
@@ -88,6 +98,26 @@ export async function collectCommand(
         return [name, { path: file, ...expected }];
       }),
     );
+    const boundFiles = Object.fromEntries(
+      Object.entries(inputs)
+        .filter(([, input]) => input.file)
+        .map(([name, input]) => {
+          const bytes = readEvidenceFile(path.join(runDir, input.scenarioId), input.file!);
+          const destination = path.join(directory, "bound-files", name);
+          fs.mkdirSync(path.dirname(destination), { recursive: true });
+          fs.writeFileSync(destination, bytes, { flag: "wx", mode: 0o444 });
+          return [name, destination];
+        }),
+    );
+    const verifyBoundFiles = () => {
+      for (const [name, file] of Object.entries(boundFiles)) {
+        if (
+          stableJson(inputFileReceipt(file)) !==
+          stableJson({ sha256: inputs[name]!.file!.sha256, bytes: inputs[name]!.file!.bytes })
+        )
+          throw new Error(`Collector modified bound file ${name}`);
+      }
+    };
     const outputDir = path.join(directory, "collector-output");
     fs.mkdirSync(outputDir, { recursive: true });
     const contextFile = path.join(directory, "collector-context.json");
@@ -97,6 +127,15 @@ export async function collectCommand(
       sources,
       outputDir,
       images: collect.images,
+      files: collect.files ?? [],
+      inputs: Object.fromEntries(
+        Object.entries(inputs).map(([name, input]) => [
+          name,
+          { ...input, ...(boundFiles[name] ? { path: boundFiles[name] } : {}) },
+        ]),
+      ),
+      outputs: scenario.outputs ?? {},
+      checkpoints: scenario.checkpoints ?? {},
       variables: { ...config.variables, ...scenario.caseVariables },
     });
     const shell = shellInvocation(collect.command);
@@ -116,6 +155,7 @@ export async function collectCommand(
       timedOut: result.timedOut,
     });
     verifyMethods();
+    verifyBoundFiles();
     for (const [name, source] of Object.entries(sources)) {
       const { path: file, ...expected } = source;
       if (stableJson(inputFileReceipt(file)) !== stableJson(expected))
@@ -150,19 +190,93 @@ export async function collectCommand(
       evidence.screenshots.push({
         path: relative,
         label: image.label,
-        step: 0,
+        step: 1,
         ...(image.timeSeconds === undefined ? {} : { timeSeconds: image.timeSeconds }),
         source: image.source,
         extraction: image.extraction,
       });
     }
+    evidence.transcript = [
+      {
+        step: 1,
+        at: new Date().toISOString(),
+        tool: "collect",
+        input: { command: collect.command },
+        result:
+          "Collector completed successfully; observations, files, and outputs are project-supplied claims in collector.stdout.json.",
+      },
+    ];
+    const fileLabels = manifest.files.map((file) => file.label);
+    if (
+      new Set(fileLabels).size !== fileLabels.length ||
+      fileLabels.some((label) => !(collect.files ?? []).includes(label))
+    )
+      throw new Error("Collector returned duplicate or undeclared files");
+    if (
+      manifest.outcome === "completed" &&
+      stableJson([...fileLabels].sort()) !== stableJson([...(collect.files ?? [])].sort())
+    )
+      throw new Error("Collector must return every declared file exactly once");
+    evidence.files = manifest.files.map((file) => {
+      const source = containedFile(outputDir, file.path);
+      if (fs.statSync(source).size > MAX_EVIDENCE_FILE_BYTES)
+        throw new Error("Collector file exceeds 20 MiB");
+      return retainEvidenceFile({
+        directory,
+        label: file.label,
+        filename: file.filename,
+        mediaType: file.mediaType,
+        bytes: fs.readFileSync(source),
+        step: 1,
+      });
+    });
+    const outputValues = Object.fromEntries(
+      Object.entries(manifest.outputs).map(([name, output]) => {
+        if (scenario.outputs?.[name]?.type !== "file") return [name, output];
+        const file = evidence.files!.find((file) => file.label === output.value);
+        if (!file) throw new Error(`File output ${name} must name a returned file label`);
+        return [name, { ...output, value: file.path }];
+      }),
+    );
+    evidence.outputs = validateOutputs(scenario, outputValues, evidence.transcript, evidence.files);
+    const checkpoints = Object.fromEntries(
+      Object.entries(manifest.checkpoints).map(([name, value], index) => {
+        const step = index + 2;
+        evidence.transcript.push({
+          step,
+          at: new Date().toISOString(),
+          tool: "checkpoint",
+          input: { name, evidenceRefs: value.evidenceRefs },
+          result: "Collector declared this check exercised; it is not a verdict.",
+        });
+        return [name, { ...value, step }];
+      }),
+    );
+    evidence.checkpoints = validateCheckpoints(scenario, checkpoints, evidence.transcript);
+    writeJson(path.join(directory, "outputs.json"), evidence.outputs);
+    writeJson(path.join(directory, "files.json"), evidence.files);
+    writeJson(path.join(directory, "checkpoints.json"), evidence.checkpoints);
+    fs.writeFileSync(
+      path.join(directory, "command-transcript.ndjson"),
+      evidence.transcript.map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+    );
     evidence.outcome = manifest.outcome;
-    evidence.summary = manifest.summary;
+    const missing = Object.keys(scenario.outputs ?? {}).filter(
+      (name) => !Object.hasOwn(evidence.outputs!, name),
+    );
+    if (evidence.outcome === "completed" && missing.length)
+      throw new Error(
+        `Completed collector omitted required outputs: ${missing.join(", ")}. Return blocked explicitly when outputs are unavailable`,
+      );
+    evidence.summary = `${missing.length ? `Required outputs unavailable: ${missing.join(", ")}. ` : ""}${manifest.summary}`;
     evidence.observations = [
       "Command-collected evidence: source hashes are verified; extraction descriptions and observations are supplied by the project collector, not independently verified runtime behavior.",
       ...manifest.observations,
     ];
-    evidence.evidenceRefs = evidence.screenshots.map((image) => `${scenario.id}/${image.path}`);
+    evidence.evidenceRefs = [
+      ...evidence.screenshots.map((image) => `${scenario.id}/${image.path}`),
+      ...evidence.files.map((file) => `${scenario.id}/${file.path}`),
+    ];
     return evidence;
   } catch (error) {
     evidence.outcome = "agent_error";

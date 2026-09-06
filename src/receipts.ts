@@ -662,7 +662,7 @@ export function buildRunReceipt(options: {
   );
   const selection = omitUndefined({
     areas: materializeSpecs(specs, options.split)
-      .filter((spec) => spec.rubric.length)
+      .filter((spec) => spec.rubric.length || spec.exclusions?.length)
       .map((spec) => spec.id)
       .sort(),
     scenarios: options.scenarioIds ? [...new Set(options.scenarioIds)].sort() : undefined,

@@ -167,3 +167,41 @@ from a collection snapshot. This also applies to milestone promotion.
 Receipt top-level runtime fields retain the collection's Node, platform, architecture,
 and kit version. `runtime.judging` records these values separately for actual judging;
 rescoring and finalization preserve both runtimes.
+
+## Preparing state for repeated runs
+
+Every new campaign repetition invokes the configured `target.setup` before target
+startup/readiness and evidence collection. Use it to reset and seed a disposable
+database or a dedicated test tenant. Existing authenticated sessions must remain
+valid after seeding; preserve their test accounts or capture fresh personas first.
+
+```yaml
+target:
+  kind: web
+  url: http://127.0.0.1:3000
+  setup:
+    command: node evals/reset-and-seed.mjs
+    timeoutSeconds: 120
+  start:
+    command: npm run start:test
+  ready:
+    url: http://127.0.0.1:3000/health
+```
+
+Setup receives `AEK_PROJECT_ROOT` and `AEK_RUN_DIR`. Each run retains stdout/stderr
+and `lifecycle/setup.json`, recording the command, working directory, timestamps,
+and success/failure. Process failures and timeouts abort that repetition before
+collection. Campaigns retain failed repetitions; a later repetition starts its
+own setup. A successful setup record is sealed before later lifecycle failures
+can interrupt the run. Resume skips only sealed successful preparation; failed
+or interrupted setup runs again, so reset scripts should tolerate partial prior
+execution. Refreshing setup must not mutate evaluator specs or expected data.
+Saved setup records are validated before this decision. Missing/unknown statuses,
+malformed records, and contradictory success/failure fields abort resume without
+rerunning setup.
+
+Setup success proves that the command completed, not that external data was reset
+correctly. Include deterministic checks for the intended initial state. When
+resetting is unavailable, use an isolated tenant per run and keep state-dependent
+campaign measurements distinct from independent repetitions. AEK does not inject
+an implicit reset or infer one from a setup command name.

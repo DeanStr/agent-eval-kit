@@ -11,12 +11,14 @@ export const BROWSER_TOOL_NAMES = [
   "select",
   "drag",
   "upload",
+  "download",
   "press",
   "scroll",
   "wait",
   "screenshot",
   "observe",
   "publish_output",
+  "checkpoint",
   "switch_persona",
   "done",
 ];
@@ -27,6 +29,7 @@ export const WORKSPACE_TOOL_NAMES = [
   "search",
   "observe",
   "publish_output",
+  "checkpoint",
   "done",
 ];
 export const EVIDENCE_TOOL_NAMES = ["view_screenshot"];

@@ -446,7 +446,7 @@ export function buildCampaignReport(options: {
     limitations: [
       "Bootstrap intervals are descriptive estimates over completed evaluation runs; small repetition counts are inherently unstable.",
       "Failed and score-withheld runs are reported in coverage but excluded from the score distribution.",
-      "AEK does not reset external target data between repetitions; shared mutable state can make repetitions dependent.",
+      "Each repetition runs target.setup when configured; AEK does not independently prove that setup resets external data. Inspect each run’s lifecycle/setup.json. Shared mutable state can make repetitions dependent.",
     ],
   };
 }

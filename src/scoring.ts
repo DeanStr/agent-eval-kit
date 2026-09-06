@@ -1,3 +1,4 @@
+import { rubricWasReached } from "./checkpoints.js";
 import type {
   AreaResult,
   EvalConfig,
@@ -94,13 +95,6 @@ export function scoreArea(options: {
     };
   });
   const byId = new Map(normalizedJudgements.map((item) => [item.id, item]));
-  const looked = new Set(
-    evidence
-      .filter(
-        (scenario) => scenario.outcome === "completed" || scenario.outcome === "feature_not_found",
-      )
-      .map((scenario) => scenario.scenarioId),
-  );
   const total = new Slice();
   const byTag = new Map<string, Slice>();
   const pendingManual: string[] = [];
@@ -118,7 +112,7 @@ export function scoreArea(options: {
     const backingWasReached =
       rubric.grader.type === "command" ||
       rubric.grader.type === "text-pairwise" ||
-      (rubric.scenarios.length ? rubric.scenarios.some((id) => looked.has(id)) : looked.size > 0);
+      rubricWasReached(rubric, evidence);
 
     if (rubric.grader.type === "manual") {
       const points =
@@ -258,6 +252,7 @@ export function scoreArea(options: {
           };
     });
   return {
+    ...(spec.exclusions?.length ? { exclusions: spec.exclusions } : {}),
     id: spec.id,
     title: spec.title,
     weight: spec.weight,
@@ -284,6 +279,7 @@ export function scoreArea(options: {
 function aggregateTags(areas: AreaResult[]): Record<string, ScoreSlice> {
   const tags = new Map<string, Slice>();
   for (const area of areas) {
+    if (area.total === 0 && area.exclusions?.length) continue;
     if (area.total <= 0)
       throw new Error(`Area ${area.id} has no positive rubric weight to aggregate`);
     const areaScale = area.weight / area.total;
@@ -299,6 +295,7 @@ function aggregateTags(areas: AreaResult[]): Record<string, ScoreSlice> {
 function aggregateStrata(areas: AreaResult[]): Record<string, ScoreSlice & { cases: number }> {
   const strata = new Map<string, { slice: Slice; cases: number }>();
   for (const area of areas) {
+    if (area.total === 0 && area.exclusions?.length) continue;
     if (area.total <= 0)
       throw new Error(`Area ${area.id} has no positive rubric weight to aggregate`);
     const areaScale = area.weight / area.total;

@@ -1,0 +1,12 @@
+version: 1
+project:
+  name: File export evaluation
+  root: .
+target:
+  kind: command
+agent:
+  provider: mock
+judge:
+  provider: mock
+paths:
+  specs: specs

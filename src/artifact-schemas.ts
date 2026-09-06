@@ -1,3 +1,5 @@
+import { evidenceFileSchema } from "./evidence/files.js";
+import { checkpointEvidenceSchema } from "./checkpoints.js";
 import { cropSchema, browserDiagnosticSchema } from "./visual/contracts.js";
 import { z } from "zod";
 import { calculateScoreSlice } from "./score-slice.js";
@@ -171,9 +173,13 @@ const scenarioOutput = z.object({
   evidenceRefs: strings,
 });
 const evidence = z.object({
+  files: z.array(evidenceFileSchema).optional(),
+  checkpoints: record(checkpointEvidenceSchema).optional(),
   dependencyEvidence: record(id).optional(),
   outputs: record(scenarioOutput).optional(),
-  inputs: record(scenarioOutput.extend({ scenarioId: id, output: id })).optional(),
+  inputs: record(
+    scenarioOutput.extend({ scenarioId: id, output: id, file: evidenceFileSchema.optional() }),
+  ).optional(),
   scenarioId: id,
   scenarioName: text,
   kind: z.enum(["browser", "workspace", "command"]),
@@ -262,6 +268,7 @@ export const runReportSchema = z.object({
         title: text,
         weight: z.number().positive(),
         optional: z.boolean(),
+        exclusions: z.array(z.object({ id, weight: z.number().positive(), reason: id })).optional(),
         items: uniqueItems,
         defects: z.array(
           z.object({

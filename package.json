@@ -1,12 +1,18 @@
 {
   "name": "agent-eval-kit",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Provider-neutral project evaluation harness powered by Codex, Claude Code, or Grok Build subscriptions.",
   "type": "module",
   "bin": {
     "aek": "dist/cli.js",
     "aek-browser-mcp": "dist/browser/mcp.js",
     "aek-workspace-mcp": "dist/workspace/mcp.js"
+  },
+  "exports": {
+    "./evidence/files": {
+      "types": "./dist/evidence/files.d.ts",
+      "default": "./dist/evidence/files.js"
+    }
   },
   "files": [
     "dist",

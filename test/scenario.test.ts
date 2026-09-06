@@ -117,6 +117,74 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
   }
 });
 
+test("successful evidence publications cannot disappear into empty metadata defaults", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-missing-metadata-"));
+  const bin = path.join(root, "bin");
+  fs.mkdirSync(bin);
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
+  t.after(() => {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  for (const tool of ["checkpoint", "download", "publish_output"]) {
+    const { config, spec, scenario } = workspaceFixture(root);
+    const kind = tool === "download" ? "browser" : "workspace";
+    scenario.kind = kind;
+    scenario.checkpoints = { saved: "Saved" };
+    scenario.outputs = { record: { type: "string" } };
+    if (kind === "browser")
+      config.target = { kind: "web", url: "http://app.test", allowedOrigins: ["http://app.test"] };
+    const result = {
+      outcome: "blocked",
+      summary: "Later check blocked",
+      observations: [],
+      evidenceRefs: [],
+    };
+    const transcript = [
+      {
+        step: 1,
+        at: "now",
+        tool: kind === "browser" ? "navigate" : "read_file",
+        input: {},
+        result: "Observed",
+      },
+      {
+        step: 2,
+        at: "now",
+        tool,
+        input:
+          tool === "download"
+            ? { label: "export" }
+            : {
+                name: tool === "checkpoint" ? "saved" : "record",
+                value: "42",
+                evidenceRefs: ["step:1"],
+              },
+        result: "Published",
+      },
+    ];
+    fs.writeFileSync(
+      path.join(bin, "claude"),
+      `#!/usr/bin/env node
+const fs=require('node:fs'),path=require('node:path');
+const args=process.argv.slice(2),dir=path.dirname(args[args.lastIndexOf('--mcp-config')+1]);
+fs.writeFileSync(path.join(dir, '${kind}-result.json'), JSON.stringify({...${JSON.stringify(result)},finishedAt:new Date().toISOString()}));
+fs.writeFileSync(path.join(dir, '${kind}-transcript.ndjson'), ${JSON.stringify(transcript.map((entry) => JSON.stringify(entry)).join("\n") + "\n")});
+console.log(JSON.stringify({type:'result',structured_output:${JSON.stringify(result)}}));
+`,
+      { mode: 0o755 },
+    );
+    const directory = path.join(root, tool);
+    await assert.rejects(
+      executeScenario({ config, spec, scenario, fixtures: {}, directory }),
+      /missing its (matching |file )?metadata/,
+    );
+    assert.ok(fs.existsSync(path.join(directory, `${kind}-transcript.ndjson`)));
+  }
+});
+
 test("real providers cannot claim completion without MCP evidence finalization", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-scenario-finalization-"));
   const bin = path.join(root, "bin");

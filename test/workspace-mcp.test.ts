@@ -5,9 +5,53 @@ import path from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { writeJson } from "../src/io.js";
+import { writeJson, readNdjson } from "../src/io.js";
+import { validateCheckpoints } from "../src/checkpoints.js";
+import type { TranscriptEntry } from "../src/types.js";
 import { workspaceMcpLaunch } from "../src/mcp-config.js";
 import type { WorkspaceMcpContext } from "../src/workspace/context.js";
+
+test("concurrent workspace checkpoint publications retain distinct transcript steps", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-workspace-checkpoints-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const evidence = path.join(root, ".agent-eval");
+  const contextFile = path.join(root, "context.json");
+  const checkpoints = { first: "First check", second: "Second check" };
+  writeJson(contextFile, {
+    projectRoot: root,
+    evidenceDir: evidence,
+    checkpoints,
+  } satisfies WorkspaceMcpContext);
+  const client = new Client({ name: "concurrent-checkpoints", version: "1" });
+  const transport = new StdioClientTransport({
+    ...workspaceMcpLaunch(contextFile),
+    stderr: "pipe",
+  });
+  try {
+    await client.connect(transport);
+    await client.callTool({ name: "list_files", arguments: {} });
+    const calls = await Promise.all(
+      Object.keys(checkpoints).map((name) =>
+        client.callTool({ name: "checkpoint", arguments: { name, evidenceRefs: ["step:1"] } }),
+      ),
+    );
+    for (const call of calls) assert.notEqual(call.isError, true, JSON.stringify(call));
+    const transcript = readNdjson<TranscriptEntry>(
+      path.join(evidence, "workspace-transcript.ndjson"),
+    );
+    assert.deepEqual(
+      transcript.map((entry) => entry.step),
+      [1, 2, 3],
+    );
+    validateCheckpoints(
+      { checkpoints },
+      JSON.parse(fs.readFileSync(path.join(evidence, "checkpoints.json"), "utf8")),
+      transcript,
+    );
+  } finally {
+    await client.close();
+  }
+});
 
 test("workspace MCP provides bounded read-only evidence and blocks path escapes", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "aek-workspace-mcp-"));
@@ -67,6 +111,7 @@ test("workspace MCP provides bounded read-only evidence and blocks path escapes"
     fs.writeFileSync(path.join(project, "future-auth", "persona.json"), "late browser session\n");
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
+      "checkpoint",
       "done",
       "list_files",
       "observe",

@@ -92,7 +92,8 @@ export interface Scenario {
   kind?: ScenarioKind;
   persona?: string;
   allowedPersonas?: string[];
-  outputs?: Record<string, { type: "string" | "number" | "boolean" | "url" }>;
+  checkpoints?: Record<string, string>;
+  outputs?: Record<string, { type: "string" | "number" | "boolean" | "url" | "file" }>;
   inputs?: Record<string, { from: string; output: string }>;
   instructions: string;
   successSignals: string[];
@@ -109,6 +110,7 @@ export interface Scenario {
     timeoutSeconds: number;
     sources: Record<string, string>;
     images: string[];
+    files?: string[];
   };
   /** Populated only on a materialized scenario instance. */
   sourceScenarioId?: string;
@@ -163,6 +165,8 @@ export type Grader =
   | { type: "capture" };
 
 export interface RubricItem {
+  applicability?: { applicable: boolean; reason: string };
+  checkpoints?: Record<string, string[]>;
   id: string;
   criterion: string;
   weight: number;
@@ -176,7 +180,14 @@ export interface RubricItem {
   gate?: boolean;
 }
 
+export interface ExcludedCriterion {
+  id: string;
+  weight: number;
+  reason: string;
+}
+
 export interface EvalSpec {
+  exclusions?: ExcludedCriterion[];
   id: string;
   title: string;
   weight: number;
@@ -216,12 +227,33 @@ export interface ScenarioOutput {
   evidenceRefs: string[];
 }
 
+export interface EvidenceFile {
+  label: string;
+  path: string;
+  filename: string;
+  mediaType: string;
+  bytes: number;
+  sha256: string;
+  step: number;
+  persona?: string;
+  url?: string;
+  text?: { content: string; truncated: boolean };
+}
+
+export interface CheckpointEvidence {
+  evidenceRefs: string[];
+  step: number;
+}
+
 export interface BoundInput extends ScenarioOutput {
+  file?: EvidenceFile;
   scenarioId: string;
   output: string;
 }
 
 export interface ScenarioEvidence {
+  files?: EvidenceFile[];
+  checkpoints?: Record<string, CheckpointEvidence>;
   /** Hashes of the prerequisite evidence consumed by this execution. */
   dependencyEvidence?: Record<string, string>;
   outputs?: Record<string, ScenarioOutput>;
@@ -378,6 +410,7 @@ export interface ScoreSlice {
 }
 
 export interface AreaResult extends ScoreSlice {
+  exclusions?: ExcludedCriterion[];
   id: string;
   title: string;
   weight: number;

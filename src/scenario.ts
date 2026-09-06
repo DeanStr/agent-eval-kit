@@ -1,4 +1,6 @@
-import { requireDefined, omitUndefined } from "./invariants.js";
+import { validateCheckpoints } from "./checkpoints.js";
+import { evidenceFileSchema, readEvidenceFile, validateEvidenceFiles } from "./evidence/files.js";
+import { requireDefined, omitUndefinedDeep, omitUndefined } from "./invariants.js";
 import { validateOutputs } from "./workflow.js";
 import { collectCommand } from "./collectors/command.js";
 import { controlledCapture } from "./visual/capture.js";
@@ -113,7 +115,7 @@ export async function executeScenario(options: {
     throw new Error(`Scenario ${scenario.id} uses browser mode but target.url is not configured`);
   }
 
-  if (kind === "command") return collectCommand(config, scenario, directory);
+  if (kind === "command") return collectCommand(config, scenario, directory, options.inputs);
 
   const promptFile = path.join(directory, "prompt.md");
   const outputFile = path.join(directory, "provider-final.json");
@@ -209,6 +211,7 @@ export async function executeScenario(options: {
       ...(scenario.persona === undefined ? {} : { persona: scenario.persona }),
       ...(personas === undefined ? {} : { personas: personas }),
       ...(scenario.outputs === undefined ? {} : { outputs: scenario.outputs }),
+      ...(scenario.checkpoints === undefined ? {} : { checkpoints: scenario.checkpoints }),
       targetUrl: config.target.url!,
       allowedOrigins: config.target.allowedOrigins,
       evidenceDir: directory,
@@ -245,6 +248,7 @@ export async function executeScenario(options: {
   } else {
     const context: WorkspaceMcpContext = omitUndefined({
       ...(scenario.outputs === undefined ? {} : { outputs: scenario.outputs }),
+      ...(scenario.checkpoints === undefined ? {} : { checkpoints: scenario.checkpoints }),
       projectRoot: config.project.root,
       evidenceDir: directory,
       maxToolCalls: config.agent.provider === "codex" ? (config.agent.maxTurns ?? 50) : undefined,
@@ -328,6 +332,18 @@ export async function executeScenario(options: {
       !missingFinalization &&
       requiresEvidenceActivity &&
       !hasEvidenceActivity;
+    const filesPath = path.join(directory, "files.json");
+    const files = fs.existsSync(filesPath)
+      ? omitUndefinedDeep(z.array(evidenceFileSchema).parse(readJson(filesPath)))
+      : [];
+    validateEvidenceFiles(files, toolArtifacts.transcript);
+    for (const file of files) readEvidenceFile(directory, file);
+    const checkpointsPath = path.join(directory, "checkpoints.json");
+    const checkpoints = validateCheckpoints(
+      scenario,
+      fs.existsSync(checkpointsPath) ? readJson(checkpointsPath) : {},
+      toolArtifacts.transcript,
+    );
     let outputs: Record<string, import("./types.js").ScenarioOutput> = {};
     let outputError: string | undefined;
     try {
@@ -336,6 +352,7 @@ export async function executeScenario(options: {
         scenario,
         fs.existsSync(outputsFile) ? readJson(outputsFile) : {},
         toolArtifacts.transcript,
+        files,
       );
     } catch (error) {
       outputError = `Invalid scenario outputs: ${error instanceof Error ? error.message : String(error)}`;
@@ -410,6 +427,8 @@ export async function executeScenario(options: {
           ? `Required outputs unavailable: ${missingOutputs.join(", ")}. ${summary}`
           : summary,
       outputs,
+      files,
+      checkpoints,
       ...(options.inputs === undefined ? {} : { inputs: options.inputs }),
       ...(diagnostics?.diagnostics === undefined ? {} : { diagnostics: diagnostics?.diagnostics }),
       ...(diagnostics?.checks === undefined ? {} : { captureChecks: diagnostics?.checks }),

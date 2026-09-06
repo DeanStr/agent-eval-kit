@@ -14,7 +14,7 @@ import { sealCollection } from "./collection.js";
 import { judgeArea, runCommandGrader } from "./graders.js";
 import { writeArtifactIndex } from "./integrity.js";
 import { createTimestampedDirectory, sha256, stableJson, writeJson } from "./io.js";
-import { startLifecycle } from "./lifecycle.js";
+import { startLifecycle, readSetupRecord } from "./lifecycle.js";
 import { RunLogger } from "./log.js";
 import { writeReportArtifacts } from "./report.js";
 import { RunReceipts } from "./run/receipt.js";
@@ -147,7 +147,7 @@ export async function runEvaluation(
   assertScenarioTargetCompatibility(options.specs, config.target);
   const selectedSplit = options.split ?? "development";
   const specs = materializeSpecs(options.specs, selectedSplit);
-  if (!specs.length && !options.resumeDir) {
+  if (!specs.some((spec) => spec.rubric.length) && !options.resumeDir) {
     throw new Error(`Split ${selectedSplit} selects no rubric items in the selected areas`);
   }
   validateWorkflowSelection(specs);
@@ -170,6 +170,8 @@ export async function runEvaluation(
           `  ${selected ? ">" : "~"} ${scenario.id} [${scenario.kind ?? (config.target.kind === "web" ? "browser" : "workspace")}] ${scenario.name}`,
         );
       }
+      for (const item of spec.exclusions ?? [])
+        console.log(`    ${item.id} w${item.weight} EXCLUDED: ${item.reason}`);
       for (const rubric of spec.rubric) {
         console.log(
           `    ${rubric.id} w${rubric.weight} ${rubric.grader.type}${rubric.gate ? " GATE" : ""} [${rubric.tags.join(", ")}]`,
@@ -330,7 +332,11 @@ export async function runEvaluation(
           Boolean(reusePriorEvidence && (priorReport?.areas.length || hasReusableScenarioEvidence)),
         );
       lifecycle = await startLifecycle(config, runDir, {
-        skipSetup: Boolean(priorIndex),
+        skipSetup: Boolean(
+          priorIndex &&
+            sealedPaths.has("lifecycle/setup.json") &&
+            readSetupRecord(path.join(runDir, "lifecycle", "setup.json")).status === "complete",
+        ),
         onSetupComplete: () => {
           // Seal target mutations immediately after every successful setup,
           // including a setup rerun during recovery. Doing this before target
@@ -348,6 +354,9 @@ export async function runEvaluation(
         specs.flatMap((spec) =>
           spec.scenarios.map((scenario) => [scenario.id, { spec, scenario }] as const),
         ),
+      );
+      const scenarioDeclarations = new Map(
+        [...scenarioOwners].map(([id, owner]) => [id, owner.scenario]),
       );
       async function collectScenario(id: string): Promise<ScenarioEvidence> {
         const cached = allEvidence.get(id);
@@ -401,7 +410,7 @@ export async function runEvaluation(
         const dependencyEvidence = Object.fromEntries(
           scenario.dependsOn.map((id) => [id, sha256(stableJson(allEvidence.get(id)!))]),
         );
-        const inputs = unmet.length ? {} : bindInputs(scenario, allEvidence);
+        const inputs = unmet.length ? {} : bindInputs(scenario, allEvidence, scenarioDeclarations);
         if (evidenceIsSealed && scenario.dependsOn.every((id) => reusedScenarios.has(id))) {
           const priorEvidence = JSON.parse(
             fs.readFileSync(evidenceFile, "utf8"),
@@ -465,7 +474,11 @@ export async function runEvaluation(
       }
       for (const spec of specs) {
         // Prerequisite-only areas are collected recursively by scored scenarios.
-        if (!spec.rubric.length) continue;
+        if (!spec.rubric.length) {
+          if (spec.exclusions?.length && !options.collectOnly)
+            areaResults.push(scoreArea({ spec, config, evidence: [], judgements: [] }));
+          continue;
+        }
         logger.line(`Area ${spec.id}: ${spec.title}`);
         throwIfCancelled();
         const selectedScenarioIds = spec.scenarios

@@ -17,6 +17,7 @@ It supports:
 - command collectors for exported artifacts with snapshotted sources, validated image manifests, and extraction provenance; named capture checkpoints for irregular temporal sampling;
 - immutable collect-then-judge bundles, explicit release/milestone promotion policies;
 - incremental artifacts, fingerprint-checked resume, reproducibility receipts, tamper-evident output indexes, offline rescore, auditable manual finalization, coverage thresholds, and diagnostic tags;
+- downloaded and command-produced file evidence, typed file/scalar workflow bindings, evidence-backed checkpoints, and explicit applicability exclusions;
 - parameterized case matrices, diagnostic strata, and fingerprinted development/evaluation splits;
 - repeated-run campaigns with rubric/case/stratum stability, whole-run bootstrap intervals, and paired case-level campaign comparisons;
 - compatibility-checked comparisons and append-only promoted baseline snapshots;
@@ -211,7 +212,7 @@ Do not put passwords or tokens in `variables`: prompts and evidence are intentio
 
 ### Local target lifecycle
 
-`target.setup` runs once and must exit successfully. A resumed run skips a previously sealed successful setup. `target.start` remains alive for the run and is terminated as a process group before final artifacts are sealed, including stubborn descendants and failure paths. `target.ready` polls an HTTP URL (any status below 500 is ready) or a shell command, whether or not AEK started the target. The run receipt is refreshed after setup, readiness, and each command grader, so generated or mutated target files record the state that was actually evaluated.
+`target.setup` runs once per new run (including every campaign repetition) and must exit successfully. It receives `AEK_PROJECT_ROOT` and `AEK_RUN_DIR`; `lifecycle/setup.json` records the command, timing, and result. A resumed run skips setup only when that successful record is sealed. Failed or interrupted preparation is retried. `target.start` remains alive for the run and is terminated as a process group before final artifacts are sealed, including stubborn descendants and failure paths. `target.ready` polls an HTTP URL (any status below 500 is ready) or a shell command, whether or not AEK started the target. The run receipt is refreshed after setup, readiness, and each command grader, so generated or mutated target files record the state that was actually evaluated.
 
 For a deployed web app, omit `setup` and `start`; `ready` is optional but useful for failing early when the deployment is unavailable.
 
@@ -353,6 +354,9 @@ files:
 ```
 
 `aek validate` resolves these paths relative to the fixture document and verifies that every entry exists and is a regular file. Missing uploads therefore fail before any provider is started or subscription quota is used.
+
+For downloaded files, general command evidence, scenario checkpoints, and declared
+applicability, see [file evidence and evaluation scope](docs/file-evidence.md).
 
 ## Text evaluation
 

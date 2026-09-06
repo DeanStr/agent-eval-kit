@@ -1,3 +1,6 @@
+import { validateCheckpoints } from "./checkpoints.js";
+import { validateOutputs } from "./workflow.js";
+import { readEvidenceFile, validateEvidenceFiles } from "./evidence/files.js";
 import { omitUndefined } from "./invariants.js";
 import { runReceiptSchema, scenarioEvidenceSchema } from "./artifact-schemas.js";
 import fs from "node:fs";
@@ -139,7 +142,9 @@ export async function judgeCollected(options: {
     split: manifest.split,
     evidenceProvenance: provenance,
   });
-  const materialized = materializeSpecs(specs, manifest.split).filter((spec) => spec.rubric.length);
+  const materialized = materializeSpecs(specs, manifest.split).filter(
+    (spec) => spec.rubric.length || spec.exclusions?.length,
+  );
   const configuredRoot = path.resolve(config.paths.runs);
   const outputRoot = prospectiveRealPath(configuredRoot);
   if (
@@ -247,12 +252,25 @@ export async function judgeCollected(options: {
           areas.push(priorArea);
           continue;
         }
+        if (!spec.rubric.length) {
+          areas.push(scoreArea({ spec, config, evidence: [], judgements: [] }));
+          continue;
+        }
         const evidence = spec.scenarios.map((scenario) => {
           const value = scenarioEvidenceSchema.parse(
             JSON.parse(fs.readFileSync(path.join(runDir, scenario.id, "evidence.json"), "utf8")),
           ) as ScenarioEvidence;
           if (value.scenarioId !== scenario.id || value.outcome === "agent_error")
             throw new Error(`Invalid collected scenario: ${scenario.id}`);
+          validateCheckpoints(scenario, value.checkpoints ?? {}, value.transcript);
+          validateOutputs(scenario, value.outputs ?? {}, value.transcript, value.files);
+          validateEvidenceFiles(
+            value.files ?? [],
+            value.transcript,
+            value.outcome === "completed" ? scenario.collect?.files : [],
+          );
+          for (const file of value.files ?? [])
+            readEvidenceFile(path.join(runDir, scenario.id), file);
           return value;
         });
         const collectedCommands = JSON.parse(

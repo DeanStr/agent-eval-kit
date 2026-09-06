@@ -1,0 +1,29 @@
+id: exports
+title: Exported data
+weight: 100
+description: Verify the contents of an exported CSV, independently of its creation.
+scenarios:
+  - id: EXPORT
+    name: Export records
+    kind: command
+    instructions: Export records as a CSV evidence file.
+    outputs:
+      table: { type: file }
+    checkpoints:
+      exported: The exporter produced a file.
+    collect:
+      command: node collect.mjs
+      methodFiles: [collect.mjs]
+      sources: { records: records.json }
+      files: [table]
+rubric:
+  - id: CONTENTS
+    criterion: The export contains the expected header and every expected record.
+    weight: 1
+    scenarios: [EXPORT]
+    grader:
+      type: command
+      command: node check.mjs
+      output: json
+      methodFiles: [check.mjs, expected.json]
+    passCriteria: Parsed CSV rows match the independently specified expected rows exactly.
