@@ -220,7 +220,7 @@ export class BrowserSession {
           }
         }
         const match = /^(https?):\/\/\*\.([^/:]+)(?::(\d+))?$/.exec(entry);
-        if (!match) return false;
+        if (!match?.[2]) return false;
         const [, protocol, suffix, port] = match;
         const defaultPort = protocol === "https" ? "443" : "80";
         const urlPort = u.port || defaultPort;
@@ -371,7 +371,7 @@ export class BrowserSession {
       return this.allowedOrigins.some((entry) => {
         if (entry.includes("*")) {
           const match = /^(?:https?):\/\/\*\.([^/:]+)(?::\d+)?$/.exec(entry);
-          const suffix = match?.[1].toLowerCase();
+          const suffix = match?.[1]?.toLowerCase();
           return Boolean(suffix && (domain === suffix || domain.endsWith(`.${suffix}`)));
         }
         const host = new URL(entry).hostname.toLowerCase();
@@ -689,7 +689,7 @@ export class BrowserSession {
     let options: Parameters<Page["screenshot"]>[0] = {
       path: abs,
       type: this.captureOptions?.lossless ? "png" : "jpeg",
-      quality: this.captureOptions?.lossless ? undefined : 60,
+      ...(this.captureOptions?.lossless ? {} : { quality: 60 }),
       animations: this.captureOptions?.disableAnimations ? "disabled" : "allow",
       fullPage,
     };
@@ -712,7 +712,7 @@ export class BrowserSession {
         options = {
           path: abs,
           type: this.captureOptions?.lossless ? "png" : "jpeg",
-          quality: this.captureOptions?.lossless ? undefined : 60,
+          ...(this.captureOptions?.lossless ? {} : { quality: 60 }),
           animations: this.captureOptions?.disableAnimations ? "disabled" : "allow",
           fullPage: true,
           clip: { x: 0, y: 0, width: clipWidth, height: clipHeight },

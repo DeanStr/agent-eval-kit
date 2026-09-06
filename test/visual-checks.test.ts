@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -125,22 +126,28 @@ test("statistic bounds retain individual regressions, complete cohorts, and near
   ];
   const evaluated = evaluateStatistics(samples, grader.metrics);
   assert.equal(evaluated.verdict, "fail");
-  assert.equal(evaluated.axes.entropy.mean, 0);
+  assert.equal(requireDefined(evaluated.axes.entropy, "evaluated.axes.entropy").mean, 0);
   assert.equal(evaluated.checks.find((check) => check.scope === "bad")?.actual, -0.5);
   const missing = evaluateStatistics(
-    [samples[0], { id: "missing", before: stats(4) }],
+    [requireDefined(samples[0], "samples[0]"), { id: "missing", before: stats(4) }],
     grader.metrics,
   );
   assert.equal(missing.verdict, "cannot_judge");
-  assert.equal(missing.axes.entropy.mean, null);
-  assert.equal(missing.axes.entropy.samples, 1);
-  assert.equal(missing.axes.entropy.expectedSamples, 2);
+  assert.equal(requireDefined(missing.axes.entropy, "missing.axes.entropy").mean, null);
+  assert.equal(requireDefined(missing.axes.entropy, "missing.axes.entropy").samples, 1);
+  assert.equal(requireDefined(missing.axes.entropy, "missing.axes.entropy").expectedSamples, 2);
   const zero = evaluateStatistics(
     [{ id: "zero", before: stats(0), after: stats(0) }],
     grader.metrics,
   );
   assert.equal(zero.verdict, "cannot_judge");
-  assert.match(zero.axes.entropy.scenes[0].unavailable!, /minimumBaseline/);
+  assert.match(
+    requireDefined(
+      requireDefined(zero.axes.entropy, "zero.axes.entropy").scenes[0],
+      "zero.axes.entropy.scenes[0]",
+    ).unavailable!,
+    /minimumBaseline/,
+  );
   const near = evaluateStatistics(
     [{ id: "near", before: stats(0.00000001), after: stats(0.00000002) }],
     grader.metrics,
@@ -229,7 +236,7 @@ test("visual contracts require explicit bounds, distinct groups and valid image 
       ...raw,
       scenarios: [
         {
-          ...raw.scenarios[0],
+          ...requireDefined(raw.scenarios[0], "raw.scenarios[0]"),
           cases: [
             { id: "a", split: "development" },
             { id: "b", split: "evaluation" },
@@ -238,9 +245,18 @@ test("visual contracts require explicit bounds, distinct groups and valid image 
       ],
     }),
   );
-  const spec = loadSpecs(file)[0];
-  assert.deepEqual(materializeSpec(spec).rubric[0].scenarios, ["scene--a", "scene--b"]);
-  assert.deepEqual(materializeSpec(spec, "evaluation").rubric[0].scenarios, ["scene--b"]);
+  const spec = requireDefined(loadSpecs(file)[0], "loadSpecs(file)[0]");
+  assert.deepEqual(
+    requireDefined(materializeSpec(spec).rubric[0], "materializeSpec(spec).rubric[0]").scenarios,
+    ["scene--a", "scene--b"],
+  );
+  assert.deepEqual(
+    requireDefined(
+      materializeSpec(spec, "evaluation").rubric[0],
+      'materializeSpec(spec, "evaluation").rubric[0]',
+    ).scenarios,
+    ["scene--b"],
+  );
 });
 
 test("deterministic visual graders use sealed inputs, preserve missing coverage and report offending pairs", async (t) => {
@@ -296,7 +312,16 @@ test("deterministic visual graders use sealed inputs, preserve missing coverage 
     result.map((item) => item.verdict),
     ["fail", "pass"],
   );
-  const report = fs.readFileSync(path.join(runDir, result[0].comparisons![0]), "utf8");
+  const report = fs.readFileSync(
+    path.join(
+      runDir,
+      requireDefined(
+        requireDefined(result[0], "result[0]").comparisons![0],
+        "result[0].comparisons![0]",
+      ),
+    ),
+    "utf8",
+  );
   assert.match(report, /candidate-1.png/);
   assert.match(report, /minimumDistance/);
   const distinct = JSON.parse(
@@ -314,7 +339,10 @@ test("deterministic visual graders use sealed inputs, preserve missing coverage 
   });
   const blocked = await judgeVisualChecks({
     ...options,
-    evidence: [evidence[0], { ...evidence[1], outcome: "blocked" }],
+    evidence: [
+      requireDefined(evidence[0], "evidence[0]"),
+      { ...requireDefined(evidence[1], "evidence[1]"), outcome: "blocked" },
+    ],
   });
   assert.deepEqual(
     blocked.map((item) => item.verdict),
@@ -322,10 +350,13 @@ test("deterministic visual graders use sealed inputs, preserve missing coverage 
   );
   const one = await judgeVisualChecks({
     ...options,
-    spec: { ...spec, rubric: [{ ...spec.rubric[0], scenarios: ["a"] }] },
+    spec: {
+      ...spec,
+      rubric: [{ ...requireDefined(spec.rubric[0], "spec.rubric[0]"), scenarios: ["a"] }],
+    },
   });
   assert.equal(
-    one[0].verdict,
+    requireDefined(one[0], "one[0]").verdict,
     "cannot_judge",
     "a split leaving one capture must not pass distinctness vacuously",
   );
@@ -333,8 +364,14 @@ test("deterministic visual graders use sealed inputs, preserve missing coverage 
     judgeVisualChecks({
       ...options,
       evidence: [
-        { ...evidence[0], screenshots: [...evidence[0].screenshots, ...evidence[0].screenshots] },
-        evidence[1],
+        {
+          ...requireDefined(evidence[0], "evidence[0]"),
+          screenshots: [
+            ...requireDefined(evidence[0], "evidence[0]").screenshots,
+            ...requireDefined(evidence[0], "evidence[0]").screenshots,
+          ],
+        },
+        requireDefined(evidence[1], "evidence[1]"),
       ],
     }),
     /Ambiguous/,

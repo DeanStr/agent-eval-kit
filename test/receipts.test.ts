@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -181,8 +182,8 @@ test("receipts only require Chromium for browser scenarios in the selected split
       /Unable to determine Chromium version for headless capture/,
     );
   }
-  spec.scenarios[0].cases = undefined;
-  spec.scenarios[0].split = "development";
+  delete requireDefined(spec.scenarios[0], "spec.scenarios[0]").cases;
+  requireDefined(spec.scenarios[0], "spec.scenarios[0]").split = "development";
   assert.equal(
     buildRunReceipt({ ...options, split: "evaluation" }).runtime.evidence?.chromium,
     undefined,
@@ -200,7 +201,11 @@ test("run receipts are deterministic and fingerprint exact fixture bytes", () =>
   const repeated = buildRunReceipt({ config, specs: [spec], fixtures });
   assert.equal(repeated.evaluationFingerprint, first.evaluationFingerprint);
   assert.equal(repeated.inputFingerprint, first.inputFingerprint);
-  assert.equal(first.inputs.fixtures?.files.example.bytes, Buffer.byteLength("first fixture\n"));
+  assert.equal(
+    requireDefined(first.inputs.fixtures?.files.example, "first.inputs.fixtures?.files.example")
+      .bytes,
+    Buffer.byteLength("first fixture\n"),
+  );
 
   fs.writeFileSync(fixtureData, "different fixture\n");
   const changed = buildRunReceipt({ config, specs: [spec], fixtures });
@@ -218,8 +223,12 @@ test("prototype-named fixtures remain in receipts and affect fingerprints", () =
 
   const first = buildRunReceipt({ config, specs: [spec], fixtures });
   assert.equal(Object.hasOwn(first.inputs.fixtures?.files ?? {}, "__proto__"), true);
-  // biome-ignore lint/suspicious/noProto: Verify an own property named __proto__ survives serialization.
-  assert.equal(first.inputs.fixtures?.files.__proto__.bytes, Buffer.byteLength("first\n"));
+  assert.equal(
+    // biome-ignore lint/suspicious/noProto: Verify an own property named __proto__ survives serialization.
+    requireDefined(first.inputs.fixtures?.files.__proto__, "first.inputs.fixtures?.files.__proto__")
+      .bytes,
+    Buffer.byteLength("first\n"),
+  );
   fs.writeFileSync(fixtureData, "changed\n");
   const changed = buildRunReceipt({ config, specs: [spec], fixtures });
   assert.notEqual(changed.evaluationFingerprint, first.evaluationFingerprint);

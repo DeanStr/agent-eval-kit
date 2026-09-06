@@ -1,3 +1,4 @@
+import { requireDefined } from "./invariants.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -60,8 +61,8 @@ function portable(relative: string): string {
 
 function included(relative: string, directory: boolean): boolean {
   const parts = portable(relative).split("/");
-  if (parts.length === 1 && excludedRoots.has(parts[0])) return false;
-  if (excludedDirectories.has(parts[0])) return false;
+  if (parts.length === 1 && excludedRoots.has(requireDefined(parts[0], "parts[0]"))) return false;
+  if (excludedDirectories.has(requireDefined(parts[0], "parts[0]"))) return false;
   if (directory) return true;
   const name = parts.at(-1)!;
   return !atomicTemporaryFile.test(name) && !initializationTemporaryFile.test(name);

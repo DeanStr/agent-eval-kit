@@ -1,3 +1,4 @@
+import { requireDefined, omitUndefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -119,8 +120,13 @@ test("finalizing an unproven hybrid result scores only its manual share", () => 
   });
   for (const items of [
     [],
-    [{ ...area.items[0], components: undefined }],
-    [{ ...area.items[0], components: { automatic: "invalid" as "pass" } }],
+    [omitUndefined({ ...requireDefined(area.items[0], "area.items[0]"), components: undefined })],
+    [
+      {
+        ...requireDefined(area.items[0], "area.items[0]"),
+        components: { automatic: "invalid" as "pass" },
+      },
+    ],
   ]) {
     const malformed = { ...report, areas: [{ ...area, items }] };
     assert.throws(
@@ -129,12 +135,28 @@ test("finalizing an unproven hybrid result scores only its manual share", () => 
     );
     assert.equal(fs.existsSync(path.join(runDir, "manual-revisions.ndjson")), false);
   }
+  const pendingDir = fs.mkdtempSync(path.join(os.tmpdir(), "aek-pending-manual-"));
+  try {
+    fs.writeFileSync(path.join(pendingDir, "manual-results.json"), "{}");
+    const pending = finalizeReport({ runDir: pendingDir, report, specs: [spec], config });
+    assert.deepEqual(requireDefined(pending.areas[0], "pending area").pendingManual, ["H1"]);
+    assert.equal(pending.overallCoveragePct, 0);
+  } finally {
+    fs.rmSync(pendingDir, { recursive: true, force: true });
+  }
+
   const retainedEvidence = path.join(runDir, "retained-evidence.txt");
   fs.writeFileSync(retainedEvidence, "trusted evidence");
 
   const prototypeSpec: EvalSpec = {
     ...spec,
-    rubric: [{ ...spec.rubric[0], id: "__proto__", grader: { type: "manual" } }],
+    rubric: [
+      {
+        ...requireDefined(spec.rubric[0], "spec.rubric[0]"),
+        id: "__proto__",
+        grader: { type: "manual" },
+      },
+    ],
   };
   writeManualFiles(
     runDir,
@@ -206,16 +228,28 @@ test("finalizing an unproven hybrid result scores only its manual share", () => 
   assert.equal(finalized.project, "Finalize");
   assert.deepEqual(finalized.target, report.target);
   assert.deepEqual(finalized.providers, report.providers);
-  assert.deepEqual(finalized.areas[0].items[0].components, {
-    automatic: "cannot_judge",
-    manual: "pass",
-  });
-  assert.equal(finalized.areas[0].items[0].verdict, "cannot_judge");
-  assert.equal(finalized.areas[0].earned, 3);
-  assert.equal(finalized.areas[0].judgeable, 3);
-  assert.equal(finalized.areas[0].scorePct, 100);
-  assert.equal(finalized.areas[0].coveragePct, 75);
-  assert.equal(finalized.areas[0].pendingManual.length, 0);
+  assert.deepEqual(
+    requireDefined(
+      requireDefined(finalized.areas[0], "finalized.areas[0]").items[0],
+      "finalized.areas[0].items[0]",
+    ).components,
+    {
+      automatic: "cannot_judge",
+      manual: "pass",
+    },
+  );
+  assert.equal(
+    requireDefined(
+      requireDefined(finalized.areas[0], "finalized.areas[0]").items[0],
+      "finalized.areas[0].items[0]",
+    ).verdict,
+    "cannot_judge",
+  );
+  assert.equal(requireDefined(finalized.areas[0], "finalized.areas[0]").earned, 3);
+  assert.equal(requireDefined(finalized.areas[0], "finalized.areas[0]").judgeable, 3);
+  assert.equal(requireDefined(finalized.areas[0], "finalized.areas[0]").scorePct, 100);
+  assert.equal(requireDefined(finalized.areas[0], "finalized.areas[0]").coveragePct, 75);
+  assert.equal(requireDefined(finalized.areas[0], "finalized.areas[0]").pendingManual.length, 0);
   const firstRevision = JSON.parse(
     fs.readFileSync(path.join(runDir, "manual-revisions.ndjson"), "utf8").trim(),
   );
@@ -234,7 +268,13 @@ test("finalizing an unproven hybrid result scores only its manual share", () => 
     config,
     reviewer: "bob",
   });
-  assert.equal(revised.areas[0].items[0].components?.manual, "fail");
+  assert.equal(
+    requireDefined(
+      requireDefined(revised.areas[0], "revised.areas[0]").items[0],
+      "revised.areas[0].items[0]",
+    ).components?.manual,
+    "fail",
+  );
   const revisions = fs
     .readFileSync(path.join(runDir, "manual-revisions.ndjson"), "utf8")
     .trim()
@@ -364,8 +404,20 @@ test("a zero automatic share can fully pass through manual finalization", () => 
     JSON.stringify({ H0: { verdict: "pass", notes: "Confirmed" } }),
   );
   const finalized = finalizeReport({ runDir, report, specs: [spec], config, reviewer: "alice" });
-  assert.equal(finalized.areas[0].items[0].verdict, "pass");
-  assert.equal(finalized.areas[0].coveragePct, 100);
-  assert.equal(finalized.areas[0].gates?.[0].status, "passed");
+  assert.equal(
+    requireDefined(
+      requireDefined(finalized.areas[0], "finalized.areas[0]").items[0],
+      "finalized.areas[0].items[0]",
+    ).verdict,
+    "pass",
+  );
+  assert.equal(requireDefined(finalized.areas[0], "finalized.areas[0]").coveragePct, 100);
+  assert.equal(
+    requireDefined(
+      requireDefined(finalized.areas[0], "finalized.areas[0]").gates?.[0],
+      "finalized.areas[0].gates?.[0]",
+    ).status,
+    "passed",
+  );
   assert.equal(finalized.gates?.passed, true);
 });

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { requireDefined, omitUndefined } from "./invariants.js";
 import fs from "node:fs";
 import { validateEvaluationInputs } from "./run/inputs.js";
 import path from "node:path";
@@ -73,7 +74,7 @@ function parseArgs(argv: string[]): Args {
   const flags: Record<string, string | boolean> = {};
   const positionals: string[] = [];
   for (let index = 0; index < rest.length; index++) {
-    const value = rest[index];
+    const value = requireDefined(rest[index], "rest[index]");
     if (!value.startsWith("--")) {
       positionals.push(value);
       continue;
@@ -380,10 +381,13 @@ function init(directory: string, kind: string = "web"): void {
 }
 
 function enforceRunThresholds(args: Args, report: RunReport): void {
-  const failures = evaluateCiThresholds(report, {
-    minimumScore: percentageFlag(args, "fail-under-score"),
-    minimumCoverage: percentageFlag(args, "fail-under-coverage"),
-  });
+  const failures = evaluateCiThresholds(
+    report,
+    omitUndefined({
+      minimumScore: percentageFlag(args, "fail-under-score"),
+      minimumCoverage: percentageFlag(args, "fail-under-coverage"),
+    }),
+  );
   for (const failure of failures) console.error(`CI threshold failed: ${failure}`);
   if (failures.length) process.exitCode = 2;
 }
@@ -445,7 +449,9 @@ function assertFinalizeConfigUnchanged(
     config,
     specs,
     fixtures: undefined,
-    scenarioIds: report.receipt.inputs.selection.scenarios,
+    ...(report.receipt.inputs.selection.scenarios === undefined
+      ? {}
+      : { scenarioIds: report.receipt.inputs.selection.scenarios }),
     split: selectedSplit,
     evidenceProvenance: report.receipt,
   });
@@ -693,12 +699,15 @@ async function main(): Promise<void> {
       `Compared ${baseline.report.runId} → ${candidate.report.runId}: score ${comparison.overall.scorePct.delta === null ? "n/a" : `${comparison.overall.scorePct.delta >= 0 ? "+" : ""}${comparison.overall.scorePct.delta}`} points; coverage ${comparison.overall.coveragePct.delta === null ? "n/a" : `${comparison.overall.coveragePct.delta >= 0 ? "+" : ""}${comparison.overall.coveragePct.delta}`} points`,
     );
     console.log(`Artifacts: ${artifacts.json}, ${artifacts.html}`);
-    const failures = comparisonFailures(comparison, {
-      failOnRegression: Boolean(args.flags["fail-on-regression"]),
-      maxScoreDrop: percentageFlag(args, "max-score-drop"),
-      maxCoverageDrop: percentageFlag(args, "max-coverage-drop"),
-      requireCompatible: !allowIncompatible,
-    });
+    const failures = comparisonFailures(
+      comparison,
+      omitUndefined({
+        failOnRegression: Boolean(args.flags["fail-on-regression"]),
+        maxScoreDrop: percentageFlag(args, "max-score-drop"),
+        maxCoverageDrop: percentageFlag(args, "max-coverage-drop"),
+        requireCompatible: !allowIncompatible,
+      }),
+    );
     for (const failure of failures) console.error(`CI comparison failed: ${failure}`);
     if (failures.length) process.exitCode = 2;
     return;
@@ -731,10 +740,12 @@ async function main(): Promise<void> {
         ),
       );
     }
-    const checks = doctor({
-      providers: requested ? [...new Set(requested)] : configuredProviders,
-      requireBrowser,
-    });
+    const checks = doctor(
+      omitUndefined({
+        providers: requested ? [...new Set(requested)] : configuredProviders,
+        requireBrowser,
+      }),
+    );
     for (const check of checks) {
       const marker = check.ok ? "✓" : check.required ? "✗" : "○";
       console.log(`${marker} ${check.name}${check.required ? "" : " (optional)"}: ${check.detail}`);
@@ -775,13 +786,15 @@ async function main(): Promise<void> {
       if (args.command === "finalize") {
         assertFinalizeSpecsUnchanged(prior, receiptSpecs);
         assertFinalizeConfigUnchanged(prior, config, receiptSpecs, selectedSplit);
-        const report = finalizeReport({
-          runDir,
-          report: prior,
-          specs,
-          config,
-          reviewer: stringFlag(args, "reviewer"),
-        });
+        const report = finalizeReport(
+          omitUndefined({
+            runDir,
+            report: prior,
+            specs,
+            config,
+            reviewer: stringFlag(args, "reviewer"),
+          }),
+        );
         console.log(
           `Finalized: ${report.overallScorePct ?? "n/a"}% / ${report.overallCoveragePct}% coverage; ${report.manualPending} pending`,
         );
@@ -793,7 +806,9 @@ async function main(): Promise<void> {
         config,
         specs: receiptSpecs,
         fixtures: undefined,
-        scenarioIds: receiptSelection.scenarios,
+        ...(receiptSelection.scenarios === undefined
+          ? {}
+          : { scenarioIds: receiptSelection.scenarios }),
         split: selectedSplit,
         evidenceProvenance: prior.receipt,
       });
@@ -871,12 +886,14 @@ async function main(): Promise<void> {
   if (args.command === "auth") {
     const persona = stringFlag(args, "persona");
     if (!persona) throw new Error("auth requires --persona <name>");
-    const saved = await captureAuth({
-      config,
-      persona,
-      startAt: stringFlag(args, "at"),
-      clickText: stringFlag(args, "click"),
-    });
+    const saved = await captureAuth(
+      omitUndefined({
+        config,
+        persona,
+        startAt: stringFlag(args, "at"),
+        clickText: stringFlag(args, "click"),
+      }),
+    );
     console.log(`Saved ${persona} browser session to ${saved}`);
     return;
   }
@@ -900,10 +917,10 @@ async function main(): Promise<void> {
       throw new Error("campaign does not support --dry-run or --resume");
     const repetitions = positiveIntegerFlag(args, "repetitions") ?? 3;
     if (repetitions < 2) throw new Error("--repetitions must be at least 2 for a campaign");
-    const thresholds = {
+    const thresholds = omitUndefined({
       minimumScore: percentageFlag(args, "fail-under-score"),
       minimumCoverage: percentageFlag(args, "fail-under-coverage"),
-    };
+    });
     const directory = createCampaignDirectory(config, stringFlag(args, "output"));
     const startedAt = new Date().toISOString();
     const campaignId = path.basename(directory);
@@ -918,7 +935,7 @@ async function main(): Promise<void> {
           configFile: file,
           specs: selected,
           fixtures,
-          scenarioIds,
+          ...(scenarioIds === undefined ? {} : { scenarioIds: scenarioIds }),
           split: selectedSplit,
           configOverrides: overrides,
           ignoredTargetPaths: [directory],
@@ -973,15 +990,17 @@ async function main(): Promise<void> {
     return;
   }
   const result = await runEvaluation({
-    config,
-    configFile: file,
-    specs: selected,
+    ...omitUndefined({
+      config,
+      configFile: file,
+      specs: selected,
+      ...(scenarioIds === undefined ? {} : { scenarioIds: scenarioIds }),
+      split: selectedSplit,
+      configOverrides: overrides,
+      resumeDir: stringFlag(args, "resume"),
+      dryRun: Boolean(args.flags["dry-run"]),
+    }),
     fixtures,
-    scenarioIds,
-    split: selectedSplit,
-    configOverrides: overrides,
-    resumeDir: stringFlag(args, "resume"),
-    dryRun: Boolean(args.flags["dry-run"]),
   });
   if (result.report) {
     console.log(`Artifacts: ${result.runDir}`);
@@ -989,7 +1008,8 @@ async function main(): Promise<void> {
   }
 }
 
-const execute = ["run", "campaign"].includes(process.argv[2]) ? () => withCliSignals(main) : main;
+const execute =
+  process.argv[2] === "run" || process.argv[2] === "campaign" ? () => withCliSignals(main) : main;
 execute().catch((error) => {
   console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
   if (process.exitCode !== 130 && process.exitCode !== 143) process.exitCode = 1;

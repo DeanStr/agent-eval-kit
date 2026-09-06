@@ -233,7 +233,7 @@ export function scoreArea(options: {
         return {
           itemId: rubric.id,
           status: "unavailable" as const,
-          verdict: item?.verdict,
+          ...(item === undefined ? {} : { verdict: item.verdict }),
           reason: !item
             ? "No verdict was produced."
             : unproven.includes(rubric.id)
@@ -344,15 +344,21 @@ export function buildReport(options: {
     project: options.config.project.name,
     target: {
       kind: options.config.target.kind,
-      url: options.config.target.url,
+      ...(options.config.target.url === undefined ? {} : { url: options.config.target.url }),
       root: options.config.project.root,
     },
     startedAt: options.startedAt,
     finishedAt: new Date().toISOString(),
     kitVersion: KIT_VERSION,
     providers: {
-      agent: { provider: options.config.agent.provider, model: options.config.agent.model },
-      judge: { provider: options.config.judge.provider, model: options.config.judge.model },
+      agent: {
+        provider: options.config.agent.provider,
+        ...(options.config.agent.model === undefined ? {} : { model: options.config.agent.model }),
+      },
+      judge: {
+        provider: options.config.judge.provider,
+        ...(options.config.judge.model === undefined ? {} : { model: options.config.judge.model }),
+      },
     },
     areas: options.areas,
     overallScorePct: aggregate.scorePct === null ? null : round(aggregate.scorePct),

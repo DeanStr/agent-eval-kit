@@ -1,3 +1,4 @@
+import { requireDefined, omitUndefined } from "./invariants.js";
 import { validateOutputs } from "./workflow.js";
 import { collectCommand } from "./collectors/command.js";
 import { controlledCapture } from "./visual/capture.js";
@@ -67,7 +68,7 @@ function chainStorageStatePath(
       }
     }
   }
-  const chain = [...component].sort()[0];
+  const chain = requireDefined([...component].sort()[0], "[...component].sort()[0]");
   return path.join(path.dirname(directory), ".state", safeName(spec.id), `${safeName(chain)}.json`);
 }
 
@@ -83,14 +84,14 @@ function readToolArtifacts(
   const resultFile = path.join(directory, `${kind}-result.json`);
   const observationsFile = path.join(directory, "observations.json");
   const screenshotsFile = path.join(directory, "screenshots.json");
-  return {
+  return omitUndefined({
     result: fs.existsSync(resultFile)
       ? readJson<BrowserResultState | WorkspaceResultState>(resultFile)
       : undefined,
     observations: fs.existsSync(observationsFile) ? readJson<string[]>(observationsFile) : [],
     screenshots: fs.existsSync(screenshotsFile) ? readJson<ScreenshotRef[]>(screenshotsFile) : [],
     transcript: readNdjson<TranscriptEntry>(path.join(directory, `${kind}-transcript.ndjson`)),
-  };
+  });
 }
 
 export async function executeScenario(options: {
@@ -121,7 +122,14 @@ export async function executeScenario(options: {
   const stderrFile = path.join(directory, "provider-stderr.log");
   fs.writeFileSync(
     promptFile,
-    scenarioPrompt({ config, spec, scenario, kind, fixtures, inputs: options.inputs }),
+    scenarioPrompt({
+      config,
+      spec,
+      scenario,
+      kind,
+      fixtures,
+      ...(options.inputs === undefined ? {} : { inputs: options.inputs }),
+    }),
   );
   writeJson(schemaFile, scenarioOutputSchema);
 
@@ -153,13 +161,15 @@ export async function executeScenario(options: {
         scenarioId: scenario.id,
         scenarioName: scenario.name,
         kind,
-        persona: scenario.persona,
-        sourceScenarioId: scenario.sourceScenarioId,
-        caseId: scenario.caseId,
-        strata: scenario.strata,
-        split: scenario.split,
+        ...(scenario.persona === undefined ? {} : { persona: scenario.persona }),
+        ...(scenario.sourceScenarioId === undefined
+          ? {}
+          : { sourceScenarioId: scenario.sourceScenarioId }),
+        ...(scenario.caseId === undefined ? {} : { caseId: scenario.caseId }),
+        ...(scenario.strata === undefined ? {} : { strata: scenario.strata }),
+        ...(scenario.split === undefined ? {} : { split: scenario.split }),
         outcome: "blocked",
-        inputs: options.inputs,
+        ...(options.inputs === undefined ? {} : { inputs: options.inputs }),
         summary: `No saved browser session for required persona ${scenario.persona ?? "(unnamed)"}. Run aek auth first.`,
         observations: [],
         evidenceRefs: [],
@@ -167,7 +177,7 @@ export async function executeScenario(options: {
         screenshots: [],
         artifacts: { prompt: "prompt.md" },
         provider: config.agent.provider,
-        model: config.agent.model,
+        ...(config.agent.model === undefined ? {} : { model: config.agent.model }),
         startedAt,
         finishedAt: new Date().toISOString(),
         durationMs: Date.now() - start,
@@ -195,15 +205,17 @@ export async function executeScenario(options: {
           }),
         )
       : undefined;
-    const context: BrowserMcpContext = {
-      persona: scenario.persona,
-      personas,
-      outputs: scenario.outputs,
+    const context: BrowserMcpContext = omitUndefined({
+      ...(scenario.persona === undefined ? {} : { persona: scenario.persona }),
+      ...(personas === undefined ? {} : { personas: personas }),
+      ...(scenario.outputs === undefined ? {} : { outputs: scenario.outputs }),
       targetUrl: config.target.url!,
       allowedOrigins: config.target.allowedOrigins,
       evidenceDir: directory,
-      storageStatePath: existingState,
-      storageStateCandidatePath,
+      ...(existingState === undefined ? {} : { storageStatePath: existingState }),
+      ...(storageStateCandidatePath === undefined
+        ? {}
+        : { storageStateCandidatePath: storageStateCandidatePath }),
       expectAuthenticated: Boolean(
         scenario.requiresAuth ||
           (scenario.allowedPersonas && scenario.persona && scenario.persona !== "anonymous"),
@@ -212,11 +224,13 @@ export async function executeScenario(options: {
       headless: config.browser.headless,
       viewport: config.browser.viewport,
       actionTimeoutMs: config.browser.actionTimeoutMs,
-      screenshotFormat: config.browser.screenshotFormat,
+      ...(config.browser.screenshotFormat === undefined
+        ? {}
+        : { screenshotFormat: config.browser.screenshotFormat }),
       // Claude and Grok enforce maxTurns in their provider CLIs. Codex has no
       // equivalent flag, so only Codex maps the option to MCP interactions.
       maxToolCalls: config.agent.provider === "codex" ? (config.agent.maxTurns ?? 50) : undefined,
-    };
+    });
     const contextFile = path.join(directory, "browser-context.json");
     writeJson(contextFile, context);
     const launch = browserMcpLaunch(contextFile);
@@ -229,8 +243,8 @@ export async function executeScenario(options: {
       toolNames: BROWSER_TOOL_NAMES,
     };
   } else {
-    const context: WorkspaceMcpContext = {
-      outputs: scenario.outputs,
+    const context: WorkspaceMcpContext = omitUndefined({
+      ...(scenario.outputs === undefined ? {} : { outputs: scenario.outputs }),
       projectRoot: config.project.root,
       evidenceDir: directory,
       maxToolCalls: config.agent.provider === "codex" ? (config.agent.maxTurns ?? 50) : undefined,
@@ -238,7 +252,7 @@ export async function executeScenario(options: {
         ...(options.evaluatorOnlyPaths ?? []),
         ...Object.values(fixtureFiles(fixtures, config.paths.fixtures, config.project.root)),
       ],
-    };
+    });
     const contextFile = path.join(directory, "workspace-context.json");
     writeJson(contextFile, context);
     const launch = workspaceMcpLaunch(contextFile);
@@ -273,15 +287,15 @@ export async function executeScenario(options: {
       outputSchemaFile: schemaFile,
       eventLogFile,
       stderrFile,
-      model: config.agent.model,
-      effort: config.agent.effort,
-      maxTurns: config.agent.maxTurns,
+      ...(config.agent.model === undefined ? {} : { model: config.agent.model }),
+      ...(config.agent.effort === undefined ? {} : { effort: config.agent.effort }),
+      ...(config.agent.maxTurns === undefined ? {} : { maxTurns: config.agent.maxTurns }),
       timeoutSeconds: config.agent.timeoutSeconds,
       extraArgs: config.agent.extraArgs,
-      mcp,
+      ...(mcp === undefined ? {} : { mcp: mcp }),
       additionalDirs: [],
       allowWorkspaceTools: false,
-      onProgress: options.onProgress,
+      ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
     });
     writeJson(path.join(directory, "provider-run.json"), {
       provider: config.agent.provider,
@@ -335,7 +349,7 @@ export async function executeScenario(options: {
       missingEvidenceActivity ||
       invalidStructuredOutput ||
       Boolean(outputError);
-    const outcome = providerFailed
+    const outcome: ScenarioEvidence["outcome"] = providerFailed
       ? "agent_error"
       : (toolArtifacts.result?.outcome ?? (parsed.success ? parsed.data.outcome : "agent_error"));
     const summary =
@@ -379,24 +393,26 @@ export async function executeScenario(options: {
     );
     const diagnostics =
       kind === "browser" ? readDiagnostics(directory, config.browser.diagnostics) : undefined;
-    const evidence: ScenarioEvidence = {
+    const evidence: ScenarioEvidence = omitUndefined({
       scenarioId: scenario.id,
       scenarioName: scenario.name,
       kind,
-      persona: scenario.persona,
-      sourceScenarioId: scenario.sourceScenarioId,
-      caseId: scenario.caseId,
-      strata: scenario.strata,
-      split: scenario.split,
-      outcome: outcome === "completed" && missingOutputs.length ? "blocked" : outcome,
+      ...(scenario.persona === undefined ? {} : { persona: scenario.persona }),
+      ...(scenario.sourceScenarioId === undefined
+        ? {}
+        : { sourceScenarioId: scenario.sourceScenarioId }),
+      ...(scenario.caseId === undefined ? {} : { caseId: scenario.caseId }),
+      ...(scenario.strata === undefined ? {} : { strata: scenario.strata }),
+      ...(scenario.split === undefined ? {} : { split: scenario.split }),
+      outcome: outcome === "completed" && missingOutputs.length ? ("blocked" as const) : outcome,
       summary:
         outcome === "completed" && missingOutputs.length
           ? `Required outputs unavailable: ${missingOutputs.join(", ")}. ${summary}`
           : summary,
       outputs,
-      inputs: options.inputs,
-      diagnostics: diagnostics?.diagnostics,
-      captureChecks: diagnostics?.checks,
+      ...(options.inputs === undefined ? {} : { inputs: options.inputs }),
+      ...(diagnostics?.diagnostics === undefined ? {} : { diagnostics: diagnostics?.diagnostics }),
+      ...(diagnostics?.checks === undefined ? {} : { captureChecks: diagnostics?.checks }),
       observations: [
         ...new Set([
           ...toolArtifacts.observations,
@@ -416,9 +432,11 @@ export async function executeScenario(options: {
         toolTranscript: `${kind}-transcript.ndjson`,
       },
       provider: config.agent.provider,
-      model: config.agent.model,
-      providerSessionId: providerResult.sessionId,
-      usage: providerResult.usage,
+      ...(config.agent.model === undefined ? {} : { model: config.agent.model }),
+      ...(providerResult.sessionId === undefined
+        ? {}
+        : { providerSessionId: providerResult.sessionId }),
+      ...(providerResult.usage === undefined ? {} : { usage: providerResult.usage }),
       startedAt,
       finishedAt: new Date().toISOString(),
       durationMs: Date.now() - start,
@@ -426,8 +444,8 @@ export async function executeScenario(options: {
         "finalUrl" in (toolArtifacts.result ?? {})
           ? (toolArtifacts.result as BrowserResultState).finalUrl
           : undefined,
-      error,
-    };
+      ...(error === undefined ? {} : { error: error }),
+    });
     writeJson(path.join(directory, "evidence.json"), evidence);
     if (!providerFailed && toolArtifacts.result?.outcome !== "blocked") {
       // Validate every candidate before updating any saved identity.

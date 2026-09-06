@@ -1,3 +1,4 @@
+import { requireDefined, omitUndefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -140,7 +141,11 @@ test("hybrid comparisons use actual weighted contributions and partial coverage"
   };
   const make = (automatic: Verdict, manual?: Verdict) => {
     const result = report(automatic, [], null, 0);
-    const input = { ...item("R1", automatic), score: undefined, components: { automatic, manual } };
+    const input = omitUndefined({
+      ...item("R1", automatic),
+      score: undefined,
+      components: { automatic, ...(manual === undefined ? {} : { manual }) },
+    });
     const scored = scoreArea({
       spec,
       config: { scoring: { partialCredit: 0.25 } } as EvalConfig,
@@ -155,26 +160,42 @@ test("hybrid comparisons use actual weighted contributions and partial coverage"
   };
   const result = compareReports(make("pass", "fail"), make("fail", "pass"));
   assert.equal(result.overall.scorePct.delta, -80);
-  assert.equal(result.items[0].change, "regressed");
-  assert.equal(result.items[0].scorePct.delta, -80);
+  assert.equal(requireDefined(result.items[0], "result.items[0]").change, "regressed");
+  assert.equal(requireDefined(result.items[0], "result.items[0]").scorePct.delta, -80);
   assert.equal(comparisonFailures(result, { failOnRegression: true }).length, 1);
   const pending = compareReports(make("pass", "fail"), make("pass"));
-  assert.equal(pending.items[0].change, "lost_coverage");
-  assert.equal(pending.items[0].coveragePct.delta, -10);
+  assert.equal(requireDefined(pending.items[0], "pending.items[0]").change, "lost_coverage");
+  assert.equal(requireDefined(pending.items[0], "pending.items[0]").coveragePct.delta, -10);
   assert.equal(comparisonFailures(pending, { failOnRegression: true }).length, 1);
-  assert.equal(compareReports(make("pass"), make("partial")).items[0].change, "regressed");
-  spec.rubric[0].grader = { type: "hybrid", autoShare: 0.000001 };
+  assert.equal(
+    requireDefined(
+      compareReports(make("pass"), make("partial")).items[0],
+      'compareReports(make("pass"), make("partial")).items[0]',
+    ).change,
+    "regressed",
+  );
+  requireDefined(spec.rubric[0], "spec.rubric[0]").grader = { type: "hybrid", autoShare: 0.000001 };
   const smallDrop = compareReports(make("pass", "partial"), make("fail", "partial"));
-  assert.deepEqual(smallDrop.items[0].scorePct, { baseline: 25, candidate: 25, delta: 0 });
-  assert.equal(smallDrop.items[0].change, "regressed");
-  assert.equal(comparisonFailures(smallDrop, { failOnRegression: true }).length, 1);
-  const smallCoverageLoss = compareReports(make("pass", "pass"), make("cannot_judge", "pass"));
-  assert.deepEqual(smallCoverageLoss.items[0].coveragePct, {
-    baseline: 100,
-    candidate: 100,
+  assert.deepEqual(requireDefined(smallDrop.items[0], "smallDrop.items[0]").scorePct, {
+    baseline: 25,
+    candidate: 25,
     delta: 0,
   });
-  assert.equal(smallCoverageLoss.items[0].change, "lost_coverage");
+  assert.equal(requireDefined(smallDrop.items[0], "smallDrop.items[0]").change, "regressed");
+  assert.equal(comparisonFailures(smallDrop, { failOnRegression: true }).length, 1);
+  const smallCoverageLoss = compareReports(make("pass", "pass"), make("cannot_judge", "pass"));
+  assert.deepEqual(
+    requireDefined(smallCoverageLoss.items[0], "smallCoverageLoss.items[0]").coveragePct,
+    {
+      baseline: 100,
+      candidate: 100,
+      delta: 0,
+    },
+  );
+  assert.equal(
+    requireDefined(smallCoverageLoss.items[0], "smallCoverageLoss.items[0]").change,
+    "lost_coverage",
+  );
   assert.equal(comparisonFailures(smallCoverageLoss, { failOnRegression: true }).length, 1);
 });
 
@@ -198,7 +219,7 @@ test("comparison reports score, coverage, tag, and item-level changes", () => {
   assert.equal(comparison.summary.gained_coverage, 1);
   assert.equal(comparison.summary.added, 1);
   assert.equal(comparison.summary.removed, 1);
-  assert.equal(comparison.tags[0].scorePct.delta, -8);
+  assert.equal(requireDefined(comparison.tags[0], "comparison.tags[0]").scorePct.delta, -8);
   assert.equal(comparisonFailures(comparison, { failOnRegression: true }).length, 1);
   assert.deepEqual(comparisonFailures(comparison, { maxScoreDrop: 8, maxCoverageDrop: 10 }), []);
   assert.equal(comparisonFailures(comparison, { maxScoreDrop: 7, maxCoverageDrop: 9 }).length, 2);
@@ -222,8 +243,8 @@ test("semantic verdict regressions remain blocking when partial credit makes sco
       report("before", [before], points * 100, 100),
       report("after", [after], points * 100, 100),
     );
-    assert.equal(comparison.items[0].scorePct.delta, 0);
-    assert.equal(comparison.items[0].change, "regressed");
+    assert.equal(requireDefined(comparison.items[0], "comparison.items[0]").scorePct.delta, 0);
+    assert.equal(requireDefined(comparison.items[0], "comparison.items[0]").change, "regressed");
     assert.equal(comparisonFailures(comparison, { failOnRegression: true }).length, 1);
   }
 });
@@ -249,7 +270,10 @@ test("withheld scores produce an unavailable, CI-failing score delta", () => {
   const comparison = compareReports(baseline, candidate);
   assert.equal(comparison.overall.scorePct.delta, null);
   assert.match(
-    comparisonFailures(comparison, { maxScoreDrop: 0 })[0],
+    requireDefined(
+      comparisonFailures(comparison, { maxScoreDrop: 0 })[0],
+      "comparisonFailures(comparison, { maxScoreDrop: 0 })[0]",
+    ),
     /score delta is unavailable/,
   );
 });
@@ -257,10 +281,18 @@ test("withheld scores produce an unavailable, CI-failing score delta", () => {
 test("comparison treats unproven automatic verdicts as unavailable", () => {
   const baseline = report("base", [item("R1", "pass")], 100, 100);
   const candidate = report("candidate", [item("R1", "fail")], null, 0);
-  candidate.areas[0] = area(candidate.areas[0].items, null, 0, ["R1"]);
+  candidate.areas[0] = area(
+    requireDefined(candidate.areas[0], "candidate.areas[0]").items,
+    null,
+    0,
+    ["R1"],
+  );
 
   const comparison = compareReports(baseline, candidate);
-  assert.equal(comparison.items[0].candidateVerdict, "cannot_judge");
+  assert.equal(
+    requireDefined(comparison.items[0], "comparison.items[0]").candidateVerdict,
+    "cannot_judge",
+  );
   assert.equal(comparison.summary.regressed, 0);
   assert.equal(comparison.summary.lost_coverage, 1);
 });
@@ -272,11 +304,17 @@ test("incompatible evaluator inputs withhold numeric deltas unless explicitly ov
 
   const comparison = compareReports(baseline, candidate);
   assert.equal(comparison.compatibility.status, "incompatible");
-  assert.equal(comparison.items[0].change, "unavailable");
+  assert.equal(requireDefined(comparison.items[0], "comparison.items[0]").change, "unavailable");
   assert.equal(comparison.summary.regressed, 0);
   assert.equal(comparison.overall.scorePct.delta, null);
   assert.match(comparison.compatibility.differences.join(" "), /configuration/);
-  assert.match(comparisonFailures(comparison, { requireCompatible: true })[0], /incompatible/);
+  assert.match(
+    requireDefined(
+      comparisonFailures(comparison, { requireCompatible: true })[0],
+      "comparisonFailures(comparison, { requireCompatible: true })[0]",
+    ),
+    /incompatible/,
+  );
 
   const overridden = compareReports(baseline, candidate, { allowIncompatible: true });
   assert.equal(overridden.compatibility.overridden, true);
@@ -297,49 +335,73 @@ test("saved report schemas reject malformed nested scores, gates, and evidence",
   try {
     for (const mutate of [
       (value: RunReport) => {
-        value.areas[0].scorePct = 101;
+        requireDefined(value.areas[0], "value.areas[0]").scorePct = 101;
       },
       (value: RunReport) => {
-        value.byTag.workflow.coveragePct = -1;
+        requireDefined(value.byTag.workflow, "value.byTag.workflow").coveragePct = -1;
       },
       (value: RunReport) => {
-        value.areas[0].items[0].evidenceRefs = [12 as unknown as string];
+        requireDefined(
+          requireDefined(value.areas[0], "value.areas[0]").items[0],
+          "value.areas[0].items[0]",
+        ).evidenceRefs = [12 as unknown as string];
       },
       (value: RunReport) => {
         value.gates.blocking = [{ itemId: "R1" } as RunReport["gates"]["blocking"][number]];
       },
       (value: RunReport) => {
-        delete value.areas[0].items[0].score;
+        delete requireDefined(
+          requireDefined(value.areas[0], "value.areas[0]").items[0],
+          "value.areas[0].items[0]",
+        ).score;
       },
       (value: RunReport) => {
-        value.areas[0].items.push(value.areas[0].items[0]);
+        requireDefined(value.areas[0], "value.areas[0]").items.push(
+          requireDefined(
+            requireDefined(value.areas[0], "value.areas[0]").items[0],
+            "value.areas[0].items[0]",
+          ),
+        );
       },
       (value: RunReport) => {
-        value.areas[0].items[0].score!.earned = 2;
+        requireDefined(
+          requireDefined(value.areas[0], "value.areas[0]").items[0],
+          "value.areas[0].items[0]",
+        ).score!.earned = 2;
       },
       (value: RunReport) => {
-        value.areas[0].items[0].score!.scorePct = 0;
+        requireDefined(
+          requireDefined(value.areas[0], "value.areas[0]").items[0],
+          "value.areas[0].items[0]",
+        ).score!.scorePct = 0;
       },
       (value: RunReport) => {
-        value.areas[0].scorePct = 0;
+        requireDefined(value.areas[0], "value.areas[0]").scorePct = 0;
       },
       (value: RunReport) => {
-        value.areas[0].coveragePct = 50;
+        requireDefined(value.areas[0], "value.areas[0]").coveragePct = 50;
       },
       (value: RunReport) => {
-        value.areas[0].byTag.workflow.scorePct = 0;
+        requireDefined(
+          requireDefined(value.areas[0], "value.areas[0]").byTag.workflow,
+          "value.areas[0].byTag.workflow",
+        ).scorePct = 0;
       },
       (value: RunReport) => {
-        value.byTag.workflow.coveragePct = 50;
+        requireDefined(value.byTag.workflow, "value.byTag.workflow").coveragePct = 50;
       },
       (value: RunReport) => {
-        value.areas[0].byStratum.one = { ...slice(100, 100), cases: 1, scorePct: 0 };
+        requireDefined(value.areas[0], "value.areas[0]").byStratum.one = {
+          ...slice(100, 100),
+          cases: 1,
+          scorePct: 0,
+        };
       },
       (value: RunReport) => {
         value.byStratum.one = { ...slice(100, 100), cases: 1, coveragePct: 50 };
       },
       (value: RunReport) => {
-        value.areas[0].caseResults = [
+        requireDefined(value.areas[0], "value.areas[0]").caseResults = [
           {
             areaId: "core",
             rubricId: "R1",
@@ -400,7 +462,7 @@ test("saved reports preserve structured provider usage metadata", () => {
       service_tier: "standard",
       iterations: [{ tokens: 3 }],
     };
-    saved.areas[0].scenarios.push({
+    requireDefined(saved.areas[0], "saved.areas[0]").scenarios.push({
       scenarioId: "S1",
       scenarioName: "Usage",
       kind: "workspace",
@@ -418,7 +480,16 @@ test("saved reports preserve structured provider usage metadata", () => {
       usage,
     });
     fs.writeFileSync(path.join(root, "report.json"), JSON.stringify(saved));
-    assert.deepEqual(loadComparisonInput(root).report.areas[0].scenarios[0].usage, usage);
+    assert.deepEqual(
+      requireDefined(
+        requireDefined(
+          loadComparisonInput(root).report.areas[0],
+          "loadComparisonInput(root).report.areas[0]",
+        ).scenarios[0],
+        "loadComparisonInput(root).report.areas[0].scenarios[0]",
+      ).usage,
+      usage,
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

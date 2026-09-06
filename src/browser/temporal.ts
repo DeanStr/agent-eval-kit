@@ -13,7 +13,7 @@ function parseClock(text: string): { h: number; m: number } | null {
     return h > 23 || min > 59 ? null : { h, m: min };
   }
   m = /^(\d{1,2})\s*([ap]\.?m\.?)$/i.exec(t);
-  if (m) {
+  if (m?.[2]) {
     let h = Number(m[1]);
     const ap = m[2].toLowerCase().replace(/\./g, "");
     if (ap === "pm" && h < 12) h += 12;
@@ -70,12 +70,12 @@ function parseCalendarDate(text: string): Date | null {
   const monthFirst = /^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,\s*|\s+)(\d{4})(?:\s+.*)?$/i.exec(
     t,
   );
-  if (monthFirst) {
+  if (monthFirst?.[1]) {
     const month = months[monthFirst[1].toLowerCase()];
     return month ? checkedDate(Number(monthFirst[3]), month, Number(monthFirst[2])) : null;
   }
   const dayFirst = /^(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s*,?\s*(\d{4})(?:\s+.*)?$/i.exec(t);
-  if (dayFirst) {
+  if (dayFirst?.[2]) {
     const month = months[dayFirst[2].toLowerCase()];
     return month ? checkedDate(Number(dayFirst[3]), month, Number(dayFirst[1])) : null;
   }

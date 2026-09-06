@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
@@ -132,7 +133,9 @@ test("persona switching isolates identities, preserves live contexts, invalidate
     assert.notEqual(switched.isError, true, text(switched));
     await call("done", { outcome: "completed", summary: "Cross-role checks completed" });
     for (const name of ["organizer", "reviewer"]) {
-      const candidate = JSON.parse(fs.readFileSync(personas[name].candidatePath!, "utf8"));
+      const candidate = JSON.parse(
+        fs.readFileSync(requireDefined(personas[name], "personas[name]").candidatePath!, "utf8"),
+      );
       assert.equal(
         candidate.cookies.find((cookie: { name: string }) => cookie.name === "identity").value,
         name,

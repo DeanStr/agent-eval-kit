@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -176,8 +177,14 @@ test("command graders enforce explicit output contracts and fail on execution er
       runDir: root,
       areaDirectory: path.join(root, "area"),
     });
-  await assert.rejects(grade(items[0]), /timed out/);
-  assert.equal((await grade(items[1])).items[0].verdict, "fail");
+  await assert.rejects(grade(requireDefined(items[0], "items[0]")), /timed out/);
+  assert.equal(
+    requireDefined(
+      (await grade(requireDefined(items[1], "items[1]"))).items[0],
+      "(await grade(items[1])).items[0]",
+    ).verdict,
+    "fail",
+  );
   for (const [exit, verdict] of [
     "pass",
     "fail",
@@ -186,7 +193,7 @@ test("command graders enforce explicit output contracts and fail on execution er
     "not_found",
   ].entries()) {
     const result = await grade({
-      ...items[1],
+      ...requireDefined(items[1], "items[1]"),
       grader: {
         type: "command",
         methodFiles: [],
@@ -194,7 +201,7 @@ test("command graders enforce explicit output contracts and fail on execution er
         command: command(`process.exit(${exit})`),
       },
     });
-    assert.equal(result.items[0].verdict, verdict);
+    assert.equal(requireDefined(result.items[0], "result.items[0]").verdict, verdict);
   }
   for (const [code, expected] of [
     [
@@ -214,14 +221,14 @@ test("command graders enforce explicit output contracts and fail on execution er
   ] as const) {
     await assert.rejects(
       grade({
-        ...items[1],
+        ...requireDefined(items[1], "items[1]"),
         grader: { type: "command", methodFiles: [], output: "json", command: command(code) },
       }),
       expected,
     );
   }
   const json = await grade({
-    ...items[1],
+    ...requireDefined(items[1], "items[1]"),
     grader: {
       type: "command",
       methodFiles: [],
@@ -229,10 +236,10 @@ test("command graders enforce explicit output contracts and fail on execution er
       command: command('console.log(JSON.stringify({verdict:"fail",reasoning:"Real defect"}))'),
     },
   });
-  assert.equal(json.items[0].verdict, "fail");
+  assert.equal(requireDefined(json.items[0], "json.items[0]").verdict, "fail");
   await assert.rejects(
     grade({
-      ...items[1],
+      ...requireDefined(items[1], "items[1]"),
       grader: {
         type: "command",
         methodFiles: [],
@@ -536,14 +543,16 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
         areaDirectory: path.join(root, "area"),
       });
     await assert.rejects(grade(), /rubric item SCOPED.*S2\/evidence.json/);
-    structured.items[0].evidenceRefs = ["S1/evidence.json"];
-    structured.cases[0].evidenceRefs = ["S1/evidence.json"];
+    requireDefined(structured.items[0], "structured.items[0]").evidenceRefs = ["S1/evidence.json"];
+    requireDefined(structured.cases[0], "structured.cases[0]").evidenceRefs = ["S1/evidence.json"];
     emit();
     await assert.rejects(grade(), /defect 2.*S3\/evidence.json/);
     structured.defects.splice(1, 1);
     emit();
     await assert.rejects(grade(), /defect 2.*S3\/evidence.json/);
-    structured.defects[1].evidenceRefs = ["S1/evidence.json"];
+    requireDefined(structured.defects[1], "structured.defects[1]").evidenceRefs = [
+      "S1/evidence.json",
+    ];
     emit();
     const result = await grade();
     assert.ok(result.items.every((item) => item.verdict === "pass"));
@@ -697,7 +706,9 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
         areaDirectory: path.join(root, "area"),
       });
     await assert.rejects(grade(), /case LLM\/a.*S--b\/evidence.json/);
-    structured.cases[0].evidenceRefs = ["S--a/evidence.json"];
+    requireDefined(structured.cases[0], "structured.cases[0]").evidenceRefs = [
+      "S--a/evidence.json",
+    ];
     emit();
     const result = await grade();
     assert.equal(result.cases.find((item) => item.caseId === "a")?.verdict, "pass");
@@ -711,7 +722,7 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
       /no case-specific scenario.*completed/,
     );
     assert.deepEqual(result.cases.find((item) => item.caseId === "c")?.evidenceRefs, []);
-    assert.equal(result.items[0].verdict, "cannot_judge");
+    assert.equal(requireDefined(result.items[0], "result.items[0]").verdict, "cannot_judge");
   } finally {
     if (originalPath === undefined) delete process.env.PATH;
     else process.env.PATH = originalPath;

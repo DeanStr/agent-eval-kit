@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -14,10 +15,12 @@ function caseEvidence(
     scenarioId: scenario.id,
     scenarioName: scenario.name,
     kind: scenario.kind ?? "workspace",
-    sourceScenarioId: scenario.sourceScenarioId,
-    caseId: scenario.caseId,
-    strata: scenario.strata,
-    split: scenario.split,
+    ...(scenario.sourceScenarioId === undefined
+      ? {}
+      : { sourceScenarioId: scenario.sourceScenarioId }),
+    ...(scenario.caseId === undefined ? {} : { caseId: scenario.caseId }),
+    ...(scenario.strata === undefined ? {} : { strata: scenario.strata }),
+    ...(scenario.split === undefined ? {} : { split: scenario.split }),
     outcome: "completed",
     summary: "Done",
     observations: [],
@@ -76,15 +79,30 @@ rubric:
 `,
   );
   const [source] = loadSpecs(root);
-  assert.deepEqual(source.scenarios[0].cases?.[0].strata, ["plan=monthly", "state=active"]);
-  const evaluation = materializeSpec(source, "evaluation");
+  assert.deepEqual(
+    requireDefined(
+      requireDefined(requireDefined(source, "source").scenarios[0], "source.scenarios[0]")
+        .cases?.[0],
+      "source.scenarios[0].cases?.[0]",
+    ).strata,
+    ["plan=monthly", "state=active"],
+  );
+  const evaluation = materializeSpec(requireDefined(source, "source"), "evaluation");
   assert.deepEqual(
     evaluation.scenarios.map((scenario) => scenario.id),
     ["CREATE--annual", "VERIFY--annual"],
   );
-  assert.deepEqual(evaluation.scenarios[1].dependsOn, ["CREATE--annual"]);
-  assert.deepEqual(evaluation.rubric[0].scenarios, ["CREATE--annual", "VERIFY--annual"]);
-  assert.equal(evaluation.scenarios[0].caseVariables?.plan, "annual");
+  assert.deepEqual(requireDefined(evaluation.scenarios[1], "evaluation.scenarios[1]").dependsOn, [
+    "CREATE--annual",
+  ]);
+  assert.deepEqual(requireDefined(evaluation.rubric[0], "evaluation.rubric[0]").scenarios, [
+    "CREATE--annual",
+    "VERIFY--annual",
+  ]);
+  assert.equal(
+    requireDefined(evaluation.scenarios[0], "evaluation.scenarios[0]").caseVariables?.plan,
+    "annual",
+  );
   assert.deepEqual(caseJudgeRequests(evaluation.rubric, evaluation.scenarios.map(caseEvidence)), [
     {
       rubricId: "R1",
@@ -149,7 +167,7 @@ rubric:
   - { id: R1, criterion: Works, weight: 1, scenarios: [FIRST, SECOND], grader: { type: llm }, passCriteria: Works }
 `,
   );
-  const materialized = materializeSpec(loadSpecs(root)[0]);
+  const materialized = materializeSpec(requireDefined(loadSpecs(root)[0], "loadSpecs(root)[0]"));
   const requests = caseJudgeRequests(materialized.rubric, materialized.scenarios.map(caseEvidence));
   assert.deepEqual(
     requests.map(({ caseId, scenarioIds, strata }) => ({ caseId, scenarioIds, strata })),

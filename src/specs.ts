@@ -1,3 +1,4 @@
+import { omitUndefinedDeep, omitUndefined } from "./invariants.js";
 import { textPairwiseSchema } from "./text/contracts.js";
 import {
   pairwiseSchema,
@@ -182,7 +183,7 @@ const reservedScenarioArtifactIds = new Set(
 export function loadSpecFile(file: string): EvalSpec {
   const raw = YAML.parse(fs.readFileSync(file, "utf8"));
   try {
-    return { ...specSchema.parse(raw), sourceFile: file };
+    return omitUndefinedDeep({ ...specSchema.parse(raw), sourceFile: file });
   } catch (error) {
     if (error instanceof z.ZodError) {
       const details = error.issues
@@ -486,35 +487,37 @@ export function materializeSpec(
     const instances: Scenario[] = source.cases?.length
       ? source.cases
           .filter((scenarioCase) => splitMatches(scenarioCase.split ?? source.split, selectedSplit))
-          .map((scenarioCase) => ({
-            ...source,
-            id: executionId(source.id, scenarioCase.id),
-            name: scenarioCase.name
-              ? `${source.name} — ${scenarioCase.name}`
-              : `${source.name} — ${scenarioCase.id}`,
-            sourceScenarioId: source.id,
-            caseId: scenarioCase.id,
-            caseVariables: scenarioCase.variables,
-            strata: scenarioCase.strata,
-            split: scenarioCase.split ?? source.split,
-            cases: undefined,
-            inputs: source.inputs
-              ? Object.fromEntries(
-                  Object.entries(source.inputs).map(([name, binding]) => [
-                    name,
-                    {
-                      ...binding,
-                      from: dependencyInstance(binding.from, scenarioCase.id),
-                    },
-                  ]),
-                )
-              : undefined,
-            dependsOn: source.dependsOn.map((dependency) =>
-              dependencyInstance(dependency, scenarioCase.id),
-            ),
-          }))
+          .map((scenarioCase) =>
+            omitUndefined({
+              ...source,
+              id: executionId(source.id, scenarioCase.id),
+              name: scenarioCase.name
+                ? `${source.name} — ${scenarioCase.name}`
+                : `${source.name} — ${scenarioCase.id}`,
+              sourceScenarioId: source.id,
+              caseId: scenarioCase.id,
+              caseVariables: scenarioCase.variables,
+              strata: scenarioCase.strata,
+              split: scenarioCase.split ?? source.split,
+              cases: undefined,
+              inputs: source.inputs
+                ? Object.fromEntries(
+                    Object.entries(source.inputs).map(([name, binding]) => [
+                      name,
+                      {
+                        ...binding,
+                        from: dependencyInstance(binding.from, scenarioCase.id),
+                      },
+                    ]),
+                  )
+                : undefined,
+              dependsOn: source.dependsOn.map((dependency) =>
+                dependencyInstance(dependency, scenarioCase.id),
+              ),
+            }),
+          )
       : splitMatches(source.split, selectedSplit)
-        ? [{ ...source, sourceScenarioId: source.id, cases: undefined }]
+        ? [omitUndefined({ ...source, sourceScenarioId: source.id, cases: undefined })]
         : [];
     expandedBySource.set(source.id, instances);
     scenarios.push(...instances);

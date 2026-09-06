@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildCampaignReport, campaignRunRecord } from "../src/campaign.js";
@@ -141,11 +142,26 @@ test("campaign aggregation reports whole-run variation, bootstrap intervals, and
     campaign.criticalGatePassRate.state === "observed" && campaign.criticalGatePassRate.value,
     0.667,
   );
-  assert.equal(campaign.itemStability[0].fullPassRate, 0.667);
-  assert.equal(campaign.itemStability[0].verdicts.fail, 1);
-  assert.equal(campaign.caseStability[0].caseId, "annual");
-  assert.equal(campaign.caseStability[0].fullPassRate, 0.667);
-  assert.equal(campaign.stratumStability[0].stratum, "plan=annual");
+  assert.equal(
+    requireDefined(campaign.itemStability[0], "campaign.itemStability[0]").fullPassRate,
+    0.667,
+  );
+  assert.equal(
+    requireDefined(campaign.itemStability[0], "campaign.itemStability[0]").verdicts.fail,
+    1,
+  );
+  assert.equal(
+    requireDefined(campaign.caseStability[0], "campaign.caseStability[0]").caseId,
+    "annual",
+  );
+  assert.equal(
+    requireDefined(campaign.caseStability[0], "campaign.caseStability[0]").fullPassRate,
+    0.667,
+  );
+  assert.equal(
+    requireDefined(campaign.stratumStability[0], "campaign.stratumStability[0]").stratum,
+    "plan=annual",
+  );
 });
 
 test("campaign aggregation withholds aggregate metrics when evaluator fingerprints differ", () => {
@@ -167,7 +183,7 @@ test("campaign aggregation withholds aggregate metrics when evaluator fingerprin
 
 test("campaign gate pass rate is unavailable when runs contain no critical gates", () => {
   const source = report("gate-free", 100, "pass");
-  source.areas[0].gates = [];
+  requireDefined(source.areas[0], "source.areas[0]").gates = [];
   // Run-level `passed` is also true for a gate-free report; it must not be
   // mistaken for an observation that a critical criterion was exercised.
   source.gates = { passed: true, blocking: [] };
@@ -186,11 +202,11 @@ test("campaign gate pass rate is unavailable when runs contain no critical gates
 
 test("campaign records normalize unproven item and case verdicts", () => {
   const source = report("unproven", 100, "pass");
-  source.areas[0].unproven = ["R1"];
+  requireDefined(source.areas[0], "source.areas[0]").unproven = ["R1"];
   const record = campaignRunRecord(1, "/runs/unproven", source);
-  assert.equal(record.items?.[0].verdict, "cannot_judge");
-  assert.equal(record.cases?.[0].verdict, "cannot_judge");
-  assert.equal(record.cases?.[0].points, null);
+  assert.equal(requireDefined(record.items?.[0], "record.items?.[0]").verdict, "cannot_judge");
+  assert.equal(requireDefined(record.cases?.[0], "record.cases?.[0]").verdict, "cannot_judge");
+  assert.equal(requireDefined(record.cases?.[0], "record.cases?.[0]").points, null);
 
   const campaign = buildCampaignReport({
     campaignId: "unproven",
@@ -199,10 +215,23 @@ test("campaign records normalize unproven item and case verdicts", () => {
     plannedRepetitions: 1,
     runs: [record],
   });
-  assert.equal(campaign.itemStability[0].verdicts.cannot_judge, 1);
-  assert.equal(campaign.itemStability[0].fullPassRate, 0);
-  assert.equal(campaign.caseStability[0].verdicts.cannot_judge, 1);
-  assert.equal(campaign.stratumStability[0].verdicts.cannot_judge, 1);
+  assert.equal(
+    requireDefined(campaign.itemStability[0], "campaign.itemStability[0]").verdicts.cannot_judge,
+    1,
+  );
+  assert.equal(
+    requireDefined(campaign.itemStability[0], "campaign.itemStability[0]").fullPassRate,
+    0,
+  );
+  assert.equal(
+    requireDefined(campaign.caseStability[0], "campaign.caseStability[0]").verdicts.cannot_judge,
+    1,
+  );
+  assert.equal(
+    requireDefined(campaign.stratumStability[0], "campaign.stratumStability[0]").verdicts
+      .cannot_judge,
+    1,
+  );
 });
 
 test("campaign aggregation rejects incomplete records instead of degrading compatibility", () => {

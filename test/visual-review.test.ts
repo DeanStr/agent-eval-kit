@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
@@ -77,11 +78,21 @@ rubric:
         scenarioIds: includeDependent ? ["DEPENDENT", "SELECTED"] : ["SELECTED"],
       });
       const [first, second] = result.report!.areas;
-      assert.equal(first.id, "first");
-      assert.equal(first.coveragePct, 0);
-      assert.ok(first.items.every((item) => item.verdict === "cannot_judge"));
-      assert.ok(first.scenarios.every((scenario) => scenario.outcome === "blocked"));
-      assert.equal(second.scenarios[0].outcome, "completed");
+      assert.equal(requireDefined(first, "first").id, "first");
+      assert.equal(requireDefined(first, "first").coveragePct, 0);
+      assert.ok(
+        requireDefined(first, "first").items.every((item) => item.verdict === "cannot_judge"),
+      );
+      assert.ok(
+        requireDefined(first, "first").scenarios.every(
+          (scenario) => scenario.outcome === "blocked",
+        ),
+      );
+      assert.equal(
+        requireDefined(requireDefined(second, "second").scenarios[0], "second.scenarios[0]")
+          .outcome,
+        "completed",
+      );
       assertArtifactIntegrity(result.runDir, { require: true });
     });
 });
@@ -174,7 +185,10 @@ test("resume cannot reuse sealed scenarios on a changed startup target before th
     specs = loadSpecs(config.paths.specs);
   const options = { config, configFile, specs, fixtures: {} };
   await assert.rejects(runEvaluation(options), /unexpected exit code 19/);
-  const runDir = path.join(config.paths.runs, fs.readdirSync(config.paths.runs)[0]);
+  const runDir = path.join(
+    config.paths.runs,
+    requireDefined(fs.readdirSync(config.paths.runs)[0], "fs.readdirSync(config.paths.runs)[0]"),
+  );
   assert.equal(fs.existsSync(path.join(runDir, "SCENE/evidence.json")), true);
   assert.equal(fs.existsSync(path.join(runDir, "report.json")), false);
   fs.rmSync(fail);

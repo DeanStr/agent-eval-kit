@@ -1,3 +1,4 @@
+import { requireDefined, omitUndefined } from "../invariants.js";
 import {
   requiredJudgeResult,
   aggregateCaseVerdicts,
@@ -57,8 +58,8 @@ async function invokePair(
   const attachmentRoot = path.join(directory, "attachments");
   fs.mkdirSync(attachmentRoot);
   const images = ["A", "B"].map((label) => path.join(attachmentRoot, `${label}.png`));
-  fs.writeFileSync(images[0], a);
-  fs.writeFileSync(images[1], b);
+  fs.writeFileSync(requireDefined(images[0], "images[0]"), a);
+  fs.writeFileSync(requireDefined(images[1], "images[1]"), b);
   const promptFile = path.join(directory, "prompt.md"),
     schemaFile = path.join(directory, "schema.json");
   const prompt = [
@@ -99,15 +100,15 @@ async function invokePair(
     outputSchemaFile: schemaFile,
     eventLogFile: path.join(directory, "provider-events.ndjson"),
     stderrFile: path.join(directory, "provider-stderr.log"),
-    model: config.judge.model,
-    effort: config.judge.effort,
-    maxTurns: config.judge.maxTurns,
+    ...(config.judge.model === undefined ? {} : { model: config.judge.model }),
+    ...(config.judge.effort === undefined ? {} : { effort: config.judge.effort }),
+    ...(config.judge.maxTurns === undefined ? {} : { maxTurns: config.judge.maxTurns }),
     timeoutSeconds: config.judge.timeoutSeconds,
     extraArgs: config.judge.extraArgs,
     images: config.judge.provider === "codex" ? images : [],
     additionalDirs: [],
     allowWorkspaceTools: false,
-    mcp,
+    ...(mcp === undefined ? {} : { mcp: mcp }),
   });
   writeJson(path.join(directory, "provider-run.json"), result);
   if (result.timedOut || result.exitCode !== 0 || result.policyViolations?.length)
@@ -197,8 +198,8 @@ export async function judgePairwise(options: {
           const diff = await compareImages(candidatePanel, referencePanel);
           fs.writeFileSync(path.join(directory, "difference.png"), diff.difference);
           const [candidateStats, referenceStats] = await Promise.all([
-            inspectImage(candidateBytes, { crop: reference.candidateCrop }),
-            inspectImage(referenceBytes, { crop: reference.crop }),
+            inspectImage(candidateBytes, omitUndefined({ crop: reference.candidateCrop })),
+            inspectImage(referenceBytes, omitUndefined({ crop: reference.crop })),
           ]);
           statisticSamples.set(`${scenarioId}/${index}`, {
             id: `${scenarioId}/${index}`,
@@ -236,7 +237,7 @@ export async function judgePairwise(options: {
                 judge: config.judge,
               },
               validate: (value) => storedVoteSchema.parse(value),
-              seal: options.onVoteComplete,
+              ...(options.onVoteComplete === undefined ? {} : { seal: options.onVoteComplete }),
               run: async (voteDir) => {
                 const candidateIsA = randomInt(2) === 0;
                 return {

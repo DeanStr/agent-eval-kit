@@ -120,8 +120,8 @@ async function runIsolatedCodex(
     ...result,
     finalText,
     structured: parseJsonText(finalText),
-    sessionId,
-    usage,
+    ...(sessionId === undefined ? {} : { sessionId }),
+    ...(usage === undefined ? {} : { usage }),
     command: stringifyCommand("codex", args),
     policyViolations: [...policyViolations],
   };

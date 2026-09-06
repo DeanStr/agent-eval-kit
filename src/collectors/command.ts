@@ -36,10 +36,12 @@ export async function collectCommand(
     scenarioName: scenario.name,
     kind: "command",
     collector: "command",
-    sourceScenarioId: scenario.sourceScenarioId,
-    caseId: scenario.caseId,
-    strata: scenario.strata,
-    split: scenario.split,
+    ...(scenario.sourceScenarioId === undefined
+      ? {}
+      : { sourceScenarioId: scenario.sourceScenarioId }),
+    ...(scenario.caseId === undefined ? {} : { caseId: scenario.caseId }),
+    ...(scenario.strata === undefined ? {} : { strata: scenario.strata }),
+    ...(scenario.split === undefined ? {} : { split: scenario.split }),
     outcome: "agent_error",
     summary: "Command collection did not complete.",
     observations: [],
@@ -149,7 +151,7 @@ export async function collectCommand(
         path: relative,
         label: image.label,
         step: 0,
-        timeSeconds: image.timeSeconds,
+        ...(image.timeSeconds === undefined ? {} : { timeSeconds: image.timeSeconds }),
         source: image.source,
         extraction: image.extraction,
       });

@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -164,14 +165,14 @@ test("judge output requires exactly the requested rubric and case identities", a
     [
       "extra-item",
       (a: ReturnType<typeof f.answer>) => {
-        a.items.push({ ...a.items[0], id: "OTHER" });
+        a.items.push({ ...requireDefined(a.items[0], "a.items[0]"), id: "OTHER" });
       },
       /unexpected rubric item IDs \(OTHER\)/,
     ],
     [
       "extra-case",
       (a: ReturnType<typeof f.answer>) => {
-        a.cases.push({ ...a.cases[0], caseId: "other" });
+        a.cases.push({ ...requireDefined(a.cases[0], "a.cases[0]"), caseId: "other" });
       },
       /unexpected case identities \(R\/other\)/,
     ],
@@ -186,7 +187,11 @@ test("judge output requires exactly the requested rubric and case identities", a
     );
   }
   f.fake(f.answer("S/evidence.json", "cannot_judge"));
-  assert.equal((await f.grade("abstain")).items[0].verdict, "cannot_judge");
+  assert.equal(
+    requireDefined((await f.grade("abstain")).items[0], '(await f.grade("abstain")).items[0]')
+      .verdict,
+    "cannot_judge",
+  );
 });
 
 test("ordinary screenshot claims require successful views, including case and defect citations", async (t) => {
@@ -207,7 +212,7 @@ test("ordinary screenshot claims require successful views, including case and de
     await assert.rejects(f.grade(name), expected);
   }
   const caseOnly = f.answer();
-  caseOnly.cases[0].evidenceRefs = [ref];
+  requireDefined(caseOnly.cases[0], "caseOnly.cases[0]").evidenceRefs = [ref];
   f.fake(caseOnly);
   await assert.rejects(f.grade("case-only"), /screenshot contract violation/);
   const defectOnly = f.answer();
@@ -215,11 +220,23 @@ test("ordinary screenshot claims require successful views, including case and de
   f.fake(defectOnly);
   await assert.rejects(f.grade("defect-only"), /screenshot contract violation/);
   f.fake(f.answer(ref), view(ref, true) + view(ref));
-  assert.equal((await f.grade("viewed")).items[0].verdict, "pass");
+  assert.equal(
+    requireDefined((await f.grade("viewed")).items[0], '(await f.grade("viewed")).items[0]')
+      .verdict,
+    "pass",
+  );
   f.fake(f.answer(ref, "cannot_judge"));
-  assert.equal((await f.grade("abstain")).items[0].verdict, "cannot_judge");
+  assert.equal(
+    requireDefined((await f.grade("abstain")).items[0], '(await f.grade("abstain")).items[0]')
+      .verdict,
+    "cannot_judge",
+  );
   f.fake(f.answer());
-  assert.equal((await f.grade("text-only")).items[0].verdict, "pass");
+  assert.equal(
+    requireDefined((await f.grade("text-only")).items[0], '(await f.grade("text-only")).items[0]')
+      .verdict,
+    "pass",
+  );
 });
 
 test("attached Codex images count as accessed but images outside the attachment budget do not", async (t) => {
@@ -227,7 +244,11 @@ test("attached Codex images count as accessed but images outside the attachment 
     excluded = f.screenshot("first");
   f.config.judge.provider = "codex";
   f.fake(f.answer(excluded));
-  assert.equal((await f.grade("attached")).items[0].verdict, "pass");
+  assert.equal(
+    requireDefined((await f.grade("attached")).items[0], '(await f.grade("attached")).items[0]')
+      .verdict,
+    "pass",
+  );
   for (let i = 0; i < 30; i++) f.screenshot(`later-${i}`);
   f.fake(f.answer(excluded));
   await assert.rejects(f.grade("excluded"), /screenshot contract violation/);
@@ -249,10 +270,19 @@ test("invalid repeated judgements are not journaled and can be retried with expl
   await assert.rejects(f.grade("repeated"), /screenshot contract violation/);
   assert.equal(fs.existsSync(vote), false);
   f.fake(f.answer(ref), view(ref));
-  assert.equal((await f.grade("repeated")).items[0].verdict, "pass");
+  assert.equal(
+    requireDefined((await f.grade("repeated")).items[0], '(await f.grade("repeated")).items[0]')
+      .verdict,
+    "pass",
+  );
   assert.ok(fs.existsSync(vote));
   f.fake({ items: [], cases: [], defects: [], notes: "" });
-  assert.equal((await f.grade("repeated")).items[0].verdict, "pass", "reuse sealed valid vote");
+  assert.equal(
+    requireDefined((await f.grade("repeated")).items[0], '(await f.grade("repeated")).items[0]')
+      .verdict,
+    "pass",
+    "reuse sealed valid vote",
+  );
   const saved = JSON.parse(fs.readFileSync(vote, "utf8"));
   saved.result.cases = [];
   saved.resultSha256 = sha256(stableJson(saved.result));
@@ -266,9 +296,13 @@ test("invalid repeated judgements are not journaled and can be retried with expl
 
 test("single and repeated rubric judges share case aggregation, including unavailable evidence", async (t) => {
   const f = fixture(t);
-  f.evidence[0].caseId = "a";
-  f.evidence.push({ ...f.evidence[0], scenarioId: "OTHER", caseId: "b" });
-  f.spec.rubric[0].scenarios = ["S", "OTHER"];
+  requireDefined(f.evidence[0], "f.evidence[0]").caseId = "a";
+  f.evidence.push({
+    ...requireDefined(f.evidence[0], "f.evidence[0]"),
+    scenarioId: "OTHER",
+    caseId: "b",
+  });
+  requireDefined(f.spec.rubric[0], "f.spec.rubric[0]").scenarios = ["S", "OTHER"];
   fs.writeFileSync(
     path.join(f.root, "receipt.json"),
     JSON.stringify({ evaluationFingerprint: "fixed" }),
@@ -284,18 +318,27 @@ test("single and repeated rubric judges share case aggregation, including unavai
   for (const [index, { values, expected }] of outcomes.entries()) {
     const answer = f.answer();
     answer.cases = f.evidence.map((evidence, i) => ({
-      ...answer.cases[0],
+      ...requireDefined(answer.cases[0], "answer.cases[0]"),
       caseId: evidence.caseId!,
-      verdict: values[i],
+      verdict: requireDefined(values[i], `verdict ${i}`),
       evidenceRefs: [`${evidence.scenarioId}/evidence.json`],
     }));
     f.fake(answer);
     for (const repeated of [false, true]) {
-      f.config.judge.voting = repeated
-        ? { minimumVotes: 1, maximumVotes: 1, agreement: 1, minimumConfidence: 0 }
-        : undefined;
+      if (repeated)
+        f.config.judge.voting = {
+          minimumVotes: 1,
+          maximumVotes: 1,
+          agreement: 1,
+          minimumConfidence: 0,
+        };
+      else delete f.config.judge.voting;
       const result = await f.grade(`${index}-${repeated}`);
-      assert.equal(result.items[0].verdict, expected, `values=${values}, repeated=${repeated}`);
+      assert.equal(
+        requireDefined(result.items[0], "result.items[0]").verdict,
+        expected,
+        `values=${values}, repeated=${repeated}`,
+      );
       assert.deepEqual(
         result.cases.map((item) => item.verdict),
         values,
@@ -324,9 +367,14 @@ test("single and repeated judges reject invalid citations and identities", async
     JSON.stringify({ evaluationFingerprint: "fixed" }),
   );
   for (const repeated of [false, true]) {
-    f.config.judge.voting = repeated
-      ? { minimumVotes: 1, maximumVotes: 1, agreement: 1, minimumConfidence: 0 }
-      : undefined;
+    if (repeated)
+      f.config.judge.voting = {
+        minimumVotes: 1,
+        maximumVotes: 1,
+        agreement: 1,
+        minimumConfidence: 0,
+      };
+    else delete f.config.judge.voting;
     f.fake(f.answer("OTHER/evidence.json"));
     await assert.rejects(
       f.grade(`unknown-citation-${repeated}`),
@@ -335,7 +383,7 @@ test("single and repeated judges reject invalid citations and identities", async
     f.fake({ ...f.answer(), cases: [] });
     await assert.rejects(f.grade(`missing-case-${repeated}`), /missing case identities/);
     const answer = f.answer();
-    answer.items.push(answer.items[0]);
+    answer.items.push(requireDefined(answer.items[0], "answer.items[0]"));
     f.fake(answer);
     await assert.rejects(f.grade(`duplicate-${repeated}`), /duplicate rubric item IDs/);
   }
@@ -366,13 +414,19 @@ test("a fresh ordinary judge cannot reuse image access from a previous invocatio
   const f = fixture(t),
     ref = f.screenshot("result");
   f.fake(f.answer(ref), view(ref));
-  assert.equal((await f.grade("retry")).items[0].verdict, "pass");
+  assert.equal(
+    requireDefined((await f.grade("retry")).items[0], '(await f.grade("retry")).items[0]').verdict,
+    "pass",
+  );
   // A later grader can fail after sealing this directory. Resuming the area
   // invokes a new ordinary judge in the same directory with a fresh context.
   f.fake(f.answer(ref));
   await assert.rejects(f.grade("retry"), /screenshot contract violation/);
   f.fake(f.answer(ref), view(ref));
-  assert.equal((await f.grade("retry")).items[0].verdict, "pass");
+  assert.equal(
+    requireDefined((await f.grade("retry")).items[0], '(await f.grade("retry")).items[0]').verdict,
+    "pass",
+  );
 });
 
 test("citation errors fail single and repeated judges without discarding malformed claims", async (t) => {
@@ -382,15 +436,24 @@ test("citation errors fail single and repeated judges without discarding malform
     JSON.stringify({ evaluationFingerprint: "fixed" }),
   );
   for (const repeated of [false, true]) {
-    f.config.judge.voting = repeated
-      ? { minimumVotes: 1, maximumVotes: 1, agreement: 1, minimumConfidence: 0 }
-      : undefined;
+    if (repeated)
+      f.config.judge.voting = {
+        minimumVotes: 1,
+        maximumVotes: 1,
+        agreement: 1,
+        minimumConfidence: 0,
+      };
+    else delete f.config.judge.voting;
     for (const target of ["item", "case", "defect"] as const) {
       for (const refs of [[], ["S/evidence.json", "UNKNOWN/evidence.json"]]) {
         const answer = f.answer();
         if (target === "defect")
           answer.defects.push({ severity: "major", description: "Broken", evidenceRefs: refs });
-        else (target === "item" ? answer.items[0] : answer.cases[0]).evidenceRefs = refs;
+        else
+          requireDefined(
+            target === "item" ? answer.items[0] : answer.cases[0],
+            "judgement target",
+          ).evidenceRefs = refs;
         f.fake(answer);
         const directory = `citations-${repeated}-${target}-${refs.length}`;
         await assert.rejects(
@@ -415,12 +478,12 @@ test("citation errors fail single and repeated judges without discarding malform
       }
     }
     const answer = f.answer("S/evidence.json", "cannot_judge");
-    answer.items[0].evidenceRefs = [];
-    answer.cases[0].evidenceRefs = [];
+    requireDefined(answer.items[0], "answer.items[0]").evidenceRefs = [];
+    requireDefined(answer.cases[0], "answer.cases[0]").evidenceRefs = [];
     f.fake(answer);
     const result = await f.grade(`empty-abstention-${repeated}`);
-    assert.equal(result.items[0].verdict, "cannot_judge");
-    assert.equal(result.cases[0].verdict, "cannot_judge");
+    assert.equal(requireDefined(result.items[0], "result.items[0]").verdict, "cannot_judge");
+    assert.equal(requireDefined(result.cases[0], "result.cases[0]").verdict, "cannot_judge");
   }
 });
 

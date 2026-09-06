@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -31,7 +32,7 @@ test("first-run walkthrough produces its documented scores, gates, and compariso
     cli(["run"], expectedExit);
     const added = fs.readdirSync(runs).filter((id) => !previous.includes(id));
     assert.equal(added.length, 1);
-    const run = path.join(runs, added[0]);
+    const run = path.join(runs, requireDefined(added[0], "added[0]"));
     const report: RunReport = JSON.parse(fs.readFileSync(path.join(run, "report.json"), "utf8"));
     assert.equal(report.overallScorePct, expectedScore);
     assert.equal(report.overallCoveragePct, 80);

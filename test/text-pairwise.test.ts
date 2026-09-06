@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -132,7 +133,10 @@ console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',tex
 }
 
 function setGrader(value: ReturnType<typeof fixture>, fields: Record<string, unknown>) {
-  Object.assign(value.definition.rubric[0].grader, fields);
+  Object.assign(
+    requireDefined(value.definition.rubric[0], "value.definition.rubric[0]").grader,
+    fields,
+  );
   fs.writeFileSync(value.specFile, YAML.stringify(value.definition));
   value.specs = loadSpecs(value.specFile);
 }
@@ -147,9 +151,21 @@ test("text mock is unavailable, with full retained evidence and no collection sc
   assert.equal(report.overallCoveragePct, 0);
   assert.equal(report.overallScorePct, null);
   assert.equal(report.gates.passed, false);
-  assert.deepEqual(report.areas[0].scenarios, []);
-  assert.equal(report.areas[0].items[0].source, "text-pairwise");
-  assert.equal(report.areas[0].items[0].votes?.attempted, 3);
+  assert.deepEqual(requireDefined(report.areas[0], "report.areas[0]").scenarios, []);
+  assert.equal(
+    requireDefined(
+      requireDefined(report.areas[0], "report.areas[0]").items[0],
+      "report.areas[0].items[0]",
+    ).source,
+    "text-pairwise",
+  );
+  assert.equal(
+    requireDefined(
+      requireDefined(report.areas[0], "report.areas[0]").items[0],
+      "report.areas[0].items[0]",
+    ).votes?.attempted,
+    3,
+  );
   assert.equal(verifyArtifactIndex(result.runDir).ok, true);
   assert.deepEqual(
     loadComparisonInput(result.runDir).report.receipt.inputs.textCandidates,
@@ -170,7 +186,13 @@ test("interrupted direct text judging resumes sealed votes, produces scored repo
   setGrader(value, { styleTarget: { file: "style.md" } });
   fs.writeFileSync(value.mode, "interrupt");
   await assert.rejects(runEvaluation(value), /Text pairwise judge execution failed/);
-  const runDir = path.join(value.config.paths.runs, fs.readdirSync(value.config.paths.runs)[0]);
+  const runDir = path.join(
+    value.config.paths.runs,
+    requireDefined(
+      fs.readdirSync(value.config.paths.runs)[0],
+      "fs.readdirSync(value.config.paths.runs)[0]",
+    ),
+  );
   const firstFile = path.join(pairDir(runDir), "vote-01/vote.json"),
     first = fs.readFileSync(firstFile, "utf8");
   fs.unlinkSync(value.mode);
@@ -181,7 +203,16 @@ test("interrupted direct text judging resumes sealed votes, produces scored repo
   assert.equal(resumed.report?.overallCoveragePct, 100);
   assert.equal(resumed.report?.gates.passed, true);
   assert.equal(verifyArtifactIndex(runDir).ok, true);
-  assert.equal(loadComparisonInput(runDir).report.areas[0].items[0].votes?.attempted, 2);
+  assert.equal(
+    requireDefined(
+      requireDefined(
+        loadComparisonInput(runDir).report.areas[0],
+        "loadComparisonInput(runDir).report.areas[0]",
+      ).items[0],
+      "loadComparisonInput(runDir).report.areas[0].items[0]",
+    ).votes?.attempted,
+    2,
+  );
   const comparison = JSON.parse(
     fs.readFileSync(path.join(pairDir(runDir), "comparison.json"), "utf8"),
   );
@@ -230,10 +261,22 @@ test("multiple reference judgments aggregate observed mixed outcomes without inv
   });
   fs.writeFileSync(value.mode, "mixed");
   const result = await runEvaluation(value);
-  assert.equal(result.report?.areas[0].items[0].verdict, "partial");
+  assert.equal(
+    requireDefined(
+      requireDefined(result.report?.areas[0], "result.report?.areas[0]").items[0],
+      "(result.report?.areas[0]).items[0]",
+    ).verdict,
+    "partial",
+  );
   assert.equal(result.report?.overallCoveragePct, 100);
   assert.equal(result.report?.gates.passed, false);
-  assert.equal(result.report?.areas[0].items[0].comparisons?.length, 2);
+  assert.equal(
+    requireDefined(
+      requireDefined(result.report?.areas[0], "result.report?.areas[0]").items[0],
+      "(result.report?.areas[0]).items[0]",
+    ).comparisons?.length,
+    2,
+  );
 });
 
 test("invalid quotations, missing citations, malformed preferences, and tool use abort without journaling votes", async (t) => {
@@ -386,7 +429,7 @@ test("text contracts require exact quotes, supported local inputs, empty scenari
     () => validateTextPairResult({ ...valid, confidence: 0.1, citations: [] }, texts),
     /must cite A/,
   );
-  const grader = value.definition.rubric[0].grader;
+  const grader = requireDefined(value.definition.rubric[0], "value.definition.rubric[0]").grader;
   for (const invalid of [
     { candidate: "https://example.com/text" },
     { references: [] },
@@ -396,10 +439,18 @@ test("text contracts require exact quotes, supported local inputs, empty scenari
     { voting: { minimumVotes: 5, maximumVotes: 2 } },
   ])
     assert.throws(() => textPairwiseSchema.parse({ ...grader, ...invalid }));
-  Object.assign(value.definition.rubric[0], { scenarios: ["S"] });
+  Object.assign(requireDefined(value.definition.rubric[0], "value.definition.rubric[0]"), {
+    scenarios: ["S"],
+  });
   fs.writeFileSync(value.specFile, YAML.stringify(value.definition));
   assert.throws(() => loadSpecs(value.specFile), /scenarios must be empty/);
-  const prompt = textPairPrompt(value.specs[0].rubric[0], { ...texts, R: "Target." });
+  const prompt = textPairPrompt(
+    requireDefined(
+      requireDefined(value.specs[0], "value.specs[0]").rubric[0],
+      "value.specs[0].rubric[0]",
+    ),
+    { ...texts, R: "Target." },
+  );
   assert.match(prompt, /R is a fixed example/);
   assert.match(prompt, /untrusted evaluation data/);
 });
@@ -468,7 +519,13 @@ test("first-vote failure seals direct text inputs and resumes without repeating 
   value.config = loadConfig(value.configFile);
   fs.writeFileSync(value.mode, "invalid");
   await assert.rejects(runEvaluation(value), /Text pairwise judge returned invalid output/);
-  const runDir = path.join(value.config.paths.runs, fs.readdirSync(value.config.paths.runs)[0]);
+  const runDir = path.join(
+    value.config.paths.runs,
+    requireDefined(
+      fs.readdirSync(value.config.paths.runs)[0],
+      "fs.readdirSync(value.config.paths.runs)[0]",
+    ),
+  );
   const index = verifyArtifactIndex(runDir, {
     require: true,
     allowUnindexed: (relative) => relative.startsWith("areas/"),

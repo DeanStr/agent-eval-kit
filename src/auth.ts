@@ -1,3 +1,4 @@
+import { requireDefined } from "./invariants.js";
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline/promises";
@@ -76,7 +77,11 @@ export async function captureAuth(options: {
             : `No control matched ${JSON.stringify(clickText)}. Visible controls:\n${controls.slice(0, 25).join("\n")}`,
         );
       }
-      const ref = /^\[(e\d+)\]/.exec(matches[0])![1];
+      const control = requireDefined(matches[0], "unique auth control");
+      const ref = requireDefined(
+        /^\[(e\d+)\]/.exec(control)?.[1],
+        `auth control reference: ${control}`,
+      );
       const clickResult = await browser.click(ref);
       const clickFailure = clickResult.split("\n").find((line) => /^(ERROR|BLOCKED):/.test(line));
       if (clickFailure) throw new Error(`Auth capture click failed: ${clickFailure}`);

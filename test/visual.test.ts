@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -73,8 +74,20 @@ test("invalid voting, capture and reference contracts fail validation", () => {
     () => metricChecks({ queue: null }, { queue: { max: 0 } }),
     /missing or non-numeric/,
   );
-  assert.equal(metricChecks({ queue: 5 }, { queue: { max: 0 } })[0].pass, false);
-  assert.equal(metricChecks({ queue: 0 }, { queue: { max: 0 } })[0].pass, true);
+  assert.equal(
+    requireDefined(
+      metricChecks({ queue: 5 }, { queue: { max: 0 } })[0],
+      "metricChecks({ queue: 5 }, { queue: { max: 0 } })[0]",
+    ).pass,
+    false,
+  );
+  assert.equal(
+    requireDefined(
+      metricChecks({ queue: 0 }, { queue: { max: 0 } })[0],
+      "metricChecks({ queue: 0 }, { queue: { max: 0 } })[0]",
+    ).pass,
+    true,
+  );
 });
 
 test("named capture checkpoints validate ordered times and stable image labels", () => {

@@ -1,3 +1,4 @@
+import { requireDefined } from "../invariants.js";
 import fs from "node:fs";
 let engine: typeof import("sharp").default;
 async function imageEngine() {
@@ -108,10 +109,11 @@ export type ImageStatistics = { width: number; height: number } & Record<ImageMe
 function regionFractions(data: Buffer, width: number, darkLevel: number, highlightLevel: number) {
   const mask = new Uint8Array(data.length),
     stack = new Uint32Array(data.length);
-  const counts = [0, 0, 0],
-    largest = [0, 0, 0];
+  const counts: [number, number, number] = [0, 0, 0];
+  const largest: [number, number, number] = [0, 0, 0];
   for (let i = 0; i < data.length; i++) {
-    const kind = data[i] <= darkLevel ? 1 : data[i] >= highlightLevel ? 2 : 0;
+    const value = data.readUInt8(i);
+    const kind = value <= darkLevel ? 1 : value >= highlightLevel ? 2 : 0;
     mask[i] = kind;
     counts[kind]++;
   }
@@ -129,14 +131,14 @@ function regionFractions(data: Buffer, width: number, darkLevel: number, highlig
       }
     };
     while (length) {
-      const i = stack[--length];
+      const i = requireDefined(stack[--length], "stack[--length]");
       size++;
       if (i % width) visit(i - 1);
       if (i % width < width - 1) visit(i + 1);
       if (i >= width) visit(i - width);
       if (i + width < data.length) visit(i + width);
     }
-    largest[kind] = Math.max(largest[kind], size);
+    largest[kind] = Math.max(requireDefined(largest[kind], "largest[kind]"), size);
   }
   return {
     darkPixelFraction: counts[1] / data.length,
@@ -171,16 +173,16 @@ export async function inspectImage(
     edges = 0,
     samples = 0;
   for (let i = 0; i < data.length; i++) {
-    const value = data[i];
-    histogram[value]++;
+    const value = data.readUInt8(i);
+    histogram[value] = requireDefined(histogram[value], "histogram[value]") + 1;
     sum += value;
     squares += value * value;
     if (i % info.width) {
-      edges += Math.abs(value - data[i - 1]);
+      edges += Math.abs(value - data.readUInt8(i - 1));
       samples++;
     }
     if (i >= info.width) {
-      edges += Math.abs(value - data[i - info.width]);
+      edges += Math.abs(value - data.readUInt8(i - info.width));
       samples++;
     }
   }
@@ -209,14 +211,11 @@ export async function compareImages(
   const sharp = await imageEngine();
   if (!Number.isInteger(channelTolerance) || channelTolerance < 0 || channelTolerance > 255)
     throw new Error("Invalid channel tolerance");
-  const buffers = await Promise.all(
-    [left, right].map(async (file) =>
-      decode(await sourceImage(file, crop))
-        .raw()
-        .toBuffer({ resolveWithObject: true }),
-    ),
-  );
-  const [a, b] = buffers;
+  const readPixels = async (file: string) =>
+    decode(await sourceImage(file, crop))
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+  const [a, b] = await Promise.all([readPixels(left), readPixels(right)]);
   if (a.info.width !== b.info.width || a.info.height !== b.info.height)
     throw new Error("Image dimensions differ; comparison is unavailable");
   let changed = 0,
@@ -225,7 +224,7 @@ export async function compareImages(
   for (let i = 0; i < a.data.length; i += 3) {
     let pixelChanged = false;
     for (let c = 0; c < 3; c++) {
-      const d = Math.abs(a.data[i + c] - b.data[i + c]);
+      const d = Math.abs(a.data.readUInt8(i + c) - b.data.readUInt8(i + c));
       diff[i + c] = d;
       delta += d;
       pixelChanged ||= d > channelTolerance;
@@ -256,7 +255,7 @@ export function signatureDistance(left: Buffer, right: Buffer): number {
   if (left.length !== 32 * 32 * 3 || right.length !== left.length)
     throw new Error("Expected two 32×32 RGB image signatures");
   let delta = 0;
-  for (let i = 0; i < left.length; i++) delta += Math.abs(left[i] - right[i]);
+  for (let i = 0; i < left.length; i++) delta += Math.abs(left.readUInt8(i) - right.readUInt8(i));
   return delta / (left.length * 255);
 }
 

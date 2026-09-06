@@ -1,3 +1,4 @@
+import { requireDefined, omitUndefined } from "../invariants.js";
 import fs from "node:fs";
 import path from "node:path";
 import { BrowserSession } from "../browser/session.js";
@@ -45,12 +46,14 @@ export async function controlledCapture(
   const evidence: ScenarioEvidence = {
     scenarioId: scenario.id,
     scenarioName: scenario.name,
-    sourceScenarioId: scenario.sourceScenarioId,
-    caseId: scenario.caseId,
-    strata: scenario.strata,
-    split: scenario.split,
+    ...(scenario.sourceScenarioId === undefined
+      ? {}
+      : { sourceScenarioId: scenario.sourceScenarioId }),
+    ...(scenario.caseId === undefined ? {} : { caseId: scenario.caseId }),
+    ...(scenario.strata === undefined ? {} : { strata: scenario.strata }),
+    ...(scenario.split === undefined ? {} : { split: scenario.split }),
     kind: "browser",
-    persona: scenario.persona,
+    ...(scenario.persona === undefined ? {} : { persona: scenario.persona }),
     collector: "controlled",
     outcome: "completed",
     summary: "Controlled capture completed.",
@@ -155,7 +158,10 @@ export async function controlledCapture(
       await invoke("configure", { ...capture.setup, ...scenario.caseVariables });
       for (let frame = 0; frame < schedule.length; frame++) {
         check();
-        const { label, timeSeconds } = schedule[frame];
+        const { label, timeSeconds } = requireDefined(
+          schedule[frame],
+          `capture schedule frame ${frame}`,
+        );
         const delta = timeSeconds - (schedule[frame - 1]?.timeSeconds ?? 0);
         if (delta > 0) await invoke("advance", delta);
         await invoke("waitUntilStable");
@@ -203,7 +209,7 @@ export async function controlledCapture(
             expected: capture.minimumStdev,
           });
         if (capture.imageHealth) {
-          const health = await inspectImage(file, capture.imageHealth);
+          const health = await inspectImage(file, omitUndefined(capture.imageHealth));
           images[images.length - 1] = { ...image, health };
           evidence.captureChecks!.push(
             ...metricChecks(health, capture.imageHealth.metrics).map((check) => ({
@@ -222,7 +228,7 @@ export async function controlledCapture(
         );
         if (frame) {
           const diff = await compareImages(
-            frames[frame - 1],
+            requireDefined(frames[frame - 1], "frames[frame - 1]"),
             file,
             capture.movementChannelTolerance,
             capture.movementCrop,
@@ -269,13 +275,16 @@ export async function controlledCapture(
       if (pass) {
         for (let frame = 0; frame < frames.length; frame++) {
           const diff = await compareImages(
-            passes[0].frames[frame],
-            frames[frame],
+            requireDefined(
+              requireDefined(passes[0], "passes[0]").frames[frame],
+              "passes[0].frames[frame]",
+            ),
+            requireDefined(frames[frame], `captured frame ${frame}`),
             capture.channelTolerance,
           );
           fs.writeFileSync(path.join(passDir, `difference-${frame + 1}.png`), diff.difference);
           evidence.captureChecks!.push({
-            name: `${passName}/${schedule[frame].label}/repeatability`,
+            name: `${passName}/${requireDefined(schedule[frame], "schedule[frame]").label}/repeatability`,
             pass: diff.changedPixelRatio <= capture.maximumChangedPixelRatio,
             actual: diff.changedPixelRatio,
             expected: capture.maximumChangedPixelRatio,
@@ -283,7 +292,7 @@ export async function controlledCapture(
         }
         evidence.captureChecks!.push({
           name: `${passName}/metricsRepeatability`,
-          pass: stableJson(passes[0].metrics) === stableJson(metrics),
+          pass: stableJson(requireDefined(passes[0], "passes[0]").metrics) === stableJson(metrics),
         });
       }
     }

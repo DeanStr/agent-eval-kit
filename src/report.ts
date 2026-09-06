@@ -1,3 +1,4 @@
+import { omitUndefined } from "./invariants.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -332,7 +333,7 @@ function prepareManualRevisions(options: {
         notes,
         reviewer: prior.reviewer,
         reviewedAt: prior.reviewedAt,
-        previousHash: prior.previousHash,
+        ...(prior.previousHash === undefined ? {} : { previousHash: prior.previousHash }),
         revisionHash: prior.revisionHash,
       };
       continue;
@@ -344,7 +345,7 @@ function prepareManualRevisions(options: {
       notes,
       reviewer,
       reviewedAt: new Date().toISOString(),
-      previousHash: prior?.revisionHash,
+      ...(prior?.revisionHash === undefined ? {} : { previousHash: prior?.revisionHash }),
     };
     const revision: ManualRevision = { ...payload, revisionHash: sha256(revisionPayload(payload)) };
     revisions.push(revision);
@@ -352,18 +353,18 @@ function prepareManualRevisions(options: {
     normalized[itemId] = {
       verdict,
       notes,
-      reviewer,
+      ...(reviewer === undefined ? {} : { reviewer: reviewer }),
       reviewedAt: revision.reviewedAt,
-      previousHash: revision.previousHash,
+      ...(revision.previousHash === undefined ? {} : { previousHash: revision.previousHash }),
       revisionHash: revision.revisionHash,
     };
   }
-  return {
+  return omitUndefined({
     manual: normalized,
     revisionText: revisions.length
       ? `${revisions.map((revision) => JSON.stringify(revision)).join("\n")}\n`
       : undefined,
-  };
+  });
 }
 
 function reportUpdateTransactionDirectory(runDir: string): string {
@@ -516,7 +517,9 @@ function publishReportUpdateTransaction(options: {
     }
     writeJson(path.join(staging, "transaction.json"), {
       schemaVersion: 1,
-      originalIndexRootSha256,
+      ...(originalIndexRootSha256 === undefined
+        ? {}
+        : { originalIndexRootSha256: originalIndexRootSha256 }),
       files,
     } satisfies ReportUpdateTransaction);
     fs.renameSync(staging, transactionDir);
@@ -534,15 +537,17 @@ export function writeReportArtifactsRecoverably(
 ): void {
   const manualFile = path.join(runDir, "manual-results.json");
   const revisionFile = path.join(runDir, "manual-revisions.ndjson");
-  publishReportUpdateTransaction({
-    runDir,
-    report,
-    specs,
-    manual: fs.existsSync(manualFile)
-      ? readJson<Record<string, ManualResultEntry>>(manualFile)
-      : {},
-    revisionText: fs.existsSync(revisionFile) ? fs.readFileSync(revisionFile, "utf8") : undefined,
-  });
+  publishReportUpdateTransaction(
+    omitUndefined({
+      runDir,
+      report,
+      specs,
+      manual: fs.existsSync(manualFile)
+        ? readJson<Record<string, ManualResultEntry>>(manualFile)
+        : {},
+      revisionText: fs.existsSync(revisionFile) ? fs.readFileSync(revisionFile, "utf8") : undefined,
+    }),
+  );
 }
 
 export function finalizeReport(options: {
@@ -578,7 +583,7 @@ export function finalizeReport(options: {
     runDir: options.runDir,
     manual: manualInput,
     specs: options.specs,
-    reviewer: options.reviewer,
+    ...(options.reviewer === undefined ? {} : { reviewer: options.reviewer }),
   });
   const manual = prepared.manual;
   const areas = options.report.areas.map((area) => {
@@ -588,6 +593,7 @@ export function finalizeReport(options: {
     for (const rubric of spec.rubric) {
       if (rubric.grader.type !== "manual" && rubric.grader.type !== "hybrid") continue;
       const entry = manual[rubric.id];
+      if (entry === undefined) continue;
       const manualVerdict = entry?.verdict?.trim().toLowerCase() as Verdict | undefined;
       if (!manualVerdict || !validManual.has(manualVerdict)) continue;
       if (!entry.revisionHash || !entry.reviewer || !entry.reviewedAt) {
@@ -651,7 +657,9 @@ export function finalizeReport(options: {
     report,
     specs: options.specs,
     manual,
-    revisionText: prepared.revisionText,
+    ...(prepared.revisionText === undefined
+      ? {}
+      : omitUndefined({ revisionText: prepared.revisionText })),
   });
   return report;
 }

@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -130,7 +131,10 @@ test("baseline promotion preserves immutable snapshots behind an atomic named po
   const second = promoteBaseline({ config, runDir, name: "main", reviewer: "bob" });
   assert.notEqual(second.directory, first.directory);
   assert.equal(fs.existsSync(first.directory), true);
-  assert.equal(listPromotedBaselines(config)[0].reviewer, "bob");
+  assert.equal(
+    requireDefined(listPromotedBaselines(config)[0], "listPromotedBaselines(config)[0]").reviewer,
+    "bob",
+  );
 
   const promotionFile = path.join(second.directory, "promotion.json");
   const promotionBytes = fs.readFileSync(promotionFile);

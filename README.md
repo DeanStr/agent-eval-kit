@@ -609,6 +609,8 @@ pnpm build
 
 Code linting uses [Biome](https://biomejs.dev/) with its recommended preset. Run `pnpm lint:fix` to apply safe fixes. Run `pnpm format` to format code and `pnpm format:check` to verify formatting. Formatting uses two spaces and a 100-column line width; CI enforces it. Import organization is disabled. The configuration allows non-null assertions, string concatenation, explicit null guards, and assignments in loop conditions to preserve existing code conventions. Lint warnings fail CI. The `noFloatingPromises` and `noMisusedPromises` rules are explicitly enforced as errors.
 
+TypeScript enforces strict mode, checked indexed access, exact optional properties, explicit return paths, switch fallthrough checks, explicit overrides, and unused-code checks. Omit absent optional fields instead of assigning `undefined`; validate required indexed values before using them.
+
 The fast browser smoke covers the basic contract. The full regression fixture covers SPA click targets, custom dropdowns, rich-text editors, temporal inputs, iframes, open shadow DOM, modal scoping, overlays, nested upload controls, drag-and-drop, inner scroll containers, origin containment, synthesized labels, ref-budget collapse, and bounded screenshots.
 
 The CI workflow runs these checks on Linux with Node 20.12, 22, and 24. Package smoke builds a tarball, installs production dependencies in a temporary consumer, and exercises the installed CLI and workspace MCP without TypeScript source or `tsx`.

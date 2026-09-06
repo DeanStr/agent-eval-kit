@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { evaluateCiThresholds } from "../src/ci.js";
@@ -25,7 +26,10 @@ test("CI thresholds explain independent score and coverage failures", () => {
 
 test("a withheld score cannot satisfy a score threshold", () => {
   assert.match(
-    evaluateCiThresholds({ ...report, scoreWithheld: true }, { minimumScore: 1 })[0],
+    requireDefined(
+      evaluateCiThresholds({ ...report, scoreWithheld: true }, { minimumScore: 1 })[0],
+      "evaluateCiThresholds({ ...report, scoreWithheld: true }, { minimumScore: 1 })[0]",
+    ),
     /score is withheld/,
   );
 });

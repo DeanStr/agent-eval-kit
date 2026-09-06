@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
@@ -37,7 +38,7 @@ function jpegDimensions(buffer: Buffer): { width: number; height: number } {
       offset += 1;
       continue;
     }
-    const marker = buffer[offset + 1];
+    const marker = requireDefined(buffer[offset + 1], "buffer[offset + 1]");
     if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
       return { height: buffer.readUInt16BE(offset + 5), width: buffer.readUInt16BE(offset + 7) };
     }

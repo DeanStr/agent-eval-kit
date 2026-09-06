@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -628,7 +629,7 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
     const dependent = await executeScenario({
       config,
       spec,
-      scenario: spec.scenarios[1],
+      scenario: requireDefined(spec.scenarios[1], "spec.scenarios[1]"),
       fixtures: {},
       directory: dependentDirectory,
     });

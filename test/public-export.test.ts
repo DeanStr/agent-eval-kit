@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -101,7 +102,7 @@ test("public export keeps aggregate and case results while excluding raw evidenc
     receipt,
     gates: { passed: true, blocking: [] },
   };
-  report.areas[0].unproven = ["R1"];
+  requireDefined(report.areas[0], "report.areas[0]").unproven = ["R1"];
   const runState = {
     schemaVersion: 1 as const,
     status: "failed" as "failed" | "complete",

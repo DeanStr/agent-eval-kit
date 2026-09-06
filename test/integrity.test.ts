@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -48,8 +49,8 @@ test("artifact indexes incrementally hash multi-megabyte files", () => {
   const payload = Buffer.alloc(3 * 1024 * 1024, 0xab);
   fs.writeFileSync(path.join(runDir, "provider-events.ndjson"), payload);
   const index = writeArtifactIndex(runDir);
-  assert.equal(index.entries[0].bytes, payload.length);
-  assert.equal(index.entries[0].sha256, sha256(payload));
+  assert.equal(requireDefined(index.entries[0], "index.entries[0]").bytes, payload.length);
+  assert.equal(requireDefined(index.entries[0], "index.entries[0]").sha256, sha256(payload));
   assert.equal(verifyArtifactIndex(runDir, { require: true }).ok, true);
 });
 

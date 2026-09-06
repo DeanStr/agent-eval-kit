@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -111,7 +112,13 @@ test("offline mock runs the full persistence, command-grader, and report pipelin
   assert.equal(result.report?.overallScorePct, 100);
   assert.equal(result.report?.overallCoveragePct, 100);
   assert.equal(result.report?.scoreWithheld, false);
-  assert.equal(result.report?.areas[0].scenarios[0].outcome, "completed");
+  assert.equal(
+    requireDefined(
+      requireDefined(result.report?.areas[0], "result.report?.areas[0]").scenarios[0],
+      "(result.report?.areas[0]).scenarios[0]",
+    ).outcome,
+    "completed",
+  );
   assert.ok(fs.existsSync(path.join(result.runDir, "report.html")));
   assert.ok(fs.existsSync(path.join(result.runDir, "receipt.json")));
   assert.ok(fs.existsSync(path.join(result.runDir, "artifact-index.json")));
@@ -166,7 +173,13 @@ test("offline mock runs the full persistence, command-grader, and report pipelin
     ignoredTargetPaths: [campaignDirectory],
     resumeDir: result.runDir,
   });
-  assert.doesNotMatch(resumed.report?.areas[0].scenarios[0].summary ?? "", /FORGED/);
+  assert.doesNotMatch(
+    requireDefined(
+      requireDefined(resumed.report?.areas[0], "resumed.report?.areas[0]").scenarios[0],
+      "(resumed.report?.areas[0]).scenarios[0]",
+    ).summary ?? "",
+    /FORGED/,
+  );
   assert.equal(fs.existsSync(interruptedBrowserState), false);
   assert.equal(fs.existsSync(unindexedBrowserState), false);
 
@@ -237,14 +250,14 @@ test("resume accepts a sealed report containing an unavailable completed-area su
   try {
     const initial = await runEvaluation({ config, configFile, specs, fixtures: {} });
     assert.ok(initial.report);
-    assert.equal(initial.report.areas[0].scorePct, null);
+    assert.equal(requireDefined(initial.report.areas[0], "initial.report.areas[0]").scorePct, null);
     const stateFile = path.join(initial.runDir, "run-state.json");
     const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
     const partial = buildReport({
       runId: initial.report.runId,
       startedAt: initial.report.startedAt,
       config,
-      areas: [initial.report.areas[0]],
+      areas: [requireDefined(initial.report.areas[0], "initial.report.areas[0]")],
       receipt: initial.report.receipt,
     });
     writeReportArtifacts(initial.runDir, partial, specs);
@@ -482,9 +495,27 @@ test("a dependent scenario is blocked when its prerequisite was not selected", a
     fixtures: {},
     scenarioIds: ["S2"],
   });
-  assert.match(result.report!.areas[0].scenarios[0].summary, /NOT RUN/);
-  assert.match(result.report!.areas[0].scenarios[1].summary, /S1 \(blocked\)/);
-  assert.equal(result.report!.areas[0].scenarios[1].durationMs, 0);
+  assert.match(
+    requireDefined(
+      requireDefined(result.report!.areas[0], "result.report!.areas[0]").scenarios[0],
+      "result.report!.areas[0].scenarios[0]",
+    ).summary,
+    /NOT RUN/,
+  );
+  assert.match(
+    requireDefined(
+      requireDefined(result.report!.areas[0], "result.report!.areas[0]").scenarios[1],
+      "result.report!.areas[0].scenarios[1]",
+    ).summary,
+    /S1 \(blocked\)/,
+  );
+  assert.equal(
+    requireDefined(
+      requireDefined(result.report!.areas[0], "result.report!.areas[0]").scenarios[1],
+      "result.report!.areas[0].scenarios[1]",
+    ).durationMs,
+    0,
+  );
 });
 
 test("split-inapplicable areas are omitted and an entirely empty split fails before starting", async () => {
@@ -933,7 +964,7 @@ test("a rerun setup refreshes the receipt before resumed work is sealed", async 
       );
       const runNames = fs.readdirSync(config.paths.runs);
       assert.equal(runNames.length, 1);
-      runDir = path.join(config.paths.runs, runNames[0]);
+      runDir = path.join(config.paths.runs, requireDefined(runNames[0], "runNames[0]"));
     }
     assert.equal(fs.readFileSync(path.join(root, "generated.txt"), "utf8"), "1");
 
@@ -1031,14 +1062,46 @@ test("runner materializes only the selected split and retains case-level judge r
     split: "evaluation",
   });
   assert.deepEqual(
-    result.report?.areas[0].scenarios.map((item) => item.scenarioId),
+    requireDefined(result.report?.areas[0], "result.report?.areas[0]").scenarios.map(
+      (item) => item.scenarioId,
+    ),
     ["S1--eval"],
   );
-  assert.equal(result.report?.areas[0].scenarios[0].caseId, "eval");
-  assert.equal(result.report?.areas[0].caseResults?.[0].caseId, "eval");
-  assert.equal(result.report?.areas[0].caseResults?.[0].points, null);
-  assert.equal(result.report?.byStratum?.["plan=annual"].coveragePct, 0);
-  assert.equal(result.report?.byStratum?.["plan=annual"].cases, 1);
+  assert.equal(
+    requireDefined(
+      requireDefined(result.report?.areas[0], "result.report?.areas[0]").scenarios[0],
+      "result.report?.areas[0].scenarios[0]",
+    ).caseId,
+    "eval",
+  );
+  assert.equal(
+    requireDefined(
+      requireDefined(result.report?.areas[0], "result.report?.areas[0]").caseResults?.[0],
+      "result.report?.areas[0].caseResults?.[0]",
+    ).caseId,
+    "eval",
+  );
+  assert.equal(
+    requireDefined(
+      requireDefined(result.report?.areas[0], "result.report?.areas[0]").caseResults?.[0],
+      "(result.report?.areas[0]).caseResults?.[0]",
+    ).points,
+    null,
+  );
+  assert.equal(
+    requireDefined(
+      result.report?.byStratum?.["plan=annual"],
+      'result.report?.byStratum?.["plan=annual"]',
+    ).coveragePct,
+    0,
+  );
+  assert.equal(
+    requireDefined(
+      result.report?.byStratum?.["plan=annual"],
+      'result.report?.byStratum?.["plan=annual"]',
+    ).cases,
+    1,
+  );
   assert.equal(result.report?.receipt?.inputs.selection.split, "evaluation");
 });
 

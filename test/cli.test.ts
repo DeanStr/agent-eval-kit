@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -12,6 +13,12 @@ const kitRoot = path.resolve(import.meta.dirname, "..");
 const cli = path.join(kitRoot, "src", "cli.ts");
 const tsxCli = path.join(kitRoot, "node_modules", "tsx", "dist", "cli.mjs");
 const temporary = () => fs.mkdtempSync(path.join(os.tmpdir(), "aek-cli-test-"));
+
+test("CLI without arguments prints help successfully", () => {
+  const result = runCli(kitRoot, []);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Agent Eval Kit/);
+});
 
 test("CLI campaigns fail when individually passing repetitions use different target inputs", () => {
   const root = temporary();
@@ -133,7 +140,14 @@ test("CLI execution faults fail without thresholds while valid abstentions remai
         env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}` },
       });
       assert.equal(result.status, fault === "abstention" ? 0 : 1, `${fault}: ${result.stderr}`);
-      const runDir = path.join(root, "runs", fs.readdirSync(path.join(root, "runs"))[0]);
+      const runDir = path.join(
+        root,
+        "runs",
+        requireDefined(
+          fs.readdirSync(path.join(root, "runs"))[0],
+          'fs.readdirSync(path.join(root, "runs"))[0]',
+        ),
+      );
       const state = JSON.parse(fs.readFileSync(path.join(runDir, "run-state.json"), "utf8"));
       assert.equal(state.status, fault === "abstention" ? "complete" : "failed");
       assert.equal(fs.existsSync(path.join(runDir, ".run.lock")), false);
@@ -212,7 +226,14 @@ test("CLI critical gates preserve run artifacts, and comparison gates preserve c
     run.stderr,
     /CI threshold failed: critical gates not satisfied: core\/R1 \(failed: fail\)/,
   );
-  const candidateDir = path.join(root, "runs", fs.readdirSync(path.join(root, "runs"))[0]);
+  const candidateDir = path.join(
+    root,
+    "runs",
+    requireDefined(
+      fs.readdirSync(path.join(root, "runs"))[0],
+      'fs.readdirSync(path.join(root, "runs"))[0]',
+    ),
+  );
   const candidate = JSON.parse(fs.readFileSync(path.join(candidateDir, "report.json"), "utf8"));
   const verified = runCli(root, ["verify", "--run", candidateDir]);
   assert.equal(verified.status, 0, verified.stderr);
@@ -425,7 +446,14 @@ test("CLI campaign runs repeated subscription-compatible evaluations and writes 
   const originalSpec = fs.readFileSync(specFile, "utf8");
   const configFile = path.join(root, "evalkit.yaml");
   const originalConfig = fs.readFileSync(configFile, "utf8");
-  const runDir = path.join(root, "runs", fs.readdirSync(path.join(root, "runs"))[0]);
+  const runDir = path.join(
+    root,
+    "runs",
+    requireDefined(
+      fs.readdirSync(path.join(root, "runs"))[0],
+      'fs.readdirSync(path.join(root, "runs"))[0]',
+    ),
+  );
   const beforeRescore = JSON.parse(fs.readFileSync(path.join(runDir, "report.json"), "utf8"));
   fs.writeFileSync(specFile, originalSpec.replace("\n    weight: 1\n", "\n    weight: 2\n"));
   const renamedSpecFile = path.join(root, "specs", "renamed.yaml");
@@ -536,7 +564,14 @@ rubric:
 
   const run = runCli(root, ["run", "--split", "all"]);
   assert.equal(run.status, 0, run.stderr);
-  const runDir = path.join(root, "runs", fs.readdirSync(path.join(root, "runs"))[0]);
+  const runDir = path.join(
+    root,
+    "runs",
+    requireDefined(
+      fs.readdirSync(path.join(root, "runs"))[0],
+      'fs.readdirSync(path.join(root, "runs"))[0]',
+    ),
+  );
   const lockFile = path.join(runDir, ".run.lock");
   fs.writeFileSync(
     lockFile,

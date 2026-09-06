@@ -189,7 +189,8 @@ export class BrowserForms {
       return `ERROR: ${ref} could not be opened as a custom dropdown: ${String(
         error instanceof Error ? error.message : error,
       )
-        .split("\n")[0]
+        .split("\n", 1)
+        .join("")
         .slice(0, 200)}`;
     }
     const originBlock = await this.context.enforceOrigin();
@@ -267,12 +268,10 @@ export class BrowserForms {
       const norm = String(wanted).replace(/\s+/g, " ").trim().toLowerCase();
       const roots: (Document | ShadowRoot)[] = [document];
       const all: HTMLElement[] = [];
-      let ri = 0;
-      while (ri < roots.length && all.length < 20000) {
-        const list = roots[ri].querySelectorAll<HTMLElement>("*");
-        ri += 1;
-        for (let k = 0; k < list.length; k++) {
-          const el = list[k];
+      for (const root of roots) {
+        if (all.length >= 20000) break;
+        const list = root.querySelectorAll<HTMLElement>("*");
+        for (const el of list) {
           all.push(el);
           if (el.shadowRoot) roots.push(el.shadowRoot);
           if (all.length >= 20000) break;
@@ -283,8 +282,7 @@ export class BrowserForms {
       const texts: string[] = [];
       let exact: HTMLElement | null = null;
       let loose: HTMLElement | null = null;
-      for (let k = 0; k < all.length; k++) {
-        const el = all[k];
+      for (const el of all) {
         if (!el.matches(optSel)) continue;
         const st = window.getComputedStyle(el);
         if (st.display === "none" || st.visibility === "hidden") continue;
@@ -337,7 +335,7 @@ export class BrowserForms {
           found = {
             ...found,
             ok: false,
-            clickError: message.split("\n")[0].slice(0, 200) || "the click failed",
+            clickError: message.split("\n", 1).join("").slice(0, 200) || "the click failed",
           };
         }
       }

@@ -1,3 +1,4 @@
+import { requireDefined, omitUndefinedDeep } from "./invariants.js";
 import { votingSchema, diagnosticPolicySchema } from "./visual/contracts.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -24,7 +25,7 @@ function hasSensitiveUrlParameters(value: string): boolean {
   }
   const assignments = /(?:^|[?&;/])\s*([^?&;/:=\s]+)\s*(?:=|:)/g;
   for (const match of fragment.matchAll(assignments)) {
-    if (sensitiveUrlParameter.test(match[1])) return true;
+    if (sensitiveUrlParameter.test(requireDefined(match[1], "match[1]"))) return true;
   }
   return false;
 }
@@ -301,14 +302,14 @@ export function loadConfig(
       })()
     : undefined;
 
-  return {
+  return omitUndefinedDeep({
     ...parsed,
     project: { ...parsed.project, root },
     target: {
       ...parsed.target,
-      url: targetUrl,
+      ...(targetUrl === undefined ? {} : { url: targetUrl }),
       allowedOrigins,
-      ready,
+      ...(ready === undefined ? {} : { ready: ready }),
       setup: parsed.target.setup
         ? {
             ...parsed.target.setup,
@@ -350,7 +351,7 @@ export function loadConfig(
       ...parsed.browser,
       headless: overrides.headed ? false : parsed.browser.headless,
     },
-  };
+  });
 }
 
 export function redactConfig(config: EvalConfig): EvalConfig {

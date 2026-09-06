@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
@@ -153,7 +154,13 @@ test("controlled collection, blind votes, interrupted resume and image baselines
   };
   fs.writeFileSync(value.fail, "fail once");
   await assert.rejects(runEvaluation(options), /Pairwise judge execution failed/);
-  const runDir = path.join(value.config.paths.runs, fs.readdirSync(value.config.paths.runs)[0]);
+  const runDir = path.join(
+    value.config.paths.runs,
+    requireDefined(
+      fs.readdirSync(value.config.paths.runs)[0],
+      "fs.readdirSync(value.config.paths.runs)[0]",
+    ),
+  );
   const evidenceFile = path.join(runDir, "SCENE/evidence.json");
   const collected = fs.readFileSync(evidenceFile, "utf8");
   const voteFile = path.join(runDir, "areas/visual/pairwise/VISUAL/SCENE/1/vote-01/vote.json");
@@ -174,12 +181,24 @@ test("controlled collection, blind votes, interrupted resume and image baselines
   assert.equal(resumed.report?.overallScorePct, 100);
   assert.equal(resumed.report?.overallCoveragePct, 100);
   assert.equal(resumed.report?.gates.passed, true);
-  const scenario = resumed.report!.areas[0].scenarios[0];
+  const scenario = requireDefined(
+    requireDefined(resumed.report!.areas[0], "resumed.report!.areas[0]").scenarios[0],
+    "resumed.report!.areas[0].scenarios[0]",
+  );
   assert.equal(scenario.collector, "controlled");
   assert.ok(scenario.captureChecks!.every((check) => check.pass));
   assert.ok(scenario.screenshots.every((shot) => shot.path.endsWith(".png")));
   assert.equal(verifyArtifactIndex(runDir, { require: true }).ok, true);
-  assert.equal(loadComparisonInput(runDir).report.areas[0].items[1].votes?.attempted, 2);
+  assert.equal(
+    requireDefined(
+      requireDefined(
+        loadComparisonInput(runDir).report.areas[0],
+        "loadComparisonInput(runDir).report.areas[0]",
+      ).items[1],
+      "loadComparisonInput(runDir).report.areas[0].items[1]",
+    ).votes?.attempted,
+    2,
+  );
   const promoted = promoteBaseline({
     config: value.config,
     runDir,
@@ -192,19 +211,28 @@ test("controlled collection, blind votes, interrupted resume and image baselines
       (image) => image.scenario === "SCENE" && image.label === "frame-001",
     ),
   );
-  const pairwise = value.specs[0].rubric[1].grader;
+  const pairwise = requireDefined(
+    requireDefined(value.specs[0], "value.specs[0]").rubric[1],
+    "value.specs[0].rubric[1]",
+  ).grader;
   assert.equal(pairwise.type, "pairwise");
   if (pairwise.type !== "pairwise") return;
   pairwise.references = [{ baseline: "visual", label: "frame-001" }];
   assert.ok(visualInputs(value.config, value.specs)["VISUAL/SCENE/0"]);
-  const image = Object.values(promoted.promotion.images!)[0];
+  const image = requireDefined(
+    Object.values(promoted.promotion.images!)[0],
+    "Object.values(promoted.promotion.images!)[0]",
+  );
   fs.writeFileSync(path.join(promoted.directory, image.file), "changed");
   assert.throws(() => loadPromotedBaseline(value.config, "visual"), /image checksum changed/);
 });
 
 test("named checkpoints replay irregular adapter times across independent browser passes", async (t) => {
   const value = await fixture(t);
-  const scenario = value.specs[0].scenarios[0];
+  const scenario = requireDefined(
+    requireDefined(value.specs[0], "value.specs[0]").scenarios[0],
+    "value.specs[0].scenarios[0]",
+  );
   const checkpoints = [
     { label: "before", timeSeconds: 0.5 },
     { label: "at", timeSeconds: 1 },
@@ -238,7 +266,10 @@ test("named checkpoints replay irregular adapter times across independent browse
     JSON.parse(fs.readFileSync(path.join(directory, "capture.json"), "utf8")).schedule,
     checkpoints,
   );
-  const pairwise = value.specs[0].rubric[1].grader;
+  const pairwise = requireDefined(
+    requireDefined(value.specs[0], "value.specs[0]").rubric[1],
+    "value.specs[0].rubric[1]",
+  ).grader;
   if (pairwise.type !== "pairwise") throw new Error("Expected pairwise fixture");
   pairwise.candidate = "after";
   const { validateVisualInputs } = await import("../src/visual/inputs.js");
@@ -252,7 +283,10 @@ test("named checkpoints replay irregular adapter times across independent browse
 
 test("instrumented behavior failures are scores; adapter failures and interrupted captures are execution errors", async (t) => {
   const value = await fixture(t);
-  const scenario = value.specs[0].scenarios[0];
+  const scenario = requireDefined(
+    requireDefined(value.specs[0], "value.specs[0]").scenarios[0],
+    "value.specs[0].scenarios[0]",
+  );
   const broken = await controlledCapture(
     value.config,
     { ...scenario, capture: { ...scenario.capture!, setup: { broken: true } } },
@@ -302,8 +336,16 @@ test("instrumented behavior failures are scores; adapter failures and interrupte
 
 test("browser diagnostic gates stay unavailable when a mock collector never starts a browser", async (t) => {
   const value = await fixture(t);
-  delete value.specs[0].scenarios[0].capture;
-  value.specs[0].rubric = [value.specs[0].rubric[0]];
+  delete requireDefined(
+    requireDefined(value.specs[0], "value.specs[0]").scenarios[0],
+    "value.specs[0].scenarios[0]",
+  ).capture;
+  requireDefined(value.specs[0], "value.specs[0]").rubric = [
+    requireDefined(
+      requireDefined(value.specs[0], "value.specs[0]").rubric[0],
+      "value.specs[0].rubric[0]",
+    ),
+  ];
   value.config.judge.provider = "mock";
   value.config.browser.diagnostics = { failOn: ["console", "http"], ignoreUrls: [] };
   const result = await runEvaluation({
@@ -312,14 +354,23 @@ test("browser diagnostic gates stay unavailable when a mock collector never star
     specs: value.specs,
     fixtures: {},
   });
-  assert.equal(result.report!.areas[0].items[0].verdict, "cannot_judge");
+  assert.equal(
+    requireDefined(
+      requireDefined(result.report!.areas[0], "result.report!.areas[0]").items[0],
+      "result.report!.areas[0].items[0]",
+    ).verdict,
+    "cannot_judge",
+  );
   assert.equal(result.report!.overallCoveragePct, 0);
   assert.equal(result.report!.gates.passed, false);
 });
 
 test("invalid controlled labels fail before run creation or provider execution", async (t) => {
   const value = await fixture(t);
-  const grader = value.specs[0].rubric[1].grader;
+  const grader = requireDefined(
+    requireDefined(value.specs[0], "value.specs[0]").rubric[1],
+    "value.specs[0].rubric[1]",
+  ).grader;
   if (grader.type !== "pairwise") throw new Error("Expected pairwise grader");
   grader.candidate = "frame-999";
   await assert.rejects(
@@ -365,7 +416,13 @@ console.log(JSON.stringify({type:'result',structured_output:result,result:JSON.s
     fixtures: {},
   };
   await assert.rejects(runEvaluation(options), /Pairwise judge contract violation/);
-  const runDir = path.join(value.config.paths.runs, fs.readdirSync(value.config.paths.runs)[0]);
+  const runDir = path.join(
+    value.config.paths.runs,
+    requireDefined(
+      fs.readdirSync(value.config.paths.runs)[0],
+      "fs.readdirSync(value.config.paths.runs)[0]",
+    ),
+  );
   const voteDir = path.join(runDir, "areas/visual/pairwise/VISUAL/SCENE/1/vote-01");
   assert.equal(fs.existsSync(path.join(voteDir, "vote.json")), false);
   assert.equal(
@@ -378,9 +435,27 @@ console.log(JSON.stringify({type:'result',structured_output:result,result:JSON.s
   fs.rmSync(value.fail);
   const resumed = await runEvaluation({ ...options, resumeDir: runDir });
   assert.equal(fs.readFileSync(path.join(runDir, "SCENE/evidence.json"), "utf8"), captured);
-  assert.equal(resumed.report!.areas[0].items[1].verdict, "cannot_judge");
-  assert.equal(resumed.report!.areas[0].items[1].votes!.attempted, 3);
-  assert.equal(resumed.report!.areas[0].items[1].votes!.judgeable, 0);
+  assert.equal(
+    requireDefined(
+      requireDefined(resumed.report!.areas[0], "resumed.report!.areas[0]").items[1],
+      "resumed.report!.areas[0].items[1]",
+    ).verdict,
+    "cannot_judge",
+  );
+  assert.equal(
+    requireDefined(
+      requireDefined(resumed.report!.areas[0], "resumed.report!.areas[0]").items[1],
+      "resumed.report!.areas[0].items[1]",
+    ).votes!.attempted,
+    3,
+  );
+  assert.equal(
+    requireDefined(
+      requireDefined(resumed.report!.areas[0], "resumed.report!.areas[0]").items[1],
+      "resumed.report!.areas[0].items[1]",
+    ).votes!.judgeable,
+    0,
+  );
   assert.equal(Number(fs.readFileSync(value.counter, "utf8")), 4);
 });
 
@@ -394,7 +469,13 @@ test("resume rejects changed completed votes instead of silently deleting and re
   };
   fs.writeFileSync(value.fail, "fail once");
   await assert.rejects(runEvaluation(options), /Pairwise judge execution failed/);
-  const runDir = path.join(value.config.paths.runs, fs.readdirSync(value.config.paths.runs)[0]);
+  const runDir = path.join(
+    value.config.paths.runs,
+    requireDefined(
+      fs.readdirSync(value.config.paths.runs)[0],
+      "fs.readdirSync(value.config.paths.runs)[0]",
+    ),
+  );
   const voteDir = path.join(runDir, "areas/visual/pairwise/VISUAL/SCENE/1/vote-01");
   for (const name of ["vote.json", "attachments/A.png"]) {
     const file = path.join(voteDir, name),
@@ -427,7 +508,10 @@ test("resume rejects changed completed votes instead of silently deleting and re
 
 test("controlled movement ignores configured pixel noise and image-health failures remain observed checks", async (t) => {
   const value = await fixture(t),
-    scenario = value.specs[0].scenarios[0];
+    scenario = requireDefined(
+      requireDefined(value.specs[0], "value.specs[0]").scenarios[0],
+      "value.specs[0].scenarios[0]",
+    );
   const capture = captureSchema.parse({
     frames: 2,
     setup: { subtle: true },
@@ -486,16 +570,19 @@ test("controlled movement ignores configured pixel noise and image-health failur
 test("generic visual checks run without a model and baseline statistics use pinned promoted images", async (t) => {
   const value = await fixture(t);
   value.config.judge.provider = "mock";
-  const spec = value.specs[0];
-  spec.scenarios[0].capture!.frames = 1;
-  delete spec.scenarios[0].capture!.minimumMovement;
+  const spec = requireDefined(value.specs[0], "value.specs[0]");
+  requireDefined(spec.scenarios[0], "spec.scenarios[0]").capture!.frames = 1;
+  delete requireDefined(spec.scenarios[0], "spec.scenarios[0]").capture!.minimumMovement;
   spec.scenarios.push({
-    ...spec.scenarios[0],
+    ...requireDefined(spec.scenarios[0], "spec.scenarios[0]"),
     id: "OTHER",
-    capture: { ...spec.scenarios[0].capture!, setup: { offset: 40 } },
+    capture: {
+      ...requireDefined(spec.scenarios[0], "spec.scenarios[0]").capture!,
+      setup: { offset: 40 },
+    },
   });
-  spec.rubric = [spec.rubric[0]];
-  spec.rubric[0].scenarios = ["SCENE", "OTHER"];
+  spec.rubric = [requireDefined(spec.rubric[0], "spec.rubric[0]")];
+  requireDefined(spec.rubric[0], "spec.rubric[0]").scenarios = ["SCENE", "OTHER"];
   const options = {
     config: value.config,
     configFile: value.configFile,
@@ -512,7 +599,7 @@ test("generic visual checks run without a model and baseline statistics use pinn
     includeImages: true,
   });
   spec.rubric.push({
-    ...spec.rubric[0],
+    ...requireDefined(spec.rubric[0], "spec.rubric[0]"),
     id: "DISTINCT",
     grader: distinctnessSchema.parse({
       type: "image-distinctness",
@@ -521,7 +608,7 @@ test("generic visual checks run without a model and baseline statistics use pinn
     }),
   });
   spec.rubric.push({
-    ...spec.rubric[0],
+    ...requireDefined(spec.rubric[0], "spec.rubric[0]"),
     id: "STATS",
     grader: imageRegressionSchema.parse({
       type: "image-regression",
@@ -535,12 +622,20 @@ test("generic visual checks run without a model and baseline statistics use pinn
   assert.equal(evaluated.report?.overallScorePct, 100);
   assert.equal(evaluated.report?.gates.passed, true);
   assert.deepEqual(
-    evaluated.report!.areas[0].items.map((item) => item.source),
+    requireDefined(evaluated.report!.areas[0], "evaluated.report!.areas[0]").items.map(
+      (item) => item.source,
+    ),
     ["capture", "image-distinctness", "image-regression"],
   );
   assert.equal(verifyArtifactIndex(evaluated.runDir, { require: true }).ok, true);
   assert.equal(
-    loadComparisonInput(evaluated.runDir).report.areas[0].items[2].verdict,
+    requireDefined(
+      requireDefined(
+        loadComparisonInput(evaluated.runDir).report.areas[0],
+        "loadComparisonInput(evaluated.runDir).report.areas[0]",
+      ).items[2],
+      "loadComparisonInput(evaluated.runDir).report.areas[0].items[2]",
+    ).verdict,
     "pass",
     "report schema accepts deterministic image sources",
   );
@@ -556,7 +651,10 @@ test("generic visual checks run without a model and baseline statistics use pinn
   assert.equal(diagnostic.axes.entropy.mean, 0);
   assert.equal(diagnostic.axes.entropy.expectedSamples, 2);
   assert.equal(fs.existsSync(value.counter), false, "no judge provider was called");
-  const baselineImage = Object.values(promoted.promotion.images!)[0];
+  const baselineImage = requireDefined(
+    Object.values(promoted.promotion.images!)[0],
+    "Object.values(promoted.promotion.images!)[0]",
+  );
   fs.writeFileSync(path.join(promoted.directory, baselineImage.file), "tampered");
   await assert.rejects(runEvaluation(options), /image checksum changed/);
 });
@@ -576,9 +674,9 @@ test("managed targets reject occupied endpoints and reuse them only when explici
 
 test("repeated rubric judges reuse fixed scenario evidence and completed votes after interruption", async (t) => {
   const value = await fixture(t);
-  const spec = value.specs[0];
-  spec.scenarios[0].capture = undefined;
-  spec.scenarios[0].kind = "workspace";
+  const spec = requireDefined(value.specs[0], "value.specs[0]");
+  delete requireDefined(spec.scenarios[0], "spec.scenarios[0]").capture;
+  requireDefined(spec.scenarios[0], "spec.scenarios[0]").kind = "workspace";
   spec.rubric = [
     {
       id: "RUBRIC",
@@ -635,12 +733,24 @@ test("repeated rubric judges reuse fixed scenario evidence and completed votes a
     fixtures: {},
   };
   await assert.rejects(runEvaluation(options), /Judge exited 19/);
-  const runDir = path.join(value.config.paths.runs, fs.readdirSync(value.config.paths.runs)[0]);
+  const runDir = path.join(
+    value.config.paths.runs,
+    requireDefined(
+      fs.readdirSync(value.config.paths.runs)[0],
+      "fs.readdirSync(value.config.paths.runs)[0]",
+    ),
+  );
   const collected = fs.readFileSync(path.join(runDir, "SCENE/evidence.json"), "utf8");
   fs.rmSync(value.fail);
   const result = await runEvaluation({ ...options, resumeDir: runDir });
   assert.equal(result.report?.overallScorePct, 100);
-  assert.equal(result.report?.areas[0].items[0].votes?.attempted, 2);
+  assert.equal(
+    requireDefined(
+      requireDefined(result.report?.areas[0], "result.report?.areas[0]").items[0],
+      "(result.report?.areas[0]).items[0]",
+    ).votes?.attempted,
+    2,
+  );
   assert.equal(fs.readFileSync(path.join(runDir, "SCENE/evidence.json"), "utf8"), collected);
   assert.equal(Number(fs.readFileSync(value.counter, "utf8")), 3);
   assert.equal(verifyArtifactIndex(runDir, { require: true }).ok, true);
@@ -674,7 +784,7 @@ test("ordinary browser PNG capture preserves its format when clipping and retain
     assert.match(shot.relPath, /\.png$/);
     const diagnostics = readDiagnostics(directory, { failOn: ["console"], ignoreUrls: [] });
     assert.ok(diagnostics.diagnostics.some((entry) => entry.message === "fixture rendering error"));
-    assert.equal(diagnostics.checks[0].pass, false);
+    assert.equal(requireDefined(diagnostics.checks[0], "diagnostics.checks[0]").pass, false);
   } finally {
     await session.stop();
   }
@@ -692,7 +802,7 @@ test("resumed mixed-grader areas require fresh ordinary image views and retain c
     grader: { type: "llm" as const },
     passCriteria: "Readable image",
   };
-  value.specs[0].rubric.unshift(readable);
+  requireDefined(value.specs[0], "value.specs[0]").rubric.unshift(readable);
   const ordinaryCount = path.join(value.root, "ordinary-count"),
     repair = path.join(value.root, "repair");
   fs.writeFileSync(value.fail, "fail second pair vote");
@@ -726,7 +836,13 @@ console.log(JSON.stringify({type:'result',structured_output:result}));
     fixtures: {},
   };
   await assert.rejects(runEvaluation(options), /Pairwise judge execution failed/);
-  const runDir = path.join(value.config.paths.runs, fs.readdirSync(value.config.paths.runs)[0]);
+  const runDir = path.join(
+    value.config.paths.runs,
+    requireDefined(
+      fs.readdirSync(value.config.paths.runs)[0],
+      "fs.readdirSync(value.config.paths.runs)[0]",
+    ),
+  );
   const transcript = "areas/visual/_judge/evidence-transcript.ndjson";
   const index = JSON.parse(fs.readFileSync(path.join(runDir, "artifact-index.json"), "utf8"));
   assert.ok(
@@ -744,7 +860,9 @@ console.log(JSON.stringify({type:'result',structured_output:result}));
   fs.writeFileSync(repair, "view images on next attempt");
   const resumed = await runEvaluation({ ...options, resumeDir: runDir });
   assert.equal(
-    resumed.report?.areas[0].items.find((item) => item.id === "READABLE")?.verdict,
+    requireDefined(resumed.report?.areas[0], "resumed.report?.areas[0]").items.find(
+      (item) => item.id === "READABLE",
+    )?.verdict,
     "pass",
   );
   assert.equal(fs.readFileSync(voteFile, "utf8"), vote);

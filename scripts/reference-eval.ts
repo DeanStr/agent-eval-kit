@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -232,7 +233,7 @@ async function main(): Promise<void> {
             fixtures: {},
           });
           assertArtifactIntegrity(result.runDir, { require: true });
-          const items = result.report!.areas[0].items;
+          const items = requireDefined(result.report!.areas[0], "result.report!.areas[0]").items;
           observations.push({
             variant: variant.file,
             repetition,
@@ -241,9 +242,10 @@ async function main(): Promise<void> {
             runDir: result.runDir,
           });
           if (values.smoke) {
-            const browser = result.report!.areas[0].scenarios.find(
-              (item) => item.scenarioId === "PROFILE",
-            );
+            const browser = requireDefined(
+              result.report!.areas[0],
+              "result.report!.areas[0]",
+            ).scenarios.find((item) => item.scenarioId === "PROFILE");
             observations.push({
               variant: "profile-persistence",
               repetition,

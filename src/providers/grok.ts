@@ -128,8 +128,8 @@ export async function runGrok(invocation: ProviderInvocation): Promise<ProviderR
       ...result,
       finalText,
       structured,
-      sessionId,
-      usage,
+      ...(sessionId === undefined ? {} : { sessionId }),
+      ...(usage === undefined ? {} : { usage }),
       command: stringifyCommand("grok", args),
     };
   } finally {

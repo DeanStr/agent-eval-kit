@@ -1,3 +1,4 @@
+import { requireDefined, omitUndefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
@@ -57,7 +58,13 @@ test("missing started streams and malformed diagnostics raise errors before igno
   const page = Object.assign(new EventEmitter(), { url: () => "https://example.test" });
   attachDiagnostics(page as unknown as Page, directory, { count: 0 });
   const file = path.join(directory, "browser-diagnostics.ndjson");
-  assert.equal(readDiagnostics(directory, policy).checks[0].pass, true);
+  assert.equal(
+    requireDefined(
+      readDiagnostics(directory, policy).checks[0],
+      "readDiagnostics(directory, policy).checks[0]",
+    ).pass,
+    true,
+  );
   fs.rmSync(file);
   assert.throws(() => readDiagnostics(directory, policy), /missing after recording started/);
   assert.throws(
@@ -89,11 +96,20 @@ test("missing started streams and malformed diagnostics raise errors before igno
   assert.throws(() => readDiagnostics(directory, policy), /Invalid browser diagnostic JSON/);
   fs.writeFileSync(file, JSON.stringify(good) + "\n");
   assert.equal(
-    readDiagnostics(directory, policy).checks[0].pass,
+    requireDefined(
+      readDiagnostics(directory, policy).checks[0],
+      "readDiagnostics(directory, policy).checks[0]",
+    ).pass,
     true,
     "valid ignored errors remain excluded",
   );
-  assert.equal(readDiagnostics(directory, { ...policy, ignoreUrls: [] }).checks[0].pass, false);
+  assert.equal(
+    requireDefined(
+      readDiagnostics(directory, { ...policy, ignoreUrls: [] }).checks[0],
+      "readDiagnostics(directory, { ...policy, ignoreUrls: [] }).checks[0]",
+    ).pass,
+    false,
+  );
 });
 
 test("controlled screenshot labels are validated before reference resolution for every image grader", async (t) => {
@@ -148,9 +164,9 @@ test("controlled screenshot labels are validated before reference resolution for
       /invalid controlled screenshot label frame-999/,
     );
   }
-  const grader = graders[0];
+  const grader = requireDefined(graders[0], "graders[0]");
   if (grader.type !== "image-distinctness") throw new Error("Expected distinctness grader");
-  spec.rubric[0].grader = grader;
+  requireDefined(spec.rubric[0], "spec.rubric[0]").grader = grader;
   for (const label of controlledScreenshotLabels(capture)) {
     grader.candidate = label;
     await validateVisualInputs(config, [spec]);
@@ -180,7 +196,10 @@ test("completed controlled captures require their screenshot while agent and blo
     () => reader.candidate(controlled, "frame-001"),
     /Completed controlled capture SCENE is missing required screenshot/,
   );
-  assert.equal(reader.candidate({ ...controlled, collector: undefined }, "frame-001"), undefined);
+  assert.equal(
+    reader.candidate(omitUndefined({ ...controlled, collector: undefined }), "frame-001"),
+    undefined,
+  );
   assert.equal(reader.candidate({ ...controlled, outcome: "blocked" }, "frame-001"), undefined);
 });
 

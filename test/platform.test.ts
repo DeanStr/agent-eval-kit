@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -43,8 +44,8 @@ test("native Windows is rejected before run, lifecycle, browser, or subprocess s
     );
     const checks = doctor();
     assert.equal(checks.length, 1, "doctor must not probe executables on an unsupported platform");
-    assert.equal(checks[0].ok, false);
-    assert.equal(checks[0].required, true);
+    assert.equal(requireDefined(checks[0], "checks[0]").ok, false);
+    assert.equal(requireDefined(checks[0], "checks[0]").required, true);
     assert.deepEqual(fs.readdirSync(root), [], "no runtime artifacts should be created");
   } finally {
     Object.defineProperty(process, "platform", descriptor);

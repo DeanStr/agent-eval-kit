@@ -149,8 +149,8 @@ async function runIsolatedClaude(
     ...result,
     finalText,
     structured,
-    sessionId,
-    usage,
+    ...(sessionId === undefined ? {} : { sessionId }),
+    ...(usage === undefined ? {} : { usage }),
     command: stringifyCommand("claude", args),
     policyViolations: [...policyViolations],
   };

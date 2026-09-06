@@ -1,3 +1,4 @@
+import { requireDefined } from "../invariants.js";
 import fs from "node:fs";
 import path from "node:path";
 import { sha256, stableJson, writeJson } from "../io.js";
@@ -77,7 +78,10 @@ export function decideVotes(
     if (accepted >= needed) decision = "pass";
     else {
       const winner = Object.keys(counts).find(
-        (key) => key !== "abstain" && !accept.includes(key) && counts[key] >= needed,
+        (key) =>
+          key !== "abstain" &&
+          !accept.includes(key) &&
+          requireDefined(counts[key], "counts[key]") >= needed,
       );
       if (winner) decision = winner;
     }
@@ -150,7 +154,7 @@ export async function mapConcurrent<T, R>(
         const index = next++;
         try {
           throwIfCancelled();
-          results[index] = await worker(items[index], index);
+          results[index] = await worker(requireDefined(items[index], "items[index]"), index);
         } catch (cause) {
           if (!failed) error = cause;
           failed = true;

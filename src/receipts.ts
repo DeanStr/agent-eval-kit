@@ -1,3 +1,4 @@
+import { omitUndefined } from "./invariants.js";
 import { graderMethodReceipts } from "./judging/command-inputs.js";
 import { textInputDefinitions, textInputs } from "./text/inputs.js";
 import { TEXT_METHOD_VERSION } from "./text/contracts.js";
@@ -237,7 +238,9 @@ function gitlinkEntry(
     );
   }
   const match = /^(\d+) ([a-f0-9]+) \d+\t/.exec(result.stdout);
-  return match?.[1] === "160000" ? { mode: match[1], object: match[2] } : undefined;
+  return match?.[1] === "160000" && match[2] !== undefined
+    ? { mode: match[1], object: match[2] }
+    : undefined;
 }
 
 function gitRevision(root: string, excludedPaths: string[]): RunReceipt["target"]["git"] {
@@ -439,12 +442,12 @@ export function buildRunReceipt(options: {
       return {
         agent: {
           provider: config.agent.provider,
-          model: config.agent.model,
+          ...(config.agent.model === undefined ? {} : { model: config.agent.model }),
           cliVersion: versions.get(config.agent.provider)!,
         },
         judge: {
           provider: config.judge.provider,
-          model: config.judge.model,
+          ...(config.judge.model === undefined ? {} : { model: config.judge.model }),
           cliVersion: versions.get(config.judge.provider)!,
         },
       };
@@ -526,7 +529,7 @@ export function buildRunReceipt(options: {
       );
       const chromium = usesBrowser ? chromiumVersion(config.browser.headless) : undefined;
       return {
-        chromium,
+        ...(chromium === undefined ? {} : { chromium }),
         sharp: require("sharp").versions as Record<string, string>,
         playwright: require("playwright/package.json").version as string,
       };
@@ -562,14 +565,14 @@ export function buildRunReceipt(options: {
     providerVersions: providers,
   };
   const methodSha256 = sha256(stableJson(method));
-  const selection = {
+  const selection = omitUndefined({
     areas: materializeSpecs(specs, options.split)
       .filter((spec) => spec.rubric.length)
       .map((spec) => spec.id)
       .sort(),
     scenarios: options.scenarioIds ? [...new Set(options.scenarioIds)].sort() : undefined,
     split: options.split && options.split !== "all" ? options.split : undefined,
-  };
+  });
   const definition = {
     methodSha256,
     visual,
@@ -603,12 +606,12 @@ export function buildRunReceipt(options: {
         ...(options.ignoredTargetPaths ?? []),
       ];
       const git = gitRevision(config.project.root, excludedTargetPaths);
-      return {
+      return omitUndefined({
         kind: config.target.kind,
-        url: config.target.url,
-        git,
+        ...(config.target.url === undefined ? {} : { url: config.target.url }),
+        ...(git === undefined ? {} : { git: git }),
         treeSha256: git ? undefined : nonGitTreeSha256(config.project.root, excludedTargetPaths),
-      };
+      });
     })();
   return {
     schemaVersion: 1,
@@ -628,11 +631,11 @@ export function buildRunReceipt(options: {
       visual,
       textCandidates,
       textReferences,
-      collectorSources,
-      collectorMethods,
+      ...(collectorSources === undefined ? {} : { collectorSources: collectorSources }),
+      ...(collectorMethods === undefined ? {} : { collectorMethods: collectorMethods }),
       graderMethods,
       specs: specReceipts,
-      fixtures: fixtureReceipt,
+      ...(fixtureReceipt === undefined ? {} : { fixtures: fixtureReceipt }),
       selection,
     },
     target,

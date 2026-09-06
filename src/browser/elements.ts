@@ -23,12 +23,10 @@ export async function collectFrame(
       // it. Bound total elements EXAMINED so a 20k-row table can't stall us.
       const roots: (Document | ShadowRoot)[] = [document];
       const allEls: HTMLElement[] = [];
-      let ri = 0;
-      while (ri < roots.length && allEls.length < 20000) {
-        const list = roots[ri].querySelectorAll<HTMLElement>("*");
-        ri += 1;
-        for (let k = 0; k < list.length; k++) {
-          const el = list[k];
+      for (const root of roots) {
+        if (allEls.length >= 20000) break;
+        const list = root.querySelectorAll<HTMLElement>("*");
+        for (const el of list) {
           allEls.push(el);
           if (el.shadowRoot) roots.push(el.shadowRoot);
           if (allEls.length >= 20000) break;
@@ -39,8 +37,7 @@ export async function collectFrame(
       // ref would silently resolve to the WRONG element — e.g. clicking "Sign
       // out" while intending something else. After clearing, a stale ref
       // resolves to nothing and the tool returns a take-a-new-snapshot error.
-      for (let k = 0; k < allEls.length; k++) {
-        const el = allEls[k];
+      for (const el of allEls) {
         if (el.hasAttribute("data-aek-ref")) el.removeAttribute("data-aek-ref");
         if (el.hasAttribute("data-aek-modal")) el.removeAttribute("data-aek-modal");
         if (el.hasAttribute("data-aek-listed")) el.removeAttribute("data-aek-listed");
@@ -61,8 +58,8 @@ export async function collectFrame(
         // a full-viewport position:fixed overlay behind the panel
         // (div.fixed.inset-0.z-50.bg-black/50). Treat that as the signal.
         let hasOverlay = false;
-        for (let k = 0; k < allEls.length && !hasOverlay; k++) {
-          const el = allEls[k];
+        for (const el of allEls) {
+          if (hasOverlay) break;
           const st = window.getComputedStyle(el);
           if (st.position !== "fixed") continue;
           if (st.display === "none" || st.visibility === "hidden") continue;
@@ -74,8 +71,7 @@ export async function collectFrame(
           if (r.height < window.innerHeight * 0.9) continue;
           hasOverlay = true;
         }
-        for (let k = 0; k < allEls.length; k++) {
-          const el = allEls[k];
+        for (const el of allEls) {
           let isModal = false;
           try {
             isModal = el.matches(":modal"); // <dialog> opened with showModal()
@@ -126,8 +122,7 @@ export async function collectFrame(
       // rows are the only way into an event). Treat cursor:pointer as the
       // clickability signal for those, bounded so big pages stay fast.
       const candidates: HTMLElement[] = [];
-      for (let k = 0; k < allEls.length; k++) {
-        const el = allEls[k];
+      for (const el of allEls) {
         if (el === document.body || el === document.documentElement) continue;
         if (modalRoot && !modalRoot.contains(el)) continue;
         if (el.closest && el.closest("[inert]")) continue;
@@ -149,8 +144,8 @@ export async function collectFrame(
       // is really "the container was never scrolled". Surface them as refs the
       // agent can aim the scroll tool at.
       const scrollers: HTMLElement[] = [];
-      for (let k = 0; k < allEls.length && scrollers.length < 5; k++) {
-        const el = allEls[k];
+      for (const el of allEls) {
+        if (scrollers.length >= 5) break;
         if (el === document.body || el === document.documentElement) continue;
         if (modalRoot && !modalRoot.contains(el)) continue;
         if (el.scrollHeight - el.clientHeight <= 24) continue;
@@ -187,8 +182,7 @@ export async function collectFrame(
       // acted confidently on the wrong object, which scores worse than
       // failing outright.
       const keep = new Set<HTMLElement>();
-      for (let k = candidates.length - 1; k >= 0; k--) {
-        const el = candidates[k];
+      for (const el of candidates.slice().reverse()) {
         if (seen.has(el)) continue;
         const style = window.getComputedStyle(el);
         if (style.cursor !== "pointer") continue;
@@ -273,8 +267,9 @@ export async function collectFrame(
           const cells = rowNode.querySelectorAll(
             'td,th,[role="cell"],[role="gridcell"],[role="rowheader"]',
           );
-          for (let c = 0; c < cells.length && !rowText; c++) {
-            const t = (cells[c].textContent ?? "").replace(/\s+/g, " ").trim();
+          for (const cell of cells) {
+            if (rowText) break;
+            const t = (cell.textContent ?? "").replace(/\s+/g, " ").trim();
             if (t) rowText = t.slice(0, 40);
           }
           // Selection checkboxes are usually the best-labelled thing in a row
@@ -312,8 +307,7 @@ export async function collectFrame(
             const par = el.parentElement;
             if (par) {
               let sib = "";
-              for (let n = 0; n < par.childNodes.length; n++) {
-                const cn = par.childNodes[n];
+              for (const cn of par.childNodes) {
                 if (cn === el) continue;
                 if (cn.nodeType === 3) {
                   sib += " " + (cn.nodeValue ?? "");
@@ -356,7 +350,7 @@ export async function collectFrame(
             if (!hint) {
               const cls = (sv.getAttribute("class") ?? "") + " " + (el.getAttribute("class") ?? "");
               const mi = /(?:lucide|icon|fa|bi)-([a-z0-9-]{2,30})/i.exec(cls);
-              hint = mi ? mi[1] : (sv.getAttribute("data-icon") ?? "").slice(0, 30);
+              hint = mi?.[1] ?? (sv.getAttribute("data-icon") ?? "").slice(0, 30);
             }
             if (hint) hint = hint + " icon";
           }
@@ -457,8 +451,7 @@ export async function collectFrame(
           flags,
         });
       }
-      for (let k = 0; k < allEls.length; k++) {
-        const el = allEls[k];
+      for (const el of allEls) {
         if (el.hasAttribute("data-aek-listed")) el.removeAttribute("data-aek-listed");
       }
       return { out, last: i, modalLabel, hidden };

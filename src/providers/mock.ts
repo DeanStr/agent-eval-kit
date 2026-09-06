@@ -1,3 +1,4 @@
+import { requireDefined } from "../invariants.js";
 import fs from "node:fs";
 import type { ProviderInvocation, ProviderResult } from "../types.js";
 
@@ -8,7 +9,7 @@ export async function runMock(invocation: ProviderInvocation): Promise<ProviderR
     const match = new RegExp(`${label}:\\n([\\s\\S]*?)\\n\\n${next}:`).exec(prompt);
     if (!match) return [];
     try {
-      const value = JSON.parse(match[1]);
+      const value = JSON.parse(requireDefined(match[1], "match[1]"));
       return Array.isArray(value) ? value : [];
     } catch {
       return [];

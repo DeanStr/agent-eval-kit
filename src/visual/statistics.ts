@@ -1,3 +1,4 @@
+import { omitUndefined } from "../invariants.js";
 import { imageMetricNames, type ImageMetric, type ImageRegressionGrader } from "./contracts.js";
 import type { ImageStatistics } from "./images.js";
 
@@ -61,8 +62,8 @@ export function evaluateStatistics(
             metric,
             scope: sample.id,
             actual: value,
-            expected: policy.perScene,
-            pass: value === null ? null : withinBounds(value, policy.perScene),
+            expected: omitUndefined(policy.perScene),
+            pass: value === null ? null : withinBounds(value, omitUndefined(policy.perScene)),
           });
         return { id: sample.id, before, after, absolute, relative, value, unavailable };
       });
@@ -74,8 +75,8 @@ export function evaluateStatistics(
           metric,
           scope: "mean",
           actual: mean,
-          expected: policy.mean,
-          pass: mean === null ? null : withinBounds(mean, policy.mean),
+          expected: omitUndefined(policy.mean),
+          pass: mean === null ? null : withinBounds(mean, omitUndefined(policy.mean)),
         });
       return [
         metric,

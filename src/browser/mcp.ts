@@ -47,7 +47,7 @@ function isLoginWall(url: string): boolean {
     const parsed = new URL(url);
     const routes = [
       parsed.pathname,
-      parsed.hash.startsWith("#/") ? parsed.hash.slice(1).split("?")[0] : "",
+      parsed.hash.startsWith("#/") ? parsed.hash.slice(1).split("?", 1).join("") : "",
     ];
     const routeSegments = routes.map((route) =>
       route
@@ -66,7 +66,7 @@ function isLoginWall(url: string): boolean {
     if (segments.some((segment) => loginSegments.has(segment))) return true;
     if (
       routeSegments.some(
-        (route) => route.length === 1 && ["auth", "authenticate"].includes(route[0]),
+        (route) => route.length === 1 && (route[0] === "auth" || route[0] === "authenticate"),
       )
     )
       return true;
@@ -113,9 +113,9 @@ async function getBrowser(): Promise<BrowserSession> {
     "same-origin",
     {
       lossless: context.screenshotFormat === "png",
-      namespace: context.personas
-        ? Object.keys(context.personas).indexOf(activePersona) + 1
-        : undefined,
+      ...(context.personas
+        ? { namespace: Object.keys(context.personas).indexOf(activePersona) + 1 }
+        : {}),
     },
   );
   await started.start();
@@ -278,6 +278,7 @@ server.registerTool(
         if (!context.personas || !Object.hasOwn(context.personas, persona))
           throw new Error(`Undeclared persona ${persona}. Declare it in allowedPersonas.`);
         const state = context.personas[persona];
+        if (!state) throw new Error(`Missing declared persona state: ${persona}`);
         if (
           !personaSessions.has(persona) &&
           persona !== "anonymous" &&
@@ -530,7 +531,7 @@ server.registerTool(
 );
 
 registerOutputTool(server, {
-  outputs: context.outputs,
+  ...(context.outputs === undefined ? {} : { outputs: context.outputs }),
   directory: context.evidenceDir,
   transcriptFile,
   call: (input, action) => callTool("publish_output", input, async () => action()),
@@ -608,7 +609,7 @@ server.registerTool(
         outcome: sessionLost || originBlock ? "blocked" : outcome,
         summary: sessionLost ?? originBlock ?? summary,
         observations,
-        finalUrl,
+        ...(finalUrl === undefined ? {} : { finalUrl: finalUrl }),
         finishedAt: new Date().toISOString(),
       };
       writeJson(resultFile, state);

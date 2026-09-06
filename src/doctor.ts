@@ -65,7 +65,7 @@ export function doctor(options: DoctorOptions = {}): DoctorCheck[] {
       name: `${provider} binary`,
       ok: installed,
       detail: installed
-        ? (version.stdout || version.stderr).trim().split("\n")[0]
+        ? (version.stdout || version.stderr).trim().split("\n", 1).join("")
         : (version.error?.message ?? `exit ${version.status}`),
       required: requireEveryProvider,
     });

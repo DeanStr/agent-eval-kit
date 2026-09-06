@@ -1,3 +1,4 @@
+import { requireDefined } from "../invariants.js";
 import { z } from "zod";
 import { isPortablePathComponent } from "../io.js";
 
@@ -193,7 +194,14 @@ export const captureSchema = z
         });
       if (new Set(v.checkpoints.map((p) => p.label.toLowerCase())).size !== v.checkpoints.length)
         ctx.addIssue({ code: "custom", message: "checkpoint labels must be unique ignoring case" });
-      if (v.checkpoints.some((p, i) => i > 0 && p.timeSeconds <= v.checkpoints![i - 1].timeSeconds))
+      if (
+        v.checkpoints.some(
+          (p, i) =>
+            i > 0 &&
+            p.timeSeconds <=
+              requireDefined(v.checkpoints![i - 1], "v.checkpoints![i - 1]").timeSeconds,
+        )
+      )
         ctx.addIssue({ code: "custom", message: "checkpoint times must be strictly increasing" });
     }
     if (

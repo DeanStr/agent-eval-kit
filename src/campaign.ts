@@ -1,3 +1,4 @@
+import { requireDefined } from "./invariants.js";
 import fs from "node:fs";
 import path from "node:path";
 import { campaignRunSchema } from "./artifact-schemas.js";
@@ -154,7 +155,12 @@ function percentile(sorted: number[], fraction: number): number {
   const position = (sorted.length - 1) * fraction;
   const lower = Math.floor(position);
   const upper = Math.ceil(position);
-  return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
+  return (
+    requireDefined(sorted[lower], "sorted[lower]") +
+    (requireDefined(sorted[upper], "sorted[upper]") -
+      requireDefined(sorted[lower], "sorted[lower]")) *
+      (position - lower)
+  );
 }
 
 function distribution(values: number[], seed: string): Distribution {
@@ -171,7 +177,10 @@ function distribution(values: number[], seed: string): Distribution {
     for (let iteration = 0; iteration < 2_000; iteration++) {
       let total = 0;
       for (let sample = 0; sample < values.length; sample++) {
-        total += values[Math.floor(random() * values.length)];
+        total += requireDefined(
+          values[Math.floor(random() * values.length)],
+          "values[Math.floor(random() * values.length)]",
+        );
       }
       means.push(total / values.length);
     }
@@ -187,7 +196,7 @@ function distribution(values: number[], seed: string): Distribution {
   return {
     mean: round(mean),
     median: round(percentile(sorted, 0.5)),
-    minimum: round(sorted[0]),
+    minimum: round(requireDefined(sorted[0], "sorted[0]")),
     maximum: round(sorted.at(-1)!),
     standardDeviation: round(Math.sqrt(variance)),
     confidenceInterval95,
@@ -227,7 +236,7 @@ export function campaignRunRecord(
         rubricId: item.rubricId,
         caseId: item.caseId,
         strata: item.strata,
-        split: item.split,
+        ...(item.split === undefined ? {} : { split: item.split }),
         verdict: area.unproven.includes(item.rubricId) ? ("cannot_judge" as const) : item.verdict,
         points: area.unproven.includes(item.rubricId) ? null : item.points,
       };
@@ -243,7 +252,7 @@ export function campaignRunRecord(
     scorePct: report.overallScorePct,
     coveragePct: report.overallCoveragePct,
     scoreWithheld: report.scoreWithheld,
-    gatesPassed: areaGates.length ? report.gates.passed : undefined,
+    ...(areaGates.length ? { gatesPassed: report.gates.passed } : {}),
     items: report.areas.flatMap((area) =>
       area.items.map((item) => ({
         areaId: area.id,
@@ -273,9 +282,15 @@ export function buildCampaignReport(options: {
         ? { status: "incompatible" as const, fingerprints, inputFingerprints }
         : {
             status: "compatible" as const,
-            evaluationFingerprint: fingerprints[0],
+            evaluationFingerprint: requireDefined(
+              fingerprints[0],
+              "compatible campaign fingerprint",
+            ),
             fingerprints,
-            inputFingerprint: inputFingerprints[0],
+            inputFingerprint: requireDefined(
+              inputFingerprints[0],
+              "compatible campaign input fingerprint",
+            ),
             inputFingerprints,
           };
   const scores = complete.flatMap((run) =>

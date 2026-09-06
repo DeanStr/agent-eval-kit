@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs";
@@ -82,12 +83,12 @@ test("saved campaigns reject malformed measurements and duplicate case observati
         } as unknown as CampaignReport["scorePct"];
       },
       (value: CampaignReport) => {
-        const run = value.runs[0];
-        if (run.status === "complete") run.cases.push(run.cases[0]);
+        const run = requireDefined(value.runs[0], "value.runs[0]");
+        if (run.status === "complete") run.cases.push(requireDefined(run.cases[0], "run.cases[0]"));
       },
       (value: CampaignReport) => {
-        const run = value.runs[0];
-        if (run.status === "complete") run.cases[0].points = null;
+        const run = requireDefined(value.runs[0], "value.runs[0]");
+        if (run.status === "complete") requireDefined(run.cases[0], "run.cases[0]").points = null;
       },
       (value: CampaignReport) => {
         value.compatibility.evaluationFingerprint = "stale";
@@ -132,17 +133,30 @@ test("campaign comparisons retain abstentions and failed attempts in coverage de
     ["one", "cannot_judge"],
   ]);
   const result = compareCampaigns(baseline, candidate);
-  assert.equal(result.cases[0].baselineMean, 1);
-  assert.equal(result.cases[0].candidateMean, 1, "abstentions must not count as zero scores");
-  assert.equal(result.cases[0].change, "lost_coverage");
-  assert.equal(result.cases[0].candidateTotalRuns, 3);
-  assert.equal(result.cases[0].coverage.candidate, 1 / 3);
+  assert.equal(requireDefined(result.cases[0], "result.cases[0]").baselineMean, 1);
+  assert.equal(
+    requireDefined(result.cases[0], "result.cases[0]").candidateMean,
+    1,
+    "abstentions must not count as zero scores",
+  );
+  assert.equal(requireDefined(result.cases[0], "result.cases[0]").change, "lost_coverage");
+  assert.equal(requireDefined(result.cases[0], "result.cases[0]").candidateTotalRuns, 3);
+  assert.equal(requireDefined(result.cases[0], "result.cases[0]").coverage.candidate, 1 / 3);
   assert.equal(campaignComparisonFailures(result, { failOnRegression: true }).length, 1);
   candidate.runs[1] = { ordinal: 2, status: "failed", error: "provider unavailable" };
-  assert.equal(compareCampaigns(baseline, candidate).cases[0].coverage.candidate, 1 / 3);
+  assert.equal(
+    requireDefined(
+      compareCampaigns(baseline, candidate).cases[0],
+      "compareCampaigns(baseline, candidate).cases[0]",
+    ).coverage.candidate,
+    1 / 3,
+  );
   const shorter = campaign("shorter", [["one", "pass"]]);
   assert.equal(
-    compareCampaigns(baseline, shorter).cases[0].change,
+    requireDefined(
+      compareCampaigns(baseline, shorter).cases[0],
+      "compareCampaigns(baseline, shorter).cases[0]",
+    ).change,
     "unchanged",
     "compare rates, not raw repetition counts",
   );
@@ -154,7 +168,7 @@ test("campaign comparison withholds deltas for incompatible evaluators", () => {
     campaign("after", [["one", "pass"]], "x".repeat(64)),
   );
   assert.equal(result.compatibility.status, "incompatible");
-  assert.equal(result.cases[0].delta, null);
+  assert.equal(requireDefined(result.cases[0], "result.cases[0]").delta, null);
   assert.equal(result.pairedCases.meanDelta, null);
 });
 
@@ -176,10 +190,13 @@ test("campaign regression checks compare case means before display rounding", ()
     ),
   });
   const comparison = compareCampaigns(baseline, candidate);
-  assert.equal(comparison.cases[0].baselineMean, 1);
-  assert.equal(comparison.cases[0].candidateMean, 1);
-  assert.ok(comparison.cases[0].delta === 0, "the reported delta rounds to zero");
-  assert.equal(comparison.cases[0].change, "regressed");
+  assert.equal(requireDefined(comparison.cases[0], "comparison.cases[0]").baselineMean, 1);
+  assert.equal(requireDefined(comparison.cases[0], "comparison.cases[0]").candidateMean, 1);
+  assert.ok(
+    requireDefined(comparison.cases[0], "comparison.cases[0]").delta === 0,
+    "the reported delta rounds to zero",
+  );
+  assert.equal(requireDefined(comparison.cases[0], "comparison.cases[0]").change, "regressed");
   assert.equal(campaignComparisonFailures(comparison, { failOnRegression: true }).length, 1);
 });
 
@@ -217,15 +234,25 @@ test("fully omitted compatible cases report zero coverage without fabricating sc
     ),
   });
   const comparison = compareCampaigns(baseline, candidate);
-  assert.deepEqual(comparison.cases[0].coverage, { baseline: 1, candidate: 0, delta: -1 });
-  assert.equal(comparison.cases[0].candidateRuns, 0);
-  assert.equal(comparison.cases[0].candidateTotalRuns, 1);
-  assert.equal(comparison.cases[0].candidateMean, null);
-  assert.equal(comparison.cases[0].change, "lost_coverage");
+  assert.deepEqual(requireDefined(comparison.cases[0], "comparison.cases[0]").coverage, {
+    baseline: 1,
+    candidate: 0,
+    delta: -1,
+  });
+  assert.equal(requireDefined(comparison.cases[0], "comparison.cases[0]").candidateRuns, 0);
+  assert.equal(requireDefined(comparison.cases[0], "comparison.cases[0]").candidateTotalRuns, 1);
+  assert.equal(requireDefined(comparison.cases[0], "comparison.cases[0]").candidateMean, null);
+  assert.equal(requireDefined(comparison.cases[0], "comparison.cases[0]").change, "lost_coverage");
   assert.equal(comparison.pairedCases.meanDelta, null);
   assert.equal(campaignComparisonFailures(comparison, { failOnRegression: true }).length, 1);
   const abstaining = campaign("abstaining", [["one", "cannot_judge"]]);
-  assert.equal(compareCampaigns(abstaining, candidate).cases[0].change, "unavailable");
+  assert.equal(
+    requireDefined(
+      compareCampaigns(abstaining, candidate).cases[0],
+      "compareCampaigns(abstaining, candidate).cases[0]",
+    ).change,
+    "unavailable",
+  );
 });
 
 test("campaign regression gates fail closed when headline metrics lose coverage", () => {
@@ -289,7 +316,10 @@ test("headline regression gates retain decreases below campaign display precisio
 });
 
 test("campaign completion regression is gated independently of case and product scores", () => {
-  const source = campaign("source", [["one", "pass"]]).runs[0];
+  const source = requireDefined(
+    campaign("source", [["one", "pass"]]).runs[0],
+    'campaign("source", [["one", "pass"]]).runs[0]',
+  );
   assert.equal(source.status, "complete");
   if (source.status !== "complete") throw new Error("Expected complete fixture");
   const make = (id: string, outcomes: boolean[], fingerprint = source.evaluationFingerprint) =>

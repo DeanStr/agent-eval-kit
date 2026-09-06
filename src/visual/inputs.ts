@@ -1,3 +1,4 @@
+import { requireDefined } from "../invariants.js";
 import { collectorInputs } from "../collectors/inputs.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -173,7 +174,7 @@ export function visualEvidenceReader(runDir: string) {
           );
         return undefined;
       }
-      const ref = `${scenario.scenarioId}/${shots[0].path}`;
+      const ref = `${scenario.scenarioId}/${requireDefined(shots[0], "shots[0]").path}`;
       const file = path.resolve(runDir, ref);
       if (!file.startsWith(path.resolve(runDir) + path.sep))
         throw new Error("Candidate path escapes run");

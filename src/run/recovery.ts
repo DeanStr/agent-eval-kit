@@ -71,7 +71,7 @@ export function recoverRunArtifacts(runDir: string, specs: EvalSpec[], existingS
   const completedVotes =
     priorIndex?.entries.flatMap((entry) => {
       const match = entry.path.match(/^(areas\/.+\/vote-\d+\/)vote\.json$/);
-      return match ? [match[1]] : [];
+      return match?.[1] === undefined ? [] : [match[1]];
     }) ?? [];
   for (const entry of priorIndex?.entries ?? []) {
     if (

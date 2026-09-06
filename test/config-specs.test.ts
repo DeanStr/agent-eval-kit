@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -8,6 +9,36 @@ import { assertScenarioTargetCompatibility, loadFixtures, loadSpecs } from "../s
 
 const temporary = () => fs.mkdtempSync(path.join(os.tmpdir(), "aek-test-"));
 
+test("spec normalization preserves tagged YAML case variables", (t) => {
+  const root = temporary();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, "spec.yaml");
+  fs.writeFileSync(
+    file,
+    `id: core
+title: Core
+weight: 100
+description: Contract
+scenarios:
+  - id: S1
+    name: Inspect
+    instructions: Inspect
+    cases:
+      - id: tagged
+        variables:
+          date: !!timestamp 2026-01-01
+          binary: !!binary SGVsbG8=
+rubric:
+  - { id: R1, criterion: Works, weight: 1, passCriteria: Works }
+`,
+  );
+  const spec = requireDefined(loadSpecs(file)[0], "loaded spec");
+  const scenario = requireDefined(spec.scenarios[0], "loaded scenario");
+  const scenarioCase = requireDefined(scenario.cases?.[0], "loaded case");
+  assert.deepEqual(scenarioCase.variables.date, new Date("2026-01-01T00:00:00.000Z"));
+  assert.deepEqual(scenarioCase.variables.binary, Buffer.from("Hello"));
+});
+
 test("command grader output mode is explicit and strictly validated", () => {
   const root = temporary();
   const file = path.join(root, "spec.yaml");
@@ -17,7 +48,14 @@ test("command grader output mode is explicit and strictly validated", () => {
       `id: core\ntitle: Core\nweight: 100\ndescription: Contract\nscenarios:\n  - { id: S1, name: Inspect, instructions: Inspect }\nrubric:\n  - id: R1\n    criterion: Works\n    weight: 1\n    passCriteria: Works\n    grader: { type: command, methodFiles: [], command: test${mode} }\n`,
     );
     if (mode === "" || mode.endsWith("auto")) assert.throws(() => loadSpecs(file), /output/);
-    else assert.equal(loadSpecs(file)[0].rubric[0].grader.type, "command");
+    else
+      assert.equal(
+        requireDefined(
+          requireDefined(loadSpecs(file)[0], "loadSpecs(file)[0]").rubric[0],
+          "loadSpecs(file)[0].rubric[0]",
+        ).grader.type,
+        "command",
+      );
   }
 });
 
@@ -580,7 +618,13 @@ rubric:
     passCriteria: It works
 `,
   );
-  assert.deepEqual(loadSpecs(root)[0].scenarios[0].dependsOn, ["S2"]);
+  assert.deepEqual(
+    requireDefined(
+      requireDefined(loadSpecs(root)[0], "loadSpecs(root)[0]").scenarios[0],
+      "loadSpecs(root)[0].scenarios[0]",
+    ).dependsOn,
+    ["S2"],
+  );
 });
 
 test("specs reject unknown fields instead of running with misspelled behavior", () => {

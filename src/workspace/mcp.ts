@@ -269,7 +269,7 @@ server.registerTool(
 );
 
 registerOutputTool(server, {
-  outputs: context.outputs,
+  ...(context.outputs === undefined ? {} : { outputs: context.outputs }),
   directory: context.evidenceDir,
   transcriptFile,
   call: (input, action) => callTool("publish_output", input, action),

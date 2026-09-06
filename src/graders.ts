@@ -1,3 +1,4 @@
+import { requireDefined, omitUndefinedDeep } from "./invariants.js";
 import { assertGraderMethods } from "./judging/command-inputs.js";
 import { judgeTextPairwise } from "./text/pairwise.js";
 import {
@@ -136,7 +137,7 @@ function jpegSize(file: string): { width: number; height: number } | undefined {
         offset += 1;
         continue;
       }
-      const marker = buffer[offset + 1];
+      const marker = requireDefined(buffer[offset + 1], "buffer[offset + 1]");
       if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
         return { height: buffer.readUInt16BE(offset + 5), width: buffer.readUInt16BE(offset + 7) };
       }
@@ -176,7 +177,7 @@ function pickImages(evidence: ScenarioEvidence[], runDir: string, maximum = 30):
     let found = false;
     for (const queue of queues) {
       if (queue[round] && picked.length < maximum) {
-        picked.push(queue[round]);
+        picked.push(requireDefined(queue[round], "queue[round]"));
         found = true;
       }
     }
@@ -277,16 +278,16 @@ async function runLlmJudge(options: {
     outputSchemaFile: schemaFile,
     eventLogFile,
     stderrFile,
-    model: config.judge.model,
-    effort: config.judge.effort,
-    maxTurns: config.judge.maxTurns,
+    ...(config.judge.model === undefined ? {} : { model: config.judge.model }),
+    ...(config.judge.effort === undefined ? {} : { effort: config.judge.effort }),
+    ...(config.judge.maxTurns === undefined ? {} : { maxTurns: config.judge.maxTurns }),
     timeoutSeconds: config.judge.timeoutSeconds,
     extraArgs: config.judge.extraArgs,
     images: config.judge.provider === "codex" ? attachments.files : [],
     additionalDirs: [],
-    mcp,
+    ...(mcp === undefined ? {} : { mcp: mcp }),
     allowWorkspaceTools: false,
-    onProgress: options.onProgress,
+    ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
   });
   writeJson(path.join(directory, "provider-run.json"), {
     provider: provider.provider,
@@ -397,7 +398,7 @@ async function repeatedLlmJudge(
           policy,
         },
         validate: (value) => {
-          const result = repeatedResultSchema.parse(value);
+          const result = omitUndefinedDeep(repeatedResultSchema.parse(value));
           assertJudgementIdentities(
             result,
             { items: options.items, cases: requests },
@@ -405,7 +406,7 @@ async function repeatedLlmJudge(
           );
           return result;
         },
-        seal: options.onVoteComplete,
+        ...(options.onVoteComplete === undefined ? {} : { seal: options.onVoteComplete }),
         run: (directory) => runLlmJudge({ ...options, directory }),
       }),
     );

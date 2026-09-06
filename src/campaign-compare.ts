@@ -1,3 +1,4 @@
+import { requireDefined, omitUndefined } from "./invariants.js";
 import fs from "node:fs";
 import path from "node:path";
 import { campaignReportSchema } from "./artifact-schemas.js";
@@ -110,7 +111,12 @@ function percentile(sorted: number[], fraction: number): number {
   const position = (sorted.length - 1) * fraction;
   const lower = Math.floor(position);
   const upper = Math.ceil(position);
-  return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
+  return (
+    requireDefined(sorted[lower], "sorted[lower]") +
+    (requireDefined(sorted[upper], "sorted[upper]") -
+      requireDefined(sorted[lower], "sorted[lower]")) *
+      (position - lower)
+  );
 }
 
 function bootstrap(
@@ -123,7 +129,10 @@ function bootstrap(
   for (let iteration = 0; iteration < 2_000; iteration++) {
     let total = 0;
     for (let sample = 0; sample < deltas.length; sample++)
-      total += deltas[Math.floor(random() * deltas.length)];
+      total += requireDefined(
+        deltas[Math.floor(random() * deltas.length)],
+        "deltas[Math.floor(random() * deltas.length)]",
+      );
     means.push(total / deltas.length);
   }
   means.sort((left, right) => left - right);
@@ -254,7 +263,7 @@ export function compareCampaigns(
       if (rawDelta === null) return "unavailable";
       return rawDelta > 0 ? "improved" : "unchanged";
     })();
-    return {
+    return omitUndefined({
       areaId: (right ?? left)!.areaId,
       rubricId: (right ?? left)!.rubricId,
       caseId: (right ?? left)!.caseId,
@@ -270,7 +279,7 @@ export function compareCampaigns(
       delta: rawDelta === null ? null : round(rawDelta),
       rawDelta,
       change,
-    };
+    });
   });
   const cases: CampaignCaseComparison[] = measurements.map(
     ({ rawDelta: _rawDelta, ...item }) => item,

@@ -113,7 +113,7 @@ test("a signal-terminated start command is rejected with and without a readiness
         kind: "command",
         allowedOrigins: [],
         start: { command: "kill -TERM $$" },
-        ...(ready ? { ready } : {}),
+        ...(ready ? { ...(ready === undefined ? {} : { ready: ready }) } : {}),
       },
       agent: { provider: "mock", timeoutSeconds: 10, extraArgs: [] },
       judge: { provider: "mock", timeoutSeconds: 10, extraArgs: [] },

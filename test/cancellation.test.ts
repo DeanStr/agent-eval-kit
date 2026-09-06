@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -114,7 +115,7 @@ for (const phase of ["setup", "readiness", "grading", "campaign"] as const) {
           .readdirSync(runs, { withFileTypes: true })
           .filter((entry) => entry.isDirectory());
         assert.equal(directories.length, 1, "cancellation must not start another repetition");
-        const run = path.join(runs, directories[0].name);
+        const run = path.join(runs, requireDefined(directories[0], "directories[0]").name);
         assert.equal(
           JSON.parse(fs.readFileSync(path.join(run, "run-state.json"), "utf8")).status,
           "failed",

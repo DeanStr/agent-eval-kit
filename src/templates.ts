@@ -374,7 +374,7 @@ export function initializeProject(directory: string, requestedKind: string = "we
       fs.linkSync(file.staged!, file.target);
       published.push(file.target);
       fs.unlinkSync(file.staged!);
-      file.staged = undefined;
+      delete file.staged;
     }
     return files.map(({ target }) => target);
   } catch (error) {

@@ -57,9 +57,9 @@ async function invokeTextPair(
     outputSchemaFile: schemaFile,
     eventLogFile: path.join(directory, "provider-events.ndjson"),
     stderrFile: path.join(directory, "provider-stderr.log"),
-    model: config.judge.model,
-    effort: config.judge.effort,
-    maxTurns: config.judge.maxTurns,
+    ...(config.judge.model === undefined ? {} : { model: config.judge.model }),
+    ...(config.judge.effort === undefined ? {} : { effort: config.judge.effort }),
+    ...(config.judge.maxTurns === undefined ? {} : { maxTurns: config.judge.maxTurns }),
     timeoutSeconds: config.judge.timeoutSeconds,
     extraArgs: config.judge.extraArgs,
     images: [],
@@ -144,7 +144,7 @@ export async function judgeTextPairwise(options: {
               validateTextPairResult(vote.raw, textsFor(vote.candidateIsA));
               return vote;
             },
-            seal: options.onVoteComplete,
+            ...(options.onVoteComplete === undefined ? {} : { seal: options.onVoteComplete }),
             run: async (voteDir) => {
               const candidateIsA = randomInt(2) === 0;
               return {
@@ -191,7 +191,7 @@ export async function judgeTextPairwise(options: {
           decision,
           candidate: candidate.text,
           reference: reference.text,
-          style: style?.text,
+          ...(style?.text === undefined ? {} : { style: style?.text }),
           votes: normalizedVotes,
         }),
       );

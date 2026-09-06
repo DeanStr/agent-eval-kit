@@ -1,3 +1,4 @@
+import { requireDefined } from "../invariants.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -92,7 +93,9 @@ export async function spawnCaptured(options: {
       const clipped = next.slice(-MAX_CAPTURE);
       // Do not create an unmatched low surrogate when the character cap lands
       // between the two UTF-16 code units of a supplementary character.
-      return /[\uDC00-\uDFFF]/.test(clipped[0]) ? clipped.slice(1) : clipped;
+      return /[\uDC00-\uDFFF]/.test(requireDefined(clipped[0], "clipped[0]"))
+        ? clipped.slice(1)
+        : clipped;
     };
     const lines = (stream: "stdout" | "stderr", chunk: string) => {
       let buffer = (stream === "stdout" ? stdoutRemainder : stderrRemainder) + chunk;
@@ -310,7 +313,7 @@ export function parseJsonText(text: string): unknown | undefined {
   if (!trimmed) return undefined;
   const candidates = [trimmed];
   const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
-  if (fence) candidates.unshift(fence[1]);
+  if (fence) candidates.unshift(requireDefined(fence[1], "fence[1]"));
   for (const candidate of candidates) {
     try {
       return JSON.parse(candidate);
@@ -434,7 +437,7 @@ export function assertSafeProviderExtraArgs(
 ): void {
   const blocked = boundaryFlags[provider];
   for (const argument of args) {
-    const flag = argument.startsWith("--") ? argument.split("=", 1)[0] : argument;
+    const flag = argument.startsWith("--") ? argument.split("=", 1).join("") : argument;
     const blockedShort = [...blocked].find(
       (candidate) => candidate.length === 2 && argument.startsWith(candidate),
     );

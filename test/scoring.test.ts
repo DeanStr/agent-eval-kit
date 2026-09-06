@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { scoreSliceSchema } from "../src/artifact-schemas.js";
@@ -117,19 +118,25 @@ test("scoring preserves verifiable weights for small and fractional rubric weigh
 test("pending hybrid reviews preserve automatic credit without claiming a campaign full pass", () => {
   const hybrid: EvalSpec = {
     ...spec,
-    rubric: [{ ...spec.rubric[0], grader: { type: "hybrid", autoShare: 0.5 }, gate: true }],
+    rubric: [
+      {
+        ...requireDefined(spec.rubric[0], "spec.rubric[0]"),
+        grader: { type: "hybrid", autoShare: 0.5 },
+        gate: true,
+      },
+    ],
   };
   const area = scoreArea({
     spec: hybrid,
     config,
     evidence: [evidence("completed")],
-    judgements: [{ ...judgements[0], verdict: "pass" }],
+    judgements: [{ ...requireDefined(judgements[0], "judgements[0]"), verdict: "pass" }],
   });
   assert.equal(area.coveragePct, 50);
   assert.equal(area.scorePct, 100);
-  assert.equal(area.items[0].components?.automatic, "pass");
-  assert.equal(area.items[0].verdict, "cannot_judge");
-  assert.equal(area.gates[0].status, "unavailable");
+  assert.equal(requireDefined(area.items[0], "area.items[0]").components?.automatic, "pass");
+  assert.equal(requireDefined(area.items[0], "area.items[0]").verdict, "cannot_judge");
+  assert.equal(requireDefined(area.gates[0], "area.gates[0]").status, "unavailable");
   const report = {
     schemaVersion: 1,
     project: "Hybrid",
@@ -177,8 +184,14 @@ test("pending hybrid reviews preserve automatic credit without claiming a campai
     plannedRepetitions: 2,
     runs: [1, 2].map((ordinal) => campaignRunRecord(ordinal, `/runs/${ordinal}`, report)),
   });
-  assert.equal(campaign.itemStability[0].fullPassRate, 0);
-  assert.equal(campaign.itemStability[0].verdicts.cannot_judge, 2);
+  assert.equal(
+    requireDefined(campaign.itemStability[0], "campaign.itemStability[0]").fullPassRate,
+    0,
+  );
+  assert.equal(
+    requireDefined(campaign.itemStability[0], "campaign.itemStability[0]").verdicts.cannot_judge,
+    2,
+  );
 });
 
 test("negative evidence from an entirely blocked scenario is not scored as product failure", () => {
@@ -211,11 +224,11 @@ test("positive automatic verdicts are not scored when every backing scenario was
 test("unscoped automatic verdicts still require reached scenario evidence", () => {
   const llmSpec: EvalSpec = {
     ...spec,
-    rubric: [{ ...spec.rubric[0], scenarios: [] }],
+    rubric: [{ ...requireDefined(spec.rubric[0], "spec.rubric[0]"), scenarios: [] }],
   };
   const llm = scoreArea({
     spec: llmSpec,
-    judgements: [judgements[0]],
+    judgements: [requireDefined(judgements[0], "judgements[0]")],
     evidence: [evidence("blocked")],
     config,
   });
@@ -226,7 +239,7 @@ test("unscoped automatic verdicts still require reached scenario evidence", () =
     ...spec,
     rubric: [
       {
-        ...spec.rubric[0],
+        ...requireDefined(spec.rubric[0], "spec.rubric[0]"),
         scenarios: [],
         grader: { type: "hybrid", autoShare: 0.5 },
         manualInstructions: "Verify it",
@@ -235,7 +248,7 @@ test("unscoped automatic verdicts still require reached scenario evidence", () =
   };
   const hybrid = scoreArea({
     spec: hybridSpec,
-    judgements: [judgements[0]],
+    judgements: [requireDefined(judgements[0], "judgements[0]")],
     evidence: [evidence("blocked")],
     config,
   });
@@ -256,11 +269,11 @@ test("a completed search makes the same negative verdict judgeable", () => {
 test("command graders remain independent when they name blocked scenarios", () => {
   const scopedCommand: EvalSpec = {
     ...spec,
-    rubric: [{ ...spec.rubric[1], scenarios: ["S1"] }],
+    rubric: [{ ...requireDefined(spec.rubric[1], "spec.rubric[1]"), scenarios: ["S1"] }],
   };
   const score = scoreArea({
     spec: scopedCommand,
-    judgements: [judgements[1]],
+    judgements: [requireDefined(judgements[1], "judgements[1]")],
     evidence: [evidence("blocked")],
     config,
   });
@@ -271,14 +284,14 @@ test("command graders remain independent when they name blocked scenarios", () =
 
 test("a manual negative verdict remains judgeable when automation was blocked", () => {
   const manual: JudgedItem = {
-    ...judgements[0],
+    ...requireDefined(judgements[0], "judgements[0]"),
     source: "manual",
     reasoning: "A human verified the absence",
     evidenceRefs: ["manual"],
   };
   const score = scoreArea({
     spec,
-    judgements: [manual, judgements[1]],
+    judgements: [manual, requireDefined(judgements[1], "judgements[1]")],
     evidence: [evidence("blocked")],
     config,
   });
@@ -385,12 +398,17 @@ test("rescoring rebuilds finalized hybrid verdicts from current shares", () => {
     evidence: [evidence("completed")],
     config,
   });
-  assert.equal(before.items[0].verdict, "pass");
-  assert.equal(before.gates?.[0].status, "passed");
+  assert.equal(requireDefined(before.items[0], "before.items[0]").verdict, "pass");
+  assert.equal(requireDefined(before.gates?.[0], "before.gates?.[0]").status, "passed");
 
   const reweighted: EvalSpec = {
     ...manualOnly,
-    rubric: [{ ...manualOnly.rubric[0], grader: { type: "hybrid", autoShare: 0.5 } }],
+    rubric: [
+      {
+        ...requireDefined(manualOnly.rubric[0], "manualOnly.rubric[0]"),
+        grader: { type: "hybrid", autoShare: 0.5 },
+      },
+    ],
   };
   const after = scoreArea({
     spec: reweighted,
@@ -398,26 +416,31 @@ test("rescoring rebuilds finalized hybrid verdicts from current shares", () => {
     evidence: [evidence("completed")],
     config,
   });
-  assert.equal(after.items[0].verdict, "partial");
+  assert.equal(requireDefined(after.items[0], "after.items[0]").verdict, "partial");
   assert.equal(after.scorePct, 50);
-  assert.equal(after.gates?.[0].status, "failed");
+  assert.equal(requireDefined(after.gates?.[0], "after.gates?.[0]").status, "failed");
 });
 
 test("critical rubric items become hard pass, fail, or unavailable gates", () => {
   const gated: EvalSpec = {
     ...spec,
     rubric: [
-      { ...spec.rubric[0], id: "PASS", gate: true },
-      { ...spec.rubric[0], id: "FAIL", gate: true },
-      { ...spec.rubric[0], id: "UNKNOWN", gate: true },
+      { ...requireDefined(spec.rubric[0], "spec.rubric[0]"), id: "PASS", gate: true },
+      { ...requireDefined(spec.rubric[0], "spec.rubric[0]"), id: "FAIL", gate: true },
+      { ...requireDefined(spec.rubric[0], "spec.rubric[0]"), id: "UNKNOWN", gate: true },
     ],
   };
   const score = scoreArea({
     spec: gated,
     judgements: [
-      { ...judgements[0], id: "PASS", verdict: "pass" },
-      { ...judgements[0], id: "FAIL", verdict: "partial" },
-      { ...judgements[0], id: "UNKNOWN", verdict: "cannot_judge", evidenceRefs: [] },
+      { ...requireDefined(judgements[0], "judgements[0]"), id: "PASS", verdict: "pass" },
+      { ...requireDefined(judgements[0], "judgements[0]"), id: "FAIL", verdict: "partial" },
+      {
+        ...requireDefined(judgements[0], "judgements[0]"),
+        id: "UNKNOWN",
+        verdict: "cannot_judge",
+        evidenceRefs: [],
+      },
     ],
     evidence: [evidence("completed")],
     config,
@@ -464,8 +487,8 @@ test("a hybrid critical item stays unavailable until every weighted share is jud
     evidence: [evidence("completed")],
     config,
   });
-  assert.equal(score.gates?.[0].status, "unavailable");
-  assert.match(score.gates?.[0].reason ?? "", /Only 2\.5 of 5/);
+  assert.equal(requireDefined(score.gates?.[0], "score.gates?.[0]").status, "unavailable");
+  assert.match(requireDefined(score.gates?.[0], "score.gates?.[0]").reason ?? "", /Only 2\.5 of 5/);
 });
 
 test("automated cannot-judge results reduce coverage without creating impossible manual work", () => {
@@ -496,7 +519,7 @@ test("global tag and stratum diagnostics respect top-level area weights", () => 
       weight: areaWeight,
       rubric: [
         {
-          ...spec.rubric[0],
+          ...requireDefined(spec.rubric[0], "spec.rubric[0]"),
           id: "SHARED",
           weight: rubricWeight,
           tags: ["shared"],

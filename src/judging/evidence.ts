@@ -1,3 +1,4 @@
+import { omitUndefined } from "../invariants.js";
 import type { RubricItem, ScenarioEvidence } from "../types.js";
 
 export interface CaseJudgeRequest {
@@ -25,13 +26,13 @@ export function caseJudgeRequests(
     }
     if (!byCase.size) {
       return [
-        {
+        omitUndefined({
           rubricId: item.id,
           caseId: "default",
           scenarioIds: relevant.map((scenario) => scenario.scenarioId),
           strata: [...new Set(relevant.flatMap((scenario) => scenario.strata ?? []))].sort(),
           split: relevant.map((scenario) => scenario.split).find(Boolean),
-        },
+        }),
       ];
     }
 
@@ -40,10 +41,12 @@ export function caseJudgeRequests(
       .flatMap(([caseId, members]) => {
         const byIdentity = new Map<string, ScenarioEvidence[]>();
         for (const scenario of members) {
-          const identity = JSON.stringify({
-            strata: [...new Set(scenario.strata ?? [])].sort(),
-            split: scenario.split,
-          });
+          const identity = JSON.stringify(
+            omitUndefined({
+              strata: [...new Set(scenario.strata ?? [])].sort(),
+              split: scenario.split,
+            }),
+          );
           const matching = byIdentity.get(identity) ?? [];
           matching.push(scenario);
           byIdentity.set(identity, matching);
@@ -57,13 +60,13 @@ export function caseJudgeRequests(
               ),
             ].sort();
             const allMembers = [...shared, ...caseMembers];
-            return {
+            return omitUndefined({
               rubricId: item.id,
               caseId: disambiguate ? `${sources.join("+")}/${caseId}` : caseId,
               scenarioIds: allMembers.map((scenario) => scenario.scenarioId),
               strata: [...new Set(caseMembers.flatMap((scenario) => scenario.strata ?? []))].sort(),
               split: caseMembers.map((scenario) => scenario.split).find(Boolean),
-            };
+            });
           })
           .sort((left, right) => left.caseId.localeCompare(right.caseId));
       });

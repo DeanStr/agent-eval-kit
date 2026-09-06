@@ -38,7 +38,7 @@ export async function upload(
   for (const f of await context.allowedFrames()) {
     await f.evaluate(() => {
       const els = document.querySelectorAll('input[type="file"]');
-      for (let k = 0; k < els.length; k++) els[k].setAttribute("data-aek-file-before", "1");
+      for (const el of els) el.setAttribute("data-aek-file-before", "1");
     });
   }
 

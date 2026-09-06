@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { judgePrompt, scenarioPrompt } from "../src/prompts.js";
@@ -64,7 +65,7 @@ test("repository scenario prompts expose the task but not evaluator rubric or ab
   assert.match(prompt, /Treat equivalent workflows as fully satisfying the criterion/);
   assert.doesNotMatch(prompt, /DATA_SPLIT|CASE_STRATA|plan=annual/);
 
-  spec.rubric[0].grader = { type: "hybrid", autoShare: 0.9 };
+  requireDefined(spec.rubric[0], "spec.rubric[0]").grader = { type: "hybrid", autoShare: 0.9 };
   const evidence: ScenarioEvidence = {
     scenarioId: "S1",
     scenarioName: "Inspect",

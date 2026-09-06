@@ -73,7 +73,7 @@ export class BrowserPointer {
             "message" in err
               ? (err.message ?? err)
               : err;
-          return `ERROR: click on ${ref} failed: ${String(message).split("\n")[0].slice(0, 200)}`;
+          return `ERROR: click on ${ref} failed: ${String(message).split("\n", 1).join("").slice(0, 200)}`;
         }
       }
     }
@@ -206,8 +206,9 @@ export class BrowserPointer {
       const els = document.querySelectorAll<HTMLElement>("*");
       let best: HTMLElement | null = null;
       let bestArea = 0;
-      for (let k = 0; k < els.length && k < 20000; k++) {
-        const el = els[k];
+      let examined = 0;
+      for (const el of els) {
+        if (examined++ >= 20000) break;
         if (el.scrollHeight - el.clientHeight <= 24) continue;
         const st = window.getComputedStyle(el);
         if (st.overflowY !== "auto" && st.overflowY !== "scroll") continue;

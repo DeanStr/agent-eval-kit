@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import { spawnSync } from "node:child_process";
 import YAML from "yaml";
 import sharp from "sharp";
@@ -82,7 +83,10 @@ for (const kind of STARTER_KINDS) {
       cli(root, ["doctor"]); // No real provider or browser is required.
       cli(root, ["run"], 1);
       const runs = path.join(root, ".agent-eval/runs");
-      const run = path.join(runs, fs.readdirSync(runs)[0]);
+      const run = path.join(
+        runs,
+        requireDefined(fs.readdirSync(runs)[0], "fs.readdirSync(runs)[0]"),
+      );
       assert.match(
         fs.readFileSync(path.join(run, "areas/core/graders/CORE-01.stderr.txt"), "utf8"),
         /Configure evals\/check.mjs/,
@@ -96,7 +100,10 @@ for (const kind of STARTER_KINDS) {
       // Exercise the generated collector with sealed sources and no model quota.
       cli(root, ["run", "--agent", "mock", "--judge", "mock"], 2);
       const runs = path.join(root, ".agent-eval/runs");
-      const run = path.join(runs, fs.readdirSync(runs)[0]);
+      const run = path.join(
+        runs,
+        requireDefined(fs.readdirSync(runs)[0], "fs.readdirSync(runs)[0]"),
+      );
       cli(root, ["verify", "--run", run]);
       const report = JSON.parse(fs.readFileSync(path.join(run, "report.json"), "utf8"));
       assert.equal(report.overallCoveragePct, 0); // A mock judge must abstain.
@@ -165,7 +172,7 @@ console.log(JSON.stringify({ verdict: result.status === 0 && result.stdout.trim(
     cli(root, ["run"], expectedExit);
     const added = fs.readdirSync(runs).filter((id) => !before.includes(id));
     assert.equal(added.length, 1);
-    const run = path.join(runs, added[0]);
+    const run = path.join(runs, requireDefined(added[0], "added[0]"));
     const report = JSON.parse(fs.readFileSync(path.join(run, "report.json"), "utf8"));
     assert.equal(report.overallCoveragePct, 100);
     assert.equal(report.overallScorePct, total === 1000 ? 100 : 0);

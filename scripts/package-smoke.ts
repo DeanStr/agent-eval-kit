@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -108,7 +109,10 @@ try {
   await run(cli, ["validate"], consumer);
   await run(cli, ["run", "--fail-under-score", "100", "--fail-under-coverage", "100"], consumer);
   const runsRoot = path.join(consumer, ".agent-eval/runs");
-  const runDir = path.join(runsRoot, fs.readdirSync(runsRoot)[0]);
+  const runDir = path.join(
+    runsRoot,
+    requireDefined(fs.readdirSync(runsRoot)[0], "fs.readdirSync(runsRoot)[0]"),
+  );
   await run(cli, ["verify", "--run", runDir], consumer);
   assert.ok(fs.existsSync(path.join(runDir, "report.html")));
 
@@ -164,7 +168,10 @@ try {
     // Mock votes must withhold the visual gate despite passing capture checks.
     await run(cli, ["run"], visualRoot, 2);
     const visualRuns = path.join(visualRoot, ".agent-eval/runs");
-    const visualRun = path.join(visualRuns, fs.readdirSync(visualRuns)[0]);
+    const visualRun = path.join(
+      visualRuns,
+      requireDefined(fs.readdirSync(visualRuns)[0], "fs.readdirSync(visualRuns)[0]"),
+    );
     await run(cli, ["verify", "--run", visualRun], visualRoot);
     const report = JSON.parse(fs.readFileSync(path.join(visualRun, "report.json"), "utf8"));
     assert.equal(report.areas[0].items[0].verdict, "pass");

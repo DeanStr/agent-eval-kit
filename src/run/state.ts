@@ -1,3 +1,4 @@
+import { omitUndefinedDeep } from "../invariants.js";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -67,7 +68,7 @@ export function loadRunState(runDir: string): RunState {
   if (result.data.runId !== path.basename(path.resolve(runDir))) {
     throw new Error(`Invalid run state ${file}: runId does not match its directory`);
   }
-  return result.data;
+  return omitUndefinedDeep(result.data);
 }
 
 export function processIsAlive(pid: number): boolean {

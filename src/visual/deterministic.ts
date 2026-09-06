@@ -1,3 +1,4 @@
+import { requireDefined, omitUndefined } from "../invariants.js";
 import fs from "node:fs";
 import path from "node:path";
 import { writeJson } from "../io.js";
@@ -68,12 +69,12 @@ export async function judgeVisualChecks(options: {
       }> = [];
       for (let i = 0; i < candidates.length; i++)
         for (let j = i + 1; j < candidates.length; j++) {
-          const left = signatures.get(candidates[i].id),
-            right = signatures.get(candidates[j].id);
+          const left = signatures.get(requireDefined(candidates[i], "candidates[i]").id),
+            right = signatures.get(requireDefined(candidates[j], "candidates[j]").id);
           const distance = left && right ? signatureDistance(left, right) : null;
           pairs.push({
-            left: candidates[i].id,
-            right: candidates[j].id,
+            left: requireDefined(candidates[i], "candidates[i]").id,
+            right: requireDefined(candidates[j], "candidates[j]").id,
             distance,
             minimumDistance: grader.minimumDistance,
             pass: distance === null ? null : distance >= grader.minimumDistance,
@@ -111,7 +112,7 @@ export async function judgeVisualChecks(options: {
       for (const [index, candidate] of candidates.entries()) {
         const image = readCandidate(candidate.id);
         const reference = reader.reference(`${item.id}/${candidate.id}/0`);
-        const before = await inspectImage(reference.bytes, grader);
+        const before = await inspectImage(reference.bytes, omitUndefined(grader));
         if (!image) {
           samples.push({
             id: candidate.id,
@@ -120,7 +121,7 @@ export async function judgeVisualChecks(options: {
           });
           continue;
         }
-        const after = await inspectImage(image.bytes, grader);
+        const after = await inspectImage(image.bytes, omitUndefined(grader));
         if (before.width !== after.width || before.height !== after.height)
           throw new Error(
             `${item.id}/${candidate.id}: baseline and candidate crop dimensions differ; use matching capture geometry`,

@@ -66,11 +66,10 @@ function compactBaselineReport(report: RunReport): RunReport {
     receipt: { ...report.receipt, target: receiptTarget },
     areas: report.areas.map((area) => ({
       ...area,
-      items: area.items.map((item) => ({
+      items: area.items.map(({ comparisons: _comparisons, ...item }) => ({
         ...item,
         reasoning: "Promoted baseline comparison snapshot.",
         evidenceRefs: [],
-        comparisons: undefined,
       })),
       defects: [],
       notes: "",
@@ -169,7 +168,7 @@ export function promoteBaseline(options: {
   }
   const promotionPayload: Omit<BaselinePromotion, "promotionSha256"> = {
     schemaVersion: 1,
-    images: options.includeImages ? images : undefined,
+    ...(options.includeImages ? { images } : {}),
     baselineName: options.name,
     snapshotId,
     sourceRunId: source.report.runId,
@@ -181,8 +180,12 @@ export function promoteBaseline(options: {
     target: {
       kind: source.report.target.kind,
       root: ".",
-      git: source.report.receipt.target.git,
-      treeSha256: source.report.receipt.target.treeSha256,
+      ...(source.report.receipt.target.git === undefined
+        ? {}
+        : { git: source.report.receipt.target.git }),
+      ...(source.report.receipt.target.treeSha256 === undefined
+        ? {}
+        : { treeSha256: source.report.receipt.target.treeSha256 }),
     },
     reviewer,
     promotedAt,
@@ -197,6 +200,8 @@ export function promoteBaseline(options: {
       fs.mkdirSync(path.join(staged, "images"));
       for (const [key, image] of Object.entries(images)) {
         const [scenarioId, shotPath] = JSON.parse(key) as string[];
+        if (scenarioId === undefined || shotPath === undefined)
+          throw new Error(`Invalid baseline image key: ${key}`);
         const scenario = source.report.areas
           .flatMap((area) => area.scenarios)
           .find((s) => s.scenarioId === scenarioId)!;

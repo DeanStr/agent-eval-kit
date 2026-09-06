@@ -65,11 +65,13 @@ function skippedEvidence(spec: EvalSpec, scenarioId: string, config: EvalConfig)
     scenarioId: scenario.id,
     scenarioName: scenario.name,
     kind: scenario.kind ?? (config.target.kind === "web" ? "browser" : "workspace"),
-    persona: scenario.persona,
-    sourceScenarioId: scenario.sourceScenarioId,
-    caseId: scenario.caseId,
-    strata: scenario.strata,
-    split: scenario.split,
+    ...(scenario.persona === undefined ? {} : { persona: scenario.persona }),
+    ...(scenario.sourceScenarioId === undefined
+      ? {}
+      : { sourceScenarioId: scenario.sourceScenarioId }),
+    ...(scenario.caseId === undefined ? {} : { caseId: scenario.caseId }),
+    ...(scenario.strata === undefined ? {} : { strata: scenario.strata }),
+    ...(scenario.split === undefined ? {} : { split: scenario.split }),
     outcome: "blocked",
     summary: "NOT RUN — excluded by scenario filter. No evidence was gathered.",
     observations: [],
@@ -78,7 +80,7 @@ function skippedEvidence(spec: EvalSpec, scenarioId: string, config: EvalConfig)
     screenshots: [],
     artifacts: {},
     provider: config.agent.provider,
-    model: config.agent.model,
+    ...(config.agent.model === undefined ? {} : { model: config.agent.model }),
     startedAt: now,
     finishedAt: now,
     durationMs: 0,
@@ -97,11 +99,13 @@ function dependencyBlockedEvidence(
     scenarioId: scenario.id,
     scenarioName: scenario.name,
     kind: scenario.kind ?? (config.target.kind === "web" ? "browser" : "workspace"),
-    persona: scenario.persona,
-    sourceScenarioId: scenario.sourceScenarioId,
-    caseId: scenario.caseId,
-    strata: scenario.strata,
-    split: scenario.split,
+    ...(scenario.persona === undefined ? {} : { persona: scenario.persona }),
+    ...(scenario.sourceScenarioId === undefined
+      ? {}
+      : { sourceScenarioId: scenario.sourceScenarioId }),
+    ...(scenario.caseId === undefined ? {} : { caseId: scenario.caseId }),
+    ...(scenario.strata === undefined ? {} : { strata: scenario.strata }),
+    ...(scenario.split === undefined ? {} : { split: scenario.split }),
     outcome: "blocked",
     summary: `Dependency not completed: ${unmet.map((item) => `${item.id} (${item.evidence?.outcome ?? "missing"})`).join(", ")}.`,
     observations: unmet.map(
@@ -113,7 +117,7 @@ function dependencyBlockedEvidence(
     screenshots: [],
     artifacts: {},
     provider: config.agent.provider,
-    model: config.agent.model,
+    ...(config.agent.model === undefined ? {} : { model: config.agent.model }),
     startedAt: now,
     finishedAt: now,
     durationMs: 0,
@@ -194,9 +198,11 @@ export async function runEvaluation(
         config,
         specs: sourceSpecs,
         fixtures,
-        scenarioIds: options.scenarioIds,
+        ...(options.scenarioIds === undefined ? {} : { scenarioIds: options.scenarioIds }),
         split: selectedSplit,
-        ignoredTargetPaths: options.ignoredTargetPaths,
+        ...(options.ignoredTargetPaths === undefined
+          ? {}
+          : { ignoredTargetPaths: options.ignoredTargetPaths }),
       },
       runDir,
     );
@@ -231,15 +237,17 @@ export async function runEvaluation(
       configFile: path.resolve(options.configFile),
       startedAt: new Date().toISOString(),
       selectedAreas: sourceSpecs.map((spec) => spec.id),
-      selectedScenarios: options.scenarioIds,
+      ...(options.scenarioIds === undefined ? {} : { selectedScenarios: options.scenarioIds }),
       selectedSplit,
       specHashes: hashes,
       inputFingerprint: receipts.current.inputFingerprint,
-      configOverrides: options.configOverrides,
+      ...(options.configOverrides === undefined
+        ? {}
+        : { configOverrides: options.configOverrides }),
     };
     state.schemaVersion = 1;
     state.inputFingerprint = receipts.current.inputFingerprint;
-    state.configOverrides = options.configOverrides ?? state.configOverrides;
+    if (options.configOverrides !== undefined) state.configOverrides = options.configOverrides;
     state.status = "running";
     state.pid = process.pid;
     delete state.lastError;
@@ -361,7 +369,10 @@ export async function runEvaluation(
         }
         for (const dependency of scenario.dependsOn) await collectScenario(dependency);
         const unmet = scenario.dependsOn
-          .map((id) => ({ id, evidence: allEvidence.get(id) }))
+          .map((id) => {
+            const evidence = allEvidence.get(id);
+            return { id, ...(evidence === undefined ? {} : { evidence }) };
+          })
           .filter((item) => item.evidence?.outcome !== "completed");
         const dependencyEvidence = Object.fromEntries(
           scenario.dependsOn.map((id) => [id, sha256(stableJson(allEvidence.get(id)!))]),

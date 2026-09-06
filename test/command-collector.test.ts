@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -117,10 +118,16 @@ test("command evidence reaches LLM and pairwise grading, seals sources, resumes,
   const value = await fixture(t);
   const result = await runEvaluation(value);
   const report = result.report!;
-  const evidence = report.areas[0].scenarios[0];
+  const evidence = requireDefined(
+    requireDefined(report.areas[0], "report.areas[0]").scenarios[0],
+    "report.areas[0].scenarios[0]",
+  );
   assert.equal(evidence.collector, "command");
   assert.equal(evidence.outcome, "completed");
-  assert.equal(evidence.screenshots[0].timeSeconds, 1.25);
+  assert.equal(
+    requireDefined(evidence.screenshots[0], "evidence.screenshots[0]").timeSeconds,
+    1.25,
+  );
   assert.equal(
     report.overallCoveragePct,
     0,
@@ -129,7 +136,13 @@ test("command evidence reaches LLM and pairwise grading, seals sources, resumes,
   assert.equal(report.gates.passed, false);
   assert.ok(verifyArtifactIndex(result.runDir).ok);
   assert.equal(
-    loadComparisonInput(result.runDir).report.areas[0].scenarios[0].collector,
+    requireDefined(
+      requireDefined(
+        loadComparisonInput(result.runDir).report.areas[0],
+        "loadComparisonInput(result.runDir).report.areas[0]",
+      ).scenarios[0],
+      "loadComparisonInput(result.runDir).report.areas[0].scenarios[0]",
+    ).collector,
     "command",
   );
   const candidate = visualEvidenceReader(result.runDir).candidate(evidence, "export");
@@ -142,7 +155,13 @@ test("command evidence reaches LLM and pairwise grading, seals sources, resumes,
   assert.match(prompt, /Copied the pinned PNG/);
   assert.match(prompt, /"visualAvailable": true/);
   const resumed = await runEvaluation({ ...value, resumeDir: result.runDir });
-  assert.equal(resumed.report!.areas[0].scenarios[0].startedAt, evidence.startedAt);
+  assert.equal(
+    requireDefined(
+      requireDefined(resumed.report!.areas[0], "resumed.report!.areas[0]").scenarios[0],
+      "resumed.report!.areas[0].scenarios[0]",
+    ).startedAt,
+    evidence.startedAt,
+  );
   const baseline = promoteBaseline({
     config: value.config,
     runDir: result.runDir,
@@ -182,14 +201,33 @@ test("collector decodes immutable snapshots even if the project original changes
   const value = await fixture(t);
   const receipt = prepare(value);
   fs.writeFileSync(path.join(value.root, "source.png"), "changed original");
-  const evidence = await collectCommand(value.config, value.specs[0].scenarios[0], value.directory);
+  const evidence = await collectCommand(
+    value.config,
+    requireDefined(
+      requireDefined(value.specs[0], "value.specs[0]").scenarios[0],
+      "value.specs[0].scenarios[0]",
+    ),
+    value.directory,
+  );
   assert.equal(evidence.outcome, "completed");
   assert.equal(
-    (await sharp(path.join(value.directory, evidence.screenshots[0].path)).metadata()).width,
+    (
+      await sharp(
+        path.join(
+          value.directory,
+          requireDefined(evidence.screenshots[0], "evidence.screenshots[0]").path,
+        ),
+      ).metadata()
+    ).width,
     32,
   );
   assert.ok(fs.existsSync(collectorInputPath(value.runDir, "EXPORT/artifact")));
-  assert.ok(receipt.inputs.collectorSources!["EXPORT/artifact"].sha256);
+  assert.ok(
+    requireDefined(
+      receipt.inputs.collectorSources!["EXPORT/artifact"],
+      'receipt.inputs.collectorSources!["EXPORT/artifact"]',
+    ).sha256,
+  );
 });
 
 test("blocked collection is unavailable evidence and never a fabricated score", async (t) => {
@@ -199,7 +237,13 @@ test("blocked collection is unavailable evidence and never a fabricated score", 
     `console.log(JSON.stringify({version:1,outcome:'blocked',summary:'Required page is unavailable in this artifact',observations:[],images:[]}))`,
   );
   const result = await runEvaluation(value);
-  assert.equal(result.report!.areas[0].scenarios[0].outcome, "blocked");
+  assert.equal(
+    requireDefined(
+      requireDefined(result.report!.areas[0], "result.report!.areas[0]").scenarios[0],
+      "result.report!.areas[0].scenarios[0]",
+    ).outcome,
+    "blocked",
+  );
   assert.equal(result.report!.overallCoveragePct, 0);
   assert.equal(result.report!.overallScorePct, null);
 });
@@ -262,7 +306,14 @@ test("collector rejects invalid manifests, paths, images, exits and modified sou
       fs.writeFileSync(path.join(value.root, "collect.mjs"), script);
       prepare(value);
       await assert.rejects(
-        collectCommand(value.config, value.specs[0].scenarios[0], value.directory),
+        collectCommand(
+          value.config,
+          requireDefined(
+            requireDefined(value.specs[0], "value.specs[0]").scenarios[0],
+            "value.specs[0].scenarios[0]",
+          ),
+          value.directory,
+        ),
         expected,
       );
       assert.equal(
@@ -278,7 +329,10 @@ test("collector timeout and cancellation terminate execution and retain errors",
       const value = await fixture(sub);
       fs.writeFileSync(path.join(value.root, "collect.mjs"), "setInterval(()=>{},1000)");
       prepare(value);
-      const scenario = value.specs[0].scenarios[0];
+      const scenario = requireDefined(
+        requireDefined(value.specs[0], "value.specs[0]").scenarios[0],
+        "value.specs[0].scenarios[0]",
+      );
       scenario.collect!.timeoutSeconds = cancel ? 10 : 0.1;
       const controller = new AbortController();
       const timer = cancel
@@ -303,7 +357,10 @@ test("collector timeout and cancellation terminate execution and retain errors",
 
 test("collector validation rejects wrong modes, unknown candidate labels and external sources before execution", async (t) => {
   const value = await fixture(t);
-  const scenario = value.specs[0].scenarios[0];
+  const scenario = requireDefined(
+    requireDefined(value.specs[0], "value.specs[0]").scenarios[0],
+    "value.specs[0].scenarios[0]",
+  );
   scenario.kind = "workspace";
   assert.throws(
     () => assertScenarioTargetCompatibility(value.specs, value.config.target),
@@ -353,7 +410,9 @@ test("matrix command images feed deterministic graders without model scores", as
     "identical exported images are an observed distinctness failure",
   );
   assert.deepEqual(
-    result.report!.areas[0].scenarios.map((s) => s.caseId),
+    requireDefined(result.report!.areas[0], "result.report!.areas[0]").scenarios.map(
+      (s) => s.caseId,
+    ),
     ["first", "second"],
   );
   assert.ok(result.report!.receipt.inputs.collectorSources!["EXPORT--first/artifact"]);
@@ -399,7 +458,14 @@ test("collector rejects method changes after snapshot and during execution", asy
       prepare(value);
       if (!during) fs.appendFileSync(path.join(value.root, "collect.mjs"), "// changed");
       await assert.rejects(
-        collectCommand(value.config, value.specs[0].scenarios[0], value.directory),
+        collectCommand(
+          value.config,
+          requireDefined(
+            requireDefined(value.specs[0], "value.specs[0]").scenarios[0],
+            "value.specs[0].scenarios[0]",
+          ),
+          value.directory,
+        ),
         /Collector method changed/,
       );
       assert.equal(
@@ -434,19 +500,30 @@ test("scenario selection skips unavailable collector inputs and preserves blocke
     "EXPORT/collect.mjs",
   ]);
   assert.equal(
-    result.report!.areas[0].scenarios.find((s) => s.scenarioId === "UNSELECTED")!.outcome,
+    requireDefined(result.report!.areas[0], "result.report!.areas[0]").scenarios.find(
+      (s) => s.scenarioId === "UNSELECTED",
+    )!.outcome,
     "blocked",
   );
   const resumed = await runEvaluation({ ...options, resumeDir: result.runDir });
   assert.equal(
-    resumed.report!.areas[0].scenarios[0].startedAt,
-    result.report!.areas[0].scenarios[0].startedAt,
+    requireDefined(
+      requireDefined(resumed.report!.areas[0], "resumed.report!.areas[0]").scenarios[0],
+      "resumed.report!.areas[0].scenarios[0]",
+    ).startedAt,
+    requireDefined(
+      requireDefined(result.report!.areas[0], "result.report!.areas[0]").scenarios[0],
+      "result.report!.areas[0].scenarios[0]",
+    ).startedAt,
   );
 });
 
 test("collector input selection accepts both matrix template and materialized case IDs", async (t) => {
   const value = await fixture(t);
-  const scenario = value.specs[0].scenarios[0];
+  const scenario = requireDefined(
+    requireDefined(value.specs[0], "value.specs[0]").scenarios[0],
+    "value.specs[0].scenarios[0]",
+  );
   scenario.cases = [
     { id: "first", variables: {}, strata: [] },
     { id: "second", variables: {}, strata: [] },
@@ -484,9 +561,11 @@ test("offline rescore rejects missing or invalid required collector provenance w
       const entries = damaged.inputs[field]!;
       if (corruption === "missing map") delete damaged.inputs[field];
       else if (corruption === "missing entry") delete entries[key];
-      else if (corruption === "invalid hash") entries[key].sha256 = "not-a-hash";
-      else if (corruption === "missing bytes") Reflect.deleteProperty(entries[key], "bytes");
-      else entries[key].bytes = -1;
+      else if (corruption === "invalid hash")
+        requireDefined(entries[key], "entries[key]").sha256 = "not-a-hash";
+      else if (corruption === "missing bytes")
+        Reflect.deleteProperty(requireDefined(entries[key], "entries[key]"), "bytes");
+      else requireDefined(entries[key], "entries[key]").bytes = -1;
       assert.throws(
         () => buildRunReceipt({ ...value, evidenceProvenance: damaged }),
         /Saved collector .* provenance is missing or invalid.*offline rescore cannot reconstruct provenance/,
@@ -498,7 +577,10 @@ test("offline rescore rejects missing or invalid required collector provenance w
 
 test("collector declarations skip non-collectors but never substitute empty required fields", async (t) => {
   const value = await fixture(t);
-  const scenario = value.specs[0].scenarios[0];
+  const scenario = requireDefined(
+    requireDefined(value.specs[0], "value.specs[0]").scenarios[0],
+    "value.specs[0].scenarios[0]",
+  );
   const collect = scenario.collect!;
   delete scenario.collect;
   scenario.kind = "workspace";
@@ -516,7 +598,10 @@ test("collector declarations skip non-collectors but never substitute empty requ
 
 test("offline collector provenance requirements follow split and scenario selection", async (t) => {
   const value = await fixture(t);
-  value.specs[0].scenarios[0].cases = [
+  requireDefined(
+    requireDefined(value.specs[0], "value.specs[0]").scenarios[0],
+    "value.specs[0].scenarios[0]",
+  ).cases = [
     { id: "dev", split: "development", variables: {}, strata: [] },
     { id: "eval", split: "evaluation", variables: {}, strata: [] },
   ];

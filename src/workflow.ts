@@ -175,7 +175,7 @@ export function registerOutputTool(
         const file = path.join(options.directory, "outputs.json");
         const prior = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
         const outputs = validateOutputs(
-          { outputs: options.outputs },
+          { ...(options.outputs === undefined ? {} : { outputs: options.outputs }) },
           { ...prior, [name]: { value, evidenceRefs } },
           readNdjson<TranscriptEntry>(options.transcriptFile),
         );

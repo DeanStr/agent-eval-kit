@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -68,7 +69,7 @@ test("checker bytes change compatibility; target bytes do not; offline rescore p
 
 test("method declarations fail before execution when missing, duplicated, or unreadable", async (t) => {
   const { config, specs, checker } = fixture(t);
-  const file = specs[0].sourceFile;
+  const file = requireDefined(specs[0], "specs[0]").sourceFile;
   const original = fs.readFileSync(file, "utf8");
   fs.writeFileSync(file, original.replaceAll("methodFiles: [check.mjs], ", ""));
   assert.throws(() => loadSpecs(config.paths.specs), /methodFiles/);
@@ -101,7 +102,7 @@ test("checker and snapshot mutation are rejected before launch, and self-modific
       await assert.rejects(
         judgeArea({
           config,
-          spec: specs[0],
+          spec: requireDefined(specs[0], "specs[0]"),
           evidence: [],
           runDir,
           areaDirectory: path.join(runDir, "areas/cart"),

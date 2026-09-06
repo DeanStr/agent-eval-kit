@@ -1,3 +1,4 @@
+import { omitUndefined } from "./invariants.js";
 import fs from "node:fs";
 import path from "node:path";
 import { runReportSchema } from "./artifact-schemas.js";
@@ -124,8 +125,10 @@ function snapshot(report: RunReport): RunSnapshot {
     coveragePct: report.overallCoveragePct,
     scoreWithheld: report.scoreWithheld,
     evaluationFingerprint: report.receipt.evaluationFingerprint,
-    git: report.receipt.target.git,
-    treeSha256: report.receipt.target.treeSha256,
+    ...(report.receipt.target.git === undefined ? {} : { git: report.receipt.target.git }),
+    ...(report.receipt.target.treeSha256 === undefined
+      ? {}
+      : { treeSha256: report.receipt.target.treeSha256 }),
   };
 }
 
@@ -283,15 +286,15 @@ export function compareReports(
     const candidateArea = candidateAreas.get(areaId);
     const unavailableIfUnproven = (item: JudgedItem, area: AreaResult | undefined): JudgedItem =>
       area?.unproven.includes(item.id)
-        ? {
+        ? omitUndefined({
             ...item,
-            verdict: "cannot_judge",
-            confidence: "low",
+            verdict: "cannot_judge" as const,
+            confidence: "low" as const,
             score:
               item.score && !item.components
                 ? { ...item.score, earned: 0, judgeable: 0, scorePct: null, coveragePct: 0 }
                 : item.score,
-          }
+          })
         : item;
     const beforeItems = (baselineArea?.items ?? []).map((item) =>
       unavailableIfUnproven(item, baselineArea),
@@ -307,8 +310,8 @@ export function compareReports(
       items.push({
         areaId,
         id,
-        baselineVerdict: before?.verdict,
-        candidateVerdict: after?.verdict,
+        ...(before?.verdict === undefined ? {} : { baselineVerdict: before?.verdict }),
+        ...(after?.verdict === undefined ? {} : { candidateVerdict: after?.verdict }),
         scorePct: metric(
           before?.score?.scorePct ?? null,
           after?.score?.scorePct ?? null,

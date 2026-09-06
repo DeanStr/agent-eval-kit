@@ -1,3 +1,4 @@
+import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -87,19 +88,30 @@ test("suite dependencies validate cycles, bindings, matrix expansion and missing
     let specs = loadSpecs(f.specsDir);
     assert.doesNotThrow(() => validateWorkflowSelection(specs));
     assert.throws(
-      () => validateWorkflowSelection([specs[0]]),
+      () => validateWorkflowSelection([requireDefined(specs[0], "specs[0]")]),
       /CREATE.*outside the selected areas/,
     );
     f.producer.cases = [{ id: "one", variables: {}, strata: [] }];
     f.consumer.cases = [{ id: "one", variables: {}, strata: [] }];
     f.write();
     assert.throws(
-      () => materializeSpec(loadSpecs(f.specsDir)[0]),
+      () => materializeSpec(requireDefined(loadSpecs(f.specsDir)[0], "loadSpecs(f.specsDir)[0]")),
       /Cannot expand dependency CREATE/,
     );
     specs = materializeSpecs(loadSpecs(f.specsDir));
-    assert.deepEqual(specs[0].scenarios[0].dependsOn, ["CREATE--one"]);
-    assert.equal(specs[0].scenarios[0].inputs?.record.from, "CREATE--one");
+    assert.deepEqual(
+      requireDefined(requireDefined(specs[0], "specs[0]").scenarios[0], "specs[0].scenarios[0]")
+        .dependsOn,
+      ["CREATE--one"],
+    );
+    assert.equal(
+      requireDefined(
+        requireDefined(requireDefined(specs[0], "specs[0]").scenarios[0], "specs[0].scenarios[0]")
+          .inputs?.record,
+        "specs[0].scenarios[0].inputs?.record",
+      ).from,
+      "CREATE--one",
+    );
     f.consumer.inputs.record.output = "missing";
     f.write();
     assert.throws(() => loadSpecs(f.specsDir), /unknown output CREATE.missing/);
@@ -121,11 +133,11 @@ test("split filtering retains transitive setup areas without scoring them", asyn
     const specs = loadSpecs(f.specsDir);
     const producer = specs.find((spec) => spec.id === "producer")!;
     const consumer = specs.find((spec) => spec.id === "consumer")!;
-    delete producer.scenarios[0].outputs;
-    delete consumer.scenarios[0].inputs;
-    producer.scenarios[0].dependsOn = ["PREPARE"];
+    delete requireDefined(producer.scenarios[0], "producer.scenarios[0]").outputs;
+    delete requireDefined(consumer.scenarios[0], "consumer.scenarios[0]").inputs;
+    requireDefined(producer.scenarios[0], "producer.scenarios[0]").dependsOn = ["PREPARE"];
     producer.scenarios.push({ ...scenario("EVALUATE"), split: "evaluation" }, scenario("UNUSED"));
-    producer.rubric[0].scenarios = ["EVALUATE"];
+    requireDefined(producer.rubric[0], "producer.rubric[0]").scenarios = ["EVALUATE"];
     const setup = {
       ...producer,
       id: "setup",
@@ -133,7 +145,13 @@ test("split filtering retains transitive setup areas without scoring them", asyn
         scenario("PREPARE"),
         { ...scenario("EVALUATE-SETUP"), split: "evaluation" as const },
       ],
-      rubric: [{ ...producer.rubric[0], id: "R-setup", scenarios: ["EVALUATE-SETUP"] }],
+      rubric: [
+        {
+          ...requireDefined(producer.rubric[0], "producer.rubric[0]"),
+          id: "R-setup",
+          scenarios: ["EVALUATE-SETUP"],
+        },
+      ],
     };
     setup.sourceFile = path.join(f.specsDir, "03-setup.yaml");
     const unused = {
@@ -144,7 +162,13 @@ test("split filtering retains transitive setup areas without scoring them", asyn
         scenario("UNUSED-DEPENDENCY"),
         { ...scenario("EVALUATE-UNUSED"), split: "evaluation" as const },
       ],
-      rubric: [{ ...producer.rubric[0], id: "R-unused", scenarios: ["EVALUATE-UNUSED"] }],
+      rubric: [
+        {
+          ...requireDefined(producer.rubric[0], "producer.rubric[0]"),
+          id: "R-unused",
+          scenarios: ["EVALUATE-UNUSED"],
+        },
+      ],
     };
     producer.scenarios.find((s) => s.id === "UNUSED")!.cases = [
       { id: "one", variables: {}, strata: ["kind=unused"] },
@@ -244,14 +268,21 @@ test("outputs require declared types and real successful evidence; bindings reta
     /type string/,
   );
   assert.throws(
-    () => validateOutputs(declaration, output, [{ ...transcript[0], isError: true }]),
+    () =>
+      validateOutputs(declaration, output, [
+        { ...requireDefined(transcript[0], "transcript[0]"), isError: true },
+      ]),
     /unavailable evidence/,
   );
   assert.throws(
     () =>
       validateOutputs(declaration, output, [
-        { ...transcript[0], tool: "observe", input: { note: "Invented record-42" } },
-        { ...transcript[0], step: 2 },
+        {
+          ...requireDefined(transcript[0], "transcript[0]"),
+          tool: "observe",
+          input: { note: "Invented record-42" },
+        },
+        { ...requireDefined(transcript[0], "transcript[0]"), step: 2 },
       ]),
     /unavailable evidence step:1/,
   );
@@ -288,8 +319,14 @@ test("missing outputs block downstream execution without fabricated values or sc
       specs: loadSpecs(f.specsDir),
       fixtures: {},
     });
-    const producer = result.report!.areas.find((area) => area.id === "producer")!.scenarios[0];
-    const consumer = result.report!.areas.find((area) => area.id === "consumer")!.scenarios[0];
+    const producer = requireDefined(
+      result.report!.areas.find((area) => area.id === "producer")!.scenarios[0],
+      'result.report!.areas.find((area) => area.id === "producer")!.scenarios[0]',
+    );
+    const consumer = requireDefined(
+      result.report!.areas.find((area) => area.id === "consumer")!.scenarios[0],
+      'result.report!.areas.find((area) => area.id === "consumer")!.scenarios[0]',
+    );
     assert.equal(producer.outcome, "blocked");
     assert.match(producer.summary, /Required outputs unavailable: record/);
     assert.equal(consumer.outcome, "blocked");
@@ -344,13 +381,25 @@ console.log(JSON.stringify({type:'result',structured_output:result,result:JSON.s
       fs.readFileSync(path.join(result.runDir, "VERIFY", "prompt.md"), "utf8"),
       /record-/,
     );
-    const bound = result.report!.areas[0].scenarios[0].inputs!.record;
+    const bound = requireDefined(
+      requireDefined(
+        requireDefined(result.report!.areas[0], "result.report!.areas[0]").scenarios[0],
+        "result.report!.areas[0].scenarios[0]",
+      ).inputs!.record,
+      "result.report!.areas[0].scenarios[0].inputs!.record",
+    );
     assert.equal(bound.scenarioId, "CREATE");
     const file = path.join(result.runDir, "CREATE", "outputs.json");
     const before = fs.statSync(file).mtimeMs;
     const resumed = await runEvaluation({ ...options, resumeDir: result.runDir });
     assert.equal(fs.statSync(file).mtimeMs, before);
-    assert.deepEqual(resumed.report!.areas[0].scenarios[0].inputs!.record, bound);
+    assert.deepEqual(
+      requireDefined(
+        requireDefined(resumed.report!.areas[0], "resumed.report!.areas[0]").scenarios[0],
+        "resumed.report!.areas[0].scenarios[0]",
+      ).inputs!.record,
+      bound,
+    );
     // Simulate a second interruption after new upstream evidence was sealed but
     // before the dependent evidence and report were regenerated.
     const sourceFile = path.join(result.runDir, "CREATE", "evidence.json");
@@ -361,11 +410,25 @@ console.log(JSON.stringify({type:'result',structured_output:result,result:JSON.s
     writeArtifactIndex(result.runDir);
     const twiceResumed = await runEvaluation({ ...options, resumeDir: result.runDir });
     assert.equal(
-      twiceResumed.report!.areas[0].scenarios[0].inputs!.record.value,
+      requireDefined(
+        requireDefined(
+          requireDefined(twiceResumed.report!.areas[0], "twiceResumed.report!.areas[0]")
+            .scenarios[0],
+          "twiceResumed.report!.areas[0].scenarios[0]",
+        ).inputs!.record,
+        "twiceResumed.report!.areas[0].scenarios[0].inputs!.record",
+      ).value,
       "record-after-interruption",
     );
     assert.equal(
-      twiceResumed.report!.areas[1].scenarios[0].outputs!.record.value,
+      requireDefined(
+        requireDefined(
+          requireDefined(twiceResumed.report!.areas[1], "twiceResumed.report!.areas[1]")
+            .scenarios[0],
+          "twiceResumed.report!.areas[1].scenarios[0]",
+        ).outputs!.record,
+        "twiceResumed.report!.areas[1].scenarios[0].outputs!.record",
+      ).value,
       "record-after-interruption",
     );
     // An interrupted upstream scenario must invalidate downstream evidence and
@@ -377,9 +440,24 @@ console.log(JSON.stringify({type:'result',structured_output:result,result:JSON.s
     // Recollection can be interrupted after removing previously sealed outputs.
     fs.rmSync(file);
     const recovered = await runEvaluation({ ...options, resumeDir: result.runDir });
-    const newBound = recovered.report!.areas[0].scenarios[0].inputs!.record;
+    const newBound = requireDefined(
+      requireDefined(
+        requireDefined(recovered.report!.areas[0], "recovered.report!.areas[0]").scenarios[0],
+        "recovered.report!.areas[0].scenarios[0]",
+      ).inputs!.record,
+      "recovered.report!.areas[0].scenarios[0].inputs!.record",
+    );
     assert.notEqual(newBound.value, bound.value);
-    assert.equal(newBound.value, recovered.report!.areas[1].scenarios[0].outputs!.record.value);
+    assert.equal(
+      newBound.value,
+      requireDefined(
+        requireDefined(
+          requireDefined(recovered.report!.areas[1], "recovered.report!.areas[1]").scenarios[0],
+          "recovered.report!.areas[1].scenarios[0]",
+        ).outputs!.record,
+        "recovered.report!.areas[1].scenarios[0].outputs!.record",
+      ).value,
+    );
     assert.match(
       fs.readFileSync(path.join(result.runDir, "VERIFY", "prompt.md"), "utf8"),
       new RegExp(String(newBound.value)),
