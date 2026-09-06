@@ -7,7 +7,6 @@ import { buildReport, hybridAggregateVerdict, scoreArea } from "./scoring.js";
 import type {
   EvalConfig,
   EvalSpec,
-  JudgedItem,
   RunReport,
   Verdict,
 } from "./types.js";

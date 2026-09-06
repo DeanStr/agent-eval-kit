@@ -25,9 +25,9 @@ export interface PrivacyLintReport {
 
 const rules: Array<{ id: string; expression: RegExp; message: string }> = [
   { id: "private-key", expression: /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/i, message: "Private-key material" },
-  { id: "bearer-token", expression: /\bBearer\s+[A-Za-z0-9._~+\/-]{12,}={0,2}\b/i, message: "Bearer credential" },
+  { id: "bearer-token", expression: /\bBearer\s+[A-Za-z0-9._~+/-]{12,}={0,2}\b/i, message: "Bearer credential" },
   { id: "known-api-token", expression: /\b(?:sk-(?:proj-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{16,}|AKIA[0-9A-Z]{16})\b/, message: "Token matching a known credential format" },
-  { id: "secret-assignment", expression: /\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|private[_-]?key|session[_-]?cookie|password|secret)\b["']?\s*[:=]\s*["']?[A-Za-z0-9._~+\/-]{8,}/i, message: "Probable secret assignment" },
+  { id: "secret-assignment", expression: /\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|private[_-]?key|session[_-]?cookie|password|secret)\b["']?\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{8,}/i, message: "Probable secret assignment" },
   { id: "jwt", expression: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/, message: "JSON Web Token" },
   { id: "email-address", expression: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i, message: "Email address" },
   { id: "home-path", expression: /(?:^|[\s"'])(?:\/home\/[^/\s"']+|\/Users\/[^/\s"']+|[A-Za-z]:\\Users\\[^\\\s"']+)/, message: "User-specific absolute home path" },

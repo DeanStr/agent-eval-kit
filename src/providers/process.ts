@@ -213,7 +213,7 @@ export async function spawnCaptured(options: {
   });
 }
 
-export function subscriptionEnvironment(provider: "codex" | "claude" | "grok"): NodeJS.ProcessEnv {
+export function subscriptionEnvironment(): NodeJS.ProcessEnv {
   // Provider processes can invoke tools before their event stream is checked.
   // Start from an allowlist so arbitrary shell, CI, and project-.env secrets
   // are never available to those tools in the first place. Subscription auth

@@ -4,7 +4,7 @@ import path from "node:path";
 export class RunLogger {
   private readonly stream: fs.WriteStream;
 
-  constructor(private readonly file: string) {
+  constructor(file: string) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     this.stream = fs.createWriteStream(file, { flags: "a" });
   }

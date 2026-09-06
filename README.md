@@ -596,6 +596,7 @@ See [shared judging contracts](docs/judging-contracts.md) for identity, evidence
 See [internal boundaries](docs/internal-boundaries.md) for run recovery, input provenance, browser interactions, and scoring responsibilities.
 
 ```bash
+pnpm lint
 pnpm typecheck
 pnpm test
 pnpm smoke:browser
@@ -604,6 +605,8 @@ pnpm test:reference
 pnpm smoke:package
 pnpm build
 ```
+
+Code linting uses [Biome](https://biomejs.dev/) with its recommended preset. Run `pnpm lint:fix` to apply safe fixes. Formatting and import organization are disabled. The configuration allows non-null assertions, string concatenation, explicit null guards, and assignments in loop conditions to preserve existing code conventions. Lint warnings fail CI.
 
 The fast browser smoke covers the basic contract. The full regression fixture covers SPA click targets, custom dropdowns, rich-text editors, temporal inputs, iframes, open shadow DOM, modal scoping, overlays, nested upload controls, drag-and-drop, inner scroll containers, origin containment, synthesized labels, ref-budget collapse, and bounded screenshots.
 

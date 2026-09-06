@@ -76,7 +76,7 @@ export async function runGrok(invocation: ProviderInvocation): Promise<ProviderR
         ? "Edit,Write,WebFetch,WebSearch"
         : "Read,Glob,Grep,Bash,Edit,Write,WebFetch,WebSearch",
     );
-    const environment = subscriptionEnvironment("grok");
+    const environment = subscriptionEnvironment();
     environment.HOME = isolatedHome;
     environment.USERPROFILE = isolatedHome;
     environment.GROK_HOME = isolatedGrokHome;

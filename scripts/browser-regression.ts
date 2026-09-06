@@ -5,6 +5,7 @@
  *
  *   pnpm run smoke
  */
+import assert from "node:assert/strict";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
@@ -84,7 +85,8 @@ try {
   }
   // A miss must report the options that were actually there, not a raw stack.
   const missSnap = await b.snapshot();
-  const comboRef2 = missSnap.match(/\[(e\d+)\][^\n]*Platform & Infra/)?.[1]!;
+  const comboRef2 = missSnap.match(/\[(e\d+)\][^\n]*Platform & Infra/)?.[1];
+  assert(comboRef2, "Missing snapshot reference: comboRef2");
   const miss = await b.select(comboRef2, "Quantum Basketweaving");
   if (!miss.startsWith("ERROR") || !miss.includes("AI Engineering")) {
     throw new Error(`combobox miss should list real options, got: ${miss}`);
@@ -295,7 +297,8 @@ try {
   // leaving ~150 dead background refs that each cost an 8s timeout.
   // ---------------------------------------------------------------------
   snap = await b.snapshot();
-  const openRadix = snap.match(/\[(e\d+)\][^\n]*Manage evaluators/)?.[1]!;
+  const openRadix = snap.match(/\[(e\d+)\][^\n]*Manage evaluators/)?.[1];
+  assert(openRadix, "Missing snapshot reference: openRadix");
   const inSheet = await b.click(openRadix);
   if (!inSheet.includes('MODAL OPEN: "Evaluator settings')) {
     console.error(inSheet.slice(0, 1200));
@@ -315,7 +318,8 @@ try {
 
   // A NON-MODAL <dialog> opened with show() must NOT scope the snapshot.
   snap = await b.snapshot();
-  const openPlain = snap.match(/\[(e\d+)\][^\n]*Open tips \(non-modal\)/)?.[1]!;
+  const openPlain = snap.match(/\[(e\d+)\][^\n]*Open tips \(non-modal\)/)?.[1];
+  assert(openPlain, "Missing snapshot reference: openPlain");
   const withPlain = await b.click(openPlain);
   if (withPlain.includes("MODAL OPEN")) {
     throw new Error("a non-modal <dialog> (show()) was wrongly treated as a modal");
@@ -323,7 +327,8 @@ try {
   if (!/\[e\d+\] <button[^>]*> Submit proposal/.test(withPlain)) {
     throw new Error("page controls disappeared for a non-modal dialog");
   }
-  const closePlain = withPlain.match(/\[(e\d+)\][^\n]*Close tips/)?.[1]!;
+  const closePlain = withPlain.match(/\[(e\d+)\][^\n]*Close tips/)?.[1];
+  assert(closePlain, "Missing snapshot reference: closePlain");
   await b.click(closePlain);
   console.log("non-modal <dialog> stays unscoped: OK");
 
@@ -333,10 +338,12 @@ try {
   // control. It must be named, and recovery must work.
   // ---------------------------------------------------------------------
   snap = await b.snapshot();
-  const veilBtn = snap.match(/\[(e\d+)\][^\n]*Show consent veil/)?.[1]!;
+  const veilBtn = snap.match(/\[(e\d+)\][^\n]*Show consent veil/)?.[1];
+  assert(veilBtn, "Missing snapshot reference: veilBtn");
   await b.click(veilBtn);
   snap = await b.snapshot();
-  const target = snap.match(/\[(e\d+)\][^\n]*Publish agenda/)?.[1]!;
+  const target = snap.match(/\[(e\d+)\][^\n]*Publish agenda/)?.[1];
+  assert(target, "Missing snapshot reference: target");
   const blocked = await b.click(target);
   if (!blocked.startsWith("ERROR") || !blocked.includes("consent-veil")) {
     throw new Error(`blocked click should name the overlay, got: ${blocked.slice(0, 300)}`);
@@ -344,7 +351,8 @@ try {
   console.log(`blocked click diagnosed: ${blocked.slice(0, 140)}…`);
   await b.press("Escape");
   snap = await b.snapshot();
-  const target2 = snap.match(/\[(e\d+)\][^\n]*Publish agenda/)?.[1]!;
+  const target2 = snap.match(/\[(e\d+)\][^\n]*Publish agenda/)?.[1];
+  assert(target2, "Missing snapshot reference: target2");
   if (!(await b.click(target2)).includes("PUBLISHED")) {
     throw new Error("click did not succeed after the veil was dismissed");
   }
@@ -355,7 +363,8 @@ try {
   // them sends the agent into 8s timeouts on dead controls.
   // ---------------------------------------------------------------------
   snap = await b.snapshot();
-  const openModalRef = snap.match(/\[(e\d+)\][^\n]*Edit session details/)?.[1]!;
+  const openModalRef = snap.match(/\[(e\d+)\][^\n]*Edit session details/)?.[1];
+  assert(openModalRef, "Missing snapshot reference: openModalRef");
   const inModal = await b.click(openModalRef);
   if (!inModal.includes('MODAL OPEN: "Edit session"')) {
     throw new Error("open modal was not announced in the snapshot");

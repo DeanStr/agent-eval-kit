@@ -138,6 +138,7 @@ test("prototype-named fixtures remain in receipts and affect fingerprints", () =
 
   const first = buildRunReceipt({ config, specs: [spec], fixtures });
   assert.equal(Object.hasOwn(first.inputs.fixtures?.files ?? {}, "__proto__"), true);
+  // biome-ignore lint/suspicious/noProto: Verify an own property named __proto__ survives serialization.
   assert.equal(first.inputs.fixtures?.files.__proto__.bytes, Buffer.byteLength("first\n"));
   fs.writeFileSync(fixtureData, "changed\n");
   const changed = buildRunReceipt({ config, specs: [spec], fixtures });

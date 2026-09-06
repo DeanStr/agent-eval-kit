@@ -61,10 +61,12 @@ export class BrowserPointer {
     if (!blocker) {
       try {
         await loc.click({ timeout: 8_000 });
-      } catch (err: any) {
+      } catch (err) {
         blocker = await this.describeClickBlocker(loc);
         if (!blocker) {
-          return `ERROR: click on ${ref} failed: ${String(err?.message ?? err).split("\n")[0].slice(0, 200)}`;
+          const message = err !== null && (typeof err === "object" || typeof err === "function") && "message" in err
+            ? err.message ?? err : err;
+          return `ERROR: click on ${ref} failed: ${String(message).split("\n")[0].slice(0, 200)}`;
         }
       }
     }

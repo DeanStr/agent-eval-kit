@@ -10,7 +10,7 @@ export function inputFileReceipt(file: string): ArtifactReceipt {
   let bytes = 0;
   try {
     const buffer = Buffer.allocUnsafe(1024 * 1024);
-    let count;
+    let count: number;
     while ((count = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0) {
       bytes += count;
       if (bytes > 1024 ** 3) throw new Error(`Input file grew beyond 1 GiB: ${file}`);

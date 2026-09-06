@@ -6,7 +6,7 @@ import path from "node:path";
 import YAML from "yaml";
 import { z } from "zod";
 import { isPortablePathComponent, stableJson } from "./io.js";
-import type { EvalConfig, EvalSpec, EvalSplit, RubricItem, Scenario, ScenarioCase } from "./types.js";
+import type { EvalConfig, EvalSpec, EvalSplit, RubricItem, Scenario } from "./types.js";
 
 const graderSchema = z.discriminatedUnion("type", [
   pairwiseSchema,
@@ -399,7 +399,7 @@ export function materializeSpecs(specs: EvalSpec[], selectedSplit: EvalSplit | "
     required.add(id);
     scenario.dependsOn.forEach(include);
   }
-  for (const spec of active) if (scored.has(spec.id)) spec.scenarios.forEach(scenario => include(scenario.id));
+  for (const spec of active) if (scored.has(spec.id)) spec.scenarios.forEach(scenario => { include(scenario.id); });
   // Areas without scoring items contribute only prerequisites, never score weight.
   return active.flatMap(spec => {
     if (scored.has(spec.id)) return [materializeSpec(spec, selectedSplit, specs)];

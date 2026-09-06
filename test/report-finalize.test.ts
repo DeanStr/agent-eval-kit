@@ -108,6 +108,7 @@ test("finalizing an unproven hybrid result scores only its manual share", () => 
   }, [prototypeSpec]);
   const prototypeManual = JSON.parse(fs.readFileSync(path.join(runDir, "manual-results.json"), "utf8"));
   assert.equal(Object.hasOwn(prototypeManual, "__proto__"), true);
+  // biome-ignore lint/suspicious/noProto: Verify an own property named __proto__ survives serialization.
   assert.equal(prototypeManual.__proto__.verdict, "pass | partial | fail | not_found");
 
   fs.writeFileSync(path.join(runDir, "manual-results.json"), JSON.stringify({ UNKNOWN: { verdict: "pass" } }));

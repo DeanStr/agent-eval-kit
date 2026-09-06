@@ -72,7 +72,7 @@ async function runIsolatedCodex(
     args,
     cwd: workingDirectory,
     stdin: fs.readFileSync(invocation.promptFile, "utf8"),
-    env: subscriptionEnvironment("codex"),
+    env: subscriptionEnvironment(),
     timeoutSeconds: invocation.timeoutSeconds,
     stdoutFile: invocation.eventLogFile,
     stderrFile: invocation.stderrFile,

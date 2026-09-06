@@ -46,7 +46,7 @@ test("config refuses a missing environment interpolation", () => {
     file,
     `version: 1
 project: { name: Demo, root: . }
-target: { kind: web, url: "${"${AEK_TEST_MISSING}"}" }
+target: { kind: web, url: "\${AEK_TEST_MISSING}" }
 `,
   );
   assert.throws(() => loadConfig(file), /missing environment variable AEK_TEST_MISSING/);

@@ -27,6 +27,7 @@ export function readText(file: string): { bytes: Buffer; text: string } {
   let text: string;
   try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes); }
   catch (error) { throw new Error(`Text input must be valid UTF-8: ${file}`, { cause: error }); }
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: Reject binary control characters in text inputs.
   if (!text.trim() || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(text)) throw new Error(`Text input is empty or contains binary control characters: ${file}`);
   return { bytes, text };
 }

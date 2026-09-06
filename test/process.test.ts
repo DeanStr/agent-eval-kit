@@ -56,7 +56,7 @@ test("subscription provider environments expose only required runtime settings",
   const original = Object.fromEntries(names.map((name) => [name, process.env[name]]));
   for (const name of names) process.env[name] = "must-not-be-inherited";
   try {
-    const environment = subscriptionEnvironment("claude");
+    const environment = subscriptionEnvironment();
     for (const name of names) assert.equal(environment[name], undefined, name);
     assert.equal(environment.PATH, process.env.PATH);
     assert.equal(environment.NO_COLOR, "1");
@@ -73,7 +73,7 @@ test("subscription provider environments fail fast on credential-bearing proxies
   process.env.HTTPS_PROXY = "https://proxy-user:proxy-password@proxy.example.test:8443";
   try {
     assert.throws(
-      () => subscriptionEnvironment("codex"),
+      () => subscriptionEnvironment(),
       /credential-bearing provider proxy setting HTTPS_PROXY/,
     );
   } finally {

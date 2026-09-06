@@ -32,7 +32,7 @@ export async function runClaude(invocation: ProviderInvocation): Promise<Provide
       const destination = path.join(isolatedConfig, ".credentials.json");
       persistCredentials = stageCredentials(credentials, destination);
     }
-    const environment = subscriptionEnvironment("claude");
+    const environment = subscriptionEnvironment();
     environment.HOME = isolatedHome;
     environment.USERPROFILE = isolatedHome;
     environment.CLAUDE_CONFIG_DIR = isolatedConfig;

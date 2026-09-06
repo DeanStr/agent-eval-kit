@@ -78,7 +78,7 @@ export async function collectFrame(
         let isModal = false;
         try {
           isModal = el.matches(":modal"); // <dialog> opened with showModal()
-        } catch (e) {
+        } catch {
           isModal = false;
         }
         if (!isModal) {
@@ -127,7 +127,7 @@ export async function collectFrame(
       let isExp = false;
       try {
         isExp = el.matches(selector);
-      } catch (e) {
+      } catch {
         isExp = false;
       }
       if (isExp) {
@@ -259,7 +259,7 @@ export async function collectFrame(
       let rowNode: Element | null = null;
       try {
         rowNode = el.closest('tr,[role="row"]');
-      } catch (e) {
+      } catch {
         rowNode = null;
       }
       if (rowNode) {
@@ -317,7 +317,7 @@ export async function collectFrame(
               let interactive = false;
               try {
                 interactive = ce.matches(selector) || !!ce.querySelector(selector);
-              } catch (e) {
+              } catch {
                 interactive = true; // unknown => assume it is another control
               }
               if (interactive) continue;
@@ -378,7 +378,7 @@ export async function collectFrame(
       let chrome: Element | null = null;
       try {
         chrome = el.closest('nav,aside,[role="navigation"],[role="complementary"]');
-      } catch (e) {
+      } catch {
         chrome = null;
       }
       if (chrome) {

@@ -315,7 +315,7 @@ export class BrowserForms {
       }
       await scope
         .locator('[data-aek-opt="1"]')
-        .evaluateAll((els) => els.forEach((e) => e.removeAttribute("data-aek-opt")))
+        .evaluateAll((els) => els.forEach((e) => { e.removeAttribute("data-aek-opt"); }))
         .catch(() => {});
     }
     const { disabled: _disabled, ...result } = found;

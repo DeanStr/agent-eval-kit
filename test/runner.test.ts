@@ -103,7 +103,7 @@ test("offline mock runs the full persistence, command-grader, and report pipelin
   const configSnapshot = fs.readFileSync(path.join(result.runDir, "inputs", "config.resolved.yaml"), "utf8");
   assert.match(configSnapshot, /publicValue: kept/);
   assert.doesNotMatch(configSnapshot, /never-write-this/);
-  assert.match(configSnapshot, /password: \"?\[REDACTED\]\"?/);
+  assert.match(configSnapshot, /password: "?\[REDACTED\]"?/);
   assert.equal(JSON.parse(fs.readFileSync(path.join(result.runDir, "run-state.json"), "utf8")).status, "complete");
   assert.equal(verifyArtifactIndex(result.runDir, { require: true }).ok, true);
 

@@ -294,7 +294,7 @@ export function loadConfig(configFile = "evalkit.yaml", overrides: ConfigOverrid
 export function redactConfig(config: EvalConfig): EvalConfig {
   const sensitive = /token|secret|password|passphrase|api[-_]?key|credential|authorization|cookie|session|private[-_]?key/i;
   const redactString = (value: string) => value
-    .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]{8,}={0,2}\b/gi, "Bearer [REDACTED]")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]{8,}={0,2}\b/gi, "Bearer [REDACTED]")
     .replace(/\b(?:sk-(?:proj-)?[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}|xox[baprs]-[A-Za-z0-9-]{12,}|AKIA[0-9A-Z]{16})\b/g, "[REDACTED]")
     .replace(/((?:--)?(?:api[-_]?key|access[-_]?token|auth[-_]?token|client[-_]?secret|password|passphrase|token|secret)(?:\s*(?:=|:)\s*|\s+))(?:"[^"]*"|'[^']*'|[^\s"']+)/gi, "$1[REDACTED]")
     // Connection strings are commonly stored under names such as
