@@ -25,6 +25,7 @@ import { buildReport, scoreArea } from "./scoring.js";
 import {
   assertScenarioSelectors,
   assertScenarioTargetCompatibility,
+  assertEmailConfiguration,
   materializeSpecs,
 } from "./specs.js";
 import type {
@@ -145,6 +146,7 @@ export async function runEvaluation(
   }
   const { config, fixtures } = options;
   assertScenarioTargetCompatibility(options.specs, config.target);
+  assertEmailConfiguration(options.specs, config);
   const selectedSplit = options.split ?? "development";
   const specs = materializeSpecs(options.specs, selectedSplit);
   if (!specs.some((spec) => spec.rubric.length) && !options.resumeDir) {

@@ -1,4 +1,5 @@
 import { requireDefined, omitUndefinedDeep } from "./invariants.js";
+import { mailboxSchema, emailAuthSchema } from "./email/contracts.js";
 import { votingSchema, diagnosticPolicySchema } from "./visual/contracts.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -103,6 +104,8 @@ const providerSchema = z
 
 const rawConfigSchema = z
   .object({
+    mailboxes: z.record(z.string().min(1), mailboxSchema).optional(),
+    emailAuth: z.record(z.string().min(1), emailAuthSchema).optional(),
     version: z.literal(1),
     project: z
       .object({
@@ -292,6 +295,15 @@ function readConfig(configFile: string, overrides: ConfigOverrides, resolved: bo
   }
 
   const configDir = path.dirname(absoluteConfig);
+  for (const [persona, flow] of Object.entries(parsed.emailAuth ?? {})) {
+    if (persona === "anonymous")
+      throw new Error("emailAuth requires a named persona, not anonymous");
+    if (!Object.hasOwn(parsed.mailboxes ?? {}, flow.mailbox))
+      throw new Error(`emailAuth.${persona} references an unknown mailbox`);
+    if (!targetUrl || parsed.target.kind !== "web")
+      throw new Error("emailAuth requires a web target");
+    httpUrlSchema.parse(new URL(flow.startPath, new URL(targetUrl).origin).toString());
+  }
   const root = path.resolve(configDir, parsed.project.root);
   const resolveFromRoot = (candidate: string) => path.resolve(root, candidate);
   const defaultOrigin = targetUrl ? new URL(targetUrl).origin : undefined;
@@ -387,22 +399,39 @@ export function redactConfig(config: EvalConfig): EvalConfig {
         "[REDACTED]",
       )
       .replace(
-        /((?:--)?(?:api[-_]?key|access[-_]?token|auth[-_]?token|client[-_]?secret|password|passphrase|token|secret)(?:\s*(?:=|:)\s*|\s+))(?:"[^"]*"|'[^']*'|[^\s"']+)/gi,
-        "$1[REDACTED]",
+        /((?:--)?(?:api[-_]?key|access[-_]?token|auth[-_]?token|client[-_]?secret|password|passphrase|token|secret)(?:\s*(?:=|:)\s*|\s+))(?:("[^"]*")|('[^']*')|[^\s"']+)/gi,
+        (_match, prefix: string, doubleQuoted?: string, singleQuoted?: string) => {
+          // Preserve delimiters so redacting a sealed snapshot again cannot
+          // consume adjacent selector syntax and change its fingerprint.
+          const quote = doubleQuoted ? '"' : singleQuoted ? "'" : "";
+          return `${prefix}${quote}[REDACTED]${quote}`;
+        },
       )
       // Connection strings are commonly stored under names such as
       // DATABASE_URL, which are not intrinsically secret, and use schemes such
       // as postgres, mysql, mongodb, or redis. Strip URI userinfo passwords for
       // every valid scheme before the resolved config is retained.
       .replace(/([A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s/:@]+:)[^\s/@]+@/g, "$1[REDACTED]@");
-  const redact = (value: unknown, key = ""): unknown => {
-    if (sensitive.test(key)) return "[REDACTED]";
+  const redact = (value: unknown, key = "", redactKeys = true): unknown => {
+    if (redactKeys && sensitive.test(key)) return "[REDACTED]";
     if (typeof value === "string") return redactString(value);
-    if (Array.isArray(value)) return value.map((item) => redact(item));
+    if (Array.isArray(value)) return value.map((item) => redact(item, "", redactKeys));
     if (value && typeof value === "object") {
-      return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, redact(v, k)]));
+      return Object.fromEntries(
+        Object.entries(value).map(([k, v]) => [k, redact(v, k, redactKeys)]),
+      );
     }
     return value;
   };
-  return redact(config) as EvalConfig;
+  // Preserve declaration keys (including persona names, apiKeyEnv and
+  // credential extraction rules), but still redact secrets in string values.
+  return {
+    ...(redact(config) as EvalConfig),
+    ...(config.mailboxes === undefined
+      ? {}
+      : { mailboxes: redact(config.mailboxes, "", false) as NonNullable<EvalConfig["mailboxes"]> }),
+    ...(config.emailAuth === undefined
+      ? {}
+      : { emailAuth: redact(config.emailAuth, "", false) as NonNullable<EvalConfig["emailAuth"]> }),
+  };
 }

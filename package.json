@@ -9,6 +9,10 @@
     "aek-workspace-mcp": "dist/workspace/mcp.js"
   },
   "exports": {
+    "./email": {
+      "types": "./dist/email/mailbox.d.ts",
+      "default": "./dist/email/mailbox.js"
+    },
     "./evidence/files": {
       "types": "./dist/evidence/files.d.ts",
       "default": "./dist/evidence/files.js"
@@ -20,7 +24,7 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=20.12.0"
+    "node": ">=20.19.0"
   },
   "packageManager": "pnpm@10.33.1",
   "scripts": {
@@ -42,6 +46,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "parse5": "^8.0.1",
     "playwright": "1.62.1",
     "sharp": "0.35.4",
     "yaml": "^2.9.0",

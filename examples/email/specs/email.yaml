@@ -1,0 +1,58 @@
+id: email
+title: Email delivery
+weight: 100
+description: Verify an application notification against a dedicated receiving inbox.
+scenarios:
+  - id: WATCH-MAIL
+    name: Establish the mailbox cursor
+    kind: command
+    instructions: Snapshot message identities before the application sends.
+    outputs:
+      watch: { type: file }
+      recipient: { type: string }
+      subject: { type: string }
+    collect:
+      command: node watch.mjs
+      methodFiles: [watch.mjs]
+      sources: { mailbox: mailbox.json }
+      files: [watch]
+  - id: SEND-MAIL
+    name: Send a personalized notification
+    kind: browser
+    persona: organizer
+    requiresAuth: true
+    dependsOn: [WATCH-MAIL]
+    inputs:
+      recipient: { from: WATCH-MAIL, output: recipient }
+      subject: { from: WATCH-MAIL, output: subject }
+    instructions: |
+      Send a notification from the application's composer to the bound recipient,
+      using the bound subject. The body must include Hello Priya and DevFlow Conf 2027.
+      Capture the submitted form and the resulting confirmation. If the application
+      cannot perform this flow, report the limitation and do not fabricate a send.
+  - id: INSPECT-MAIL
+    name: Inspect the received notification
+    kind: command
+    dependsOn: [WATCH-MAIL, SEND-MAIL]
+    inputs:
+      watch: { from: WATCH-MAIL, output: watch }
+      recipient: { from: WATCH-MAIL, output: recipient }
+      subject: { from: WATCH-MAIL, output: subject }
+    instructions: Observe the inbox and retain the receipt and passage checks.
+    collect:
+      command: node collect.mjs
+      methodFiles: [collect.mjs]
+      timeoutSeconds: 120
+      sources: { mailbox: mailbox.json, expected: expected.json }
+      files: [receipt]
+rubric:
+  - id: MAIL-DELIVERED
+    criterion: The application delivers the matching personalized notification.
+    weight: 1
+    scenarios: [SEND-MAIL, INSPECT-MAIL]
+    passCriteria: A new email from the expected sender arrives within the observation window with the exact recipient and subject and every required passage.
+    grader:
+      type: command
+      command: node check.mjs
+      output: json
+      methodFiles: [check.mjs, expected.json]

@@ -1,5 +1,8 @@
 import type { Scenario } from "../types.js";
 export interface BrowserMcpContext {
+  emailAuthentication?: {
+    credentialFile: string;
+  };
   outputs?: Scenario["outputs"];
   checkpoints?: Scenario["checkpoints"];
   persona?: string;

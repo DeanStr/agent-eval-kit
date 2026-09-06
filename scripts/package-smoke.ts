@@ -83,6 +83,95 @@ try {
   await run(cli, ["run", "--fail-under-score", "100", "--fail-under-coverage", "100"], fileExample);
   fs.writeFileSync(path.join(fileExample, "records.json"), JSON.stringify([{ id: "wrong" }]));
   await run(cli, ["run", "--fail-under-score", "100"], fileExample, 2);
+  // Exercise the installed email export and the actual example collectors with
+  // an isolated HTTP mailbox fixture, without contacting a real mail provider.
+  const emailExample = path.join(consumer, "email-example");
+  fs.cpSync(path.join(kitRoot, "examples/email"), emailExample, { recursive: true });
+  const emailMessages: Array<Record<string, unknown>> = [];
+  let emailBody = "Hello Priya — DevFlow Conf 2027";
+  const emailServer = http.createServer((request, response) => {
+    const url = new URL(request.url!, "http://localhost");
+    response.setHeader("content-type", "application/json");
+    if (url.pathname === "/send") {
+      emailMessages.push({
+        message_id: `message-${emailMessages.length + 1}`,
+        inbox_id: "speaker@agentmail.to",
+        from: "notifications@app.example.test",
+        to: [url.searchParams.get("recipient")],
+        subject: url.searchParams.get("subject"),
+        created_at: new Date().toISOString(),
+        labels: ["received"],
+        html: `<p>${emailBody}</p>`,
+      });
+      response.end("{}");
+    } else {
+      assert.equal(request.headers.authorization, "Bearer package-mailbox-fixture-key");
+      response.end(
+        JSON.stringify(
+          url.pathname.endsWith("/messages")
+            ? { messages: emailMessages }
+            : emailMessages.find((message) => url.pathname.endsWith(`/${message.message_id}`)),
+        ),
+      );
+    }
+  });
+  await new Promise<void>((resolve) => emailServer.listen(0, "127.0.0.1", resolve));
+  const emailAddress = emailServer.address();
+  assert.ok(emailAddress && typeof emailAddress !== "string");
+  const emailUrl = `http://127.0.0.1:${emailAddress.port}`;
+  const oldMailboxKey = process.env.AEK_PACKAGE_MAIL_KEY;
+  process.env.AEK_PACKAGE_MAIL_KEY = "package-mailbox-fixture-key";
+  try {
+    const mailbox = JSON.parse(fs.readFileSync(path.join(emailExample, "mailbox.json"), "utf8"));
+    mailbox.baseUrl = `${emailUrl}/v0`;
+    mailbox.apiKeyEnv = "AEK_PACKAGE_MAIL_KEY";
+    fs.writeFileSync(path.join(emailExample, "mailbox.json"), JSON.stringify(mailbox));
+    const emailConfig = YAML.parse(
+      fs.readFileSync(path.join(emailExample, "evalkit.yaml"), "utf8"),
+    );
+    emailConfig.target.url = emailUrl;
+    emailConfig.agent = { provider: "mock" };
+    emailConfig.judge = { provider: "mock" };
+    emailConfig.mailboxes.speaker = mailbox;
+    fs.writeFileSync(path.join(emailExample, "evalkit.yaml"), YAML.stringify(emailConfig));
+    const emailSpecPath = path.join(emailExample, "specs/email.yaml");
+    const emailSpec = YAML.parse(fs.readFileSync(emailSpecPath, "utf8"));
+    const send = emailSpec.scenarios.find(
+      (scenario: { id: string }) => scenario.id === "SEND-MAIL",
+    );
+    send.kind = "command";
+    delete send.persona;
+    delete send.requiresAuth;
+    send.collect = { command: "node send.mjs", methodFiles: ["send.mjs"] };
+    fs.writeFileSync(emailSpecPath, YAML.stringify(emailSpec));
+    fs.writeFileSync(
+      path.join(emailExample, "send.mjs"),
+      `
+import fs from 'node:fs';
+const c = JSON.parse(fs.readFileSync(process.env.AEK_COLLECT_CONTEXT, 'utf8'));
+const url = new URL('/send', ${JSON.stringify(emailUrl)});
+url.searchParams.set('recipient', c.inputs.recipient.value);
+url.searchParams.set('subject', c.inputs.subject.value);
+const response = await fetch(url);
+if (!response.ok) throw new Error('Fixture send failed');
+console.log(JSON.stringify({ version: 1, outcome: 'completed', summary: 'Sent notification', observations: [] }));
+`,
+    );
+    await run(
+      cli,
+      ["run", "--fail-under-score", "100", "--fail-under-coverage", "100"],
+      emailExample,
+    );
+    emailBody = "Incorrect notification body";
+    await run(cli, ["run", "--fail-under-score", "100"], emailExample, 2);
+  } finally {
+    if (oldMailboxKey === undefined) delete process.env.AEK_PACKAGE_MAIL_KEY;
+    else process.env.AEK_PACKAGE_MAIL_KEY = oldMailboxKey;
+    await new Promise<void>((resolve) => {
+      emailServer.close(() => resolve());
+      emailServer.closeAllConnections();
+    });
+  }
   await run(cli, ["init"], consumer);
   const configFile = path.join(consumer, "evalkit.yaml");
   const config = YAML.parse(fs.readFileSync(configFile, "utf8"));
@@ -229,7 +318,7 @@ try {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
   console.log(
-    "Package smoke passed: tarball install, file collector/checker pass and failure, executable bin, init, validate, run, collect, judge, release promotion, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
+    "Package smoke passed: tarball install, file and email collector/checker pass and failure, executable bin, init, validate, run, collect, judge, release promotion, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
   );
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });

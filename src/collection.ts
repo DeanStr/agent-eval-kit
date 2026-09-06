@@ -16,6 +16,8 @@ export function collectionConfig(config: EvalConfig) {
     target: config.target,
     agent: config.agent,
     browser: config.browser,
+    mailboxes: config.mailboxes,
+    emailAuth: config.emailAuth,
     variables: config.variables,
     instructions: config.instructions,
   };

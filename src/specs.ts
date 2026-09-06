@@ -74,6 +74,7 @@ const scenarioCaseSchema = z
 
 const scenarioSchema = z
   .object({
+    authenticateEmail: z.boolean().optional(),
     id: artifactIdSchema,
     name: z.string().min(1),
     kind: z.enum(["browser", "workspace", "command"]).optional(),
@@ -485,6 +486,18 @@ export function assertScenarioTargetCompatibility(
     for (const scenario of spec.scenarios) {
       const kind = scenario.kind ?? (target.kind === "web" ? "browser" : "workspace");
       if (
+        scenario.authenticateEmail &&
+        (kind !== "browser" ||
+          scenario.capture ||
+          scenario.allowedPersonas ||
+          scenario.requiresAuth ||
+          !scenario.persona ||
+          scenario.persona === "anonymous")
+      )
+        problems.push(
+          `${scenario.id}: authenticateEmail requires a single named browser persona, without requiresAuth, capture or allowedPersonas; capture other personas with aek auth --email first`,
+        );
+      if (
         kind === "workspace" &&
         Object.values(scenario.outputs ?? {}).some((o) => o.type === "file")
       )
@@ -531,6 +544,17 @@ export function assertScenarioTargetCompatibility(
   }
   if (problems.length)
     throw new Error(`Scenario target validation failed:\n  - ${problems.join("\n  - ")}`);
+}
+
+export function assertEmailConfiguration(specs: EvalSpec[], config: EvalConfig): void {
+  for (const scenario of specs.flatMap((spec) => spec.scenarios)) {
+    if (!scenario.authenticateEmail) continue;
+    const flow = scenario.persona && config.emailAuth?.[scenario.persona];
+    if (!flow || !Object.hasOwn(config.mailboxes ?? {}, flow.mailbox))
+      throw new Error(
+        `${scenario.id}: configure emailAuth for persona ${scenario.persona} and its mailbox`,
+      );
+  }
 }
 
 const executionId = (scenarioId: string, caseId: string) => `${scenarioId}--${caseId}`;

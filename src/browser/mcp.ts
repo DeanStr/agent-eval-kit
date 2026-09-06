@@ -9,7 +9,11 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { BrowserSession } from "./session.js";
 import { clickDownload } from "./download.js";
-import { OriginBoundaryError } from "./interaction-context.js";
+import {
+  OriginBoundaryError,
+  AuthenticationEvidenceError,
+  BrowserEvidenceError,
+} from "./interaction-context.js";
 import {
   browserActionResultIsError,
   type BrowserMcpContext,
@@ -17,6 +21,9 @@ import {
 } from "./context.js";
 import type { EvidenceFile, ScreenshotRef, TranscriptEntry } from "../types.js";
 import { writeJson } from "../io.js";
+import { authenticateEmail, EmailAuthenticationBlocked } from "../email/authenticate.js";
+import { emailAuthenticationSchema, MailboxError } from "../email/contracts.js";
+import { createMailbox } from "../email/mailbox.js";
 
 const contextFile = process.argv[2];
 if (!contextFile) {
@@ -35,6 +42,7 @@ let browser: BrowserSession | undefined;
 let activePersona = context.persona ?? "anonymous";
 const personaSessions = new Map<string, BrowserSession>();
 let step = 0;
+let finalized = false;
 let lastShotUrl: string | undefined;
 const observations: string[] = [];
 const screenshots: ScreenshotRef[] = [];
@@ -42,6 +50,7 @@ const files: EvidenceFile[] = [];
 let authenticationExpected = context.expectAuthenticated === true;
 let loggedOutStreak = 0;
 let sessionLost: string | undefined;
+let evidenceFailure: string | undefined;
 
 const clip = (text: string, max = 4_000) =>
   text.length > max ? `${text.slice(0, max)}… (truncated)` : text;
@@ -92,7 +101,33 @@ function isLoginWall(url: string): boolean {
 }
 
 function record(entry: TranscriptEntry): void {
-  fs.appendFileSync(transcriptFile, `${JSON.stringify({ ...entry, persona: activePersona })}\n`);
+  fs.appendFileSync(
+    transcriptFile,
+    `${JSON.stringify({ ...entry, persona: activePersona }, (_key, value) => (typeof value === "string" ? protect(value) : value))}\n`,
+  );
+}
+
+function protect(value: string): string {
+  for (const session of personaSessions.values()) value = session.redactSecrets(value);
+  return value;
+}
+
+function stopForEvidenceError(error: unknown): string {
+  if (error instanceof AuthenticationEvidenceError) {
+    sessionLost = protect(error.message);
+    return `BLOCKED: ${sessionLost}`;
+  }
+  // Containment reports a blocked tool after returning to an allowed origin.
+  // The caller still returns that rejection; terminal capture handles it below.
+  if (error instanceof OriginBoundaryError) return protect(error.message);
+  evidenceFailure = protect(
+    error instanceof BrowserEvidenceError
+      ? error.message
+      : "Browser evidence collection failed; check browser health and evidence-directory access",
+  );
+  // A model may ignore a failed tool call. The runner must still reject the run.
+  writeJson(path.join(context.evidenceDir, "browser-error.json"), { error: evidenceFailure });
+  return `ERROR: ${evidenceFailure}`;
 }
 
 async function getBrowser(): Promise<BrowserSession> {
@@ -132,20 +167,23 @@ async function autoCapture(tool: string): Promise<void> {
   if (!browser || !["navigate", "click", "press"].includes(tool)) return;
   const url = browser.page?.url();
   if (!url || url === lastShotUrl || !browser.isAllowedUrl(url)) return;
-  lastShotUrl = url;
+  const evidenceUrl = protect(url);
   try {
-    const slug = url.replace(/^https?:\/\/[^/]+/, "").replace(/[^a-z0-9]+/gi, "-") || "root";
+    const slug =
+      evidenceUrl.replace(/^https?:\/\/[^/]+/, "").replace(/[^a-z0-9]+/gi, "-") || "root";
     const shot = await browser.screenshot(`auto-${slug}`.slice(0, 55), false);
     screenshots.push({
       persona: activePersona,
       path: shot.relPath,
-      label: `auto: ${url}`,
+      label: `auto: ${evidenceUrl}`,
       step,
-      url,
+      url: evidenceUrl,
     });
     writeJson(screenshotsFile, screenshots);
-  } catch {
-    // Automatic evidence is best-effort; the requested action already worked.
+    lastShotUrl = url;
+  } catch (error) {
+    stopForEvidenceError(error);
+    throw error;
   }
 }
 
@@ -173,7 +211,7 @@ async function executeTool(tool: string, input: Record<string, unknown>, action:
   if (blocked) return blocked;
   try {
     const session = await getBrowser();
-    const originBlock = await session.preflightOrigin();
+    const originBlock = protect((await session.preflightOrigin()) ?? "");
     if (originBlock) {
       record({
         step,
@@ -203,9 +241,10 @@ async function executeTool(tool: string, input: Record<string, unknown>, action:
       const onLoginWall = isLoginWall(url);
       loggedOutStreak = onLoginWall ? loggedOutStreak + 1 : 0;
       if (loggedOutStreak >= 2) {
-        sessionLost =
+        sessionLost = protect(
           `the scenario started with saved authentication but remained on a login wall (${url.slice(0, 180)}). ` +
-          `The run stopped before logged-out evidence could be mistaken for missing product functionality.`;
+            `The run stopped before logged-out evidence could be mistaken for missing product functionality.`,
+        );
         const note = `SESSION LOST: ${sessionLost}`;
         observations.push(note);
         writeJson(observationsFile, observations);
@@ -213,7 +252,7 @@ async function executeTool(tool: string, input: Record<string, unknown>, action:
           outcome: "blocked",
           summary: sessionLost,
           observations,
-          finalUrl: url,
+          finalUrl: protect(url),
           finishedAt: new Date().toISOString(),
         };
         writeJson(resultFile, state);
@@ -222,13 +261,20 @@ async function executeTool(tool: string, input: Record<string, unknown>, action:
       }
     }
     if (!isError && typeof actionResult === "function") result = actionResult();
-    record({ step, at: new Date().toISOString(), tool, input, result: clip(result), isError });
+    result = protect(result);
     if (!isError) await autoCapture(tool);
+    record({ step, at: new Date().toISOString(), tool, input, result: clip(result), isError });
     return {
       content: [{ type: "text" as const, text: `${result}\nEvidence step: ${step}` }],
       ...(isError ? { isError: true } : {}),
     };
   } catch (error) {
+    if (
+      !evidenceFailure &&
+      !sessionLost &&
+      (error instanceof AuthenticationEvidenceError || error instanceof BrowserEvidenceError)
+    )
+      stopForEvidenceError(error);
     let result = `ERROR: ${error instanceof Error ? error.message : String(error)}`;
     // A navigation can destroy the action's execution context and make the
     // action throw before the normal postflight runs. Contain that page too;
@@ -241,13 +287,44 @@ async function executeTool(tool: string, input: Record<string, unknown>, action:
         result = `ERROR: ${originError instanceof Error ? originError.message : String(originError)}`;
       }
     }
+    result = protect(
+      evidenceFailure
+        ? `ERROR: ${evidenceFailure}`
+        : sessionLost
+          ? `BLOCKED: ${sessionLost}`
+          : result,
+    );
     record({ step, at: new Date().toISOString(), tool, input, result, isError: true });
     return { content: [{ type: "text" as const, text: result }], isError: true };
   }
 }
 
+function rejectFinalized(tool: string, input: Record<string, unknown>) {
+  if (!finalized) return undefined;
+  const result =
+    "ERROR: this scenario is already finalized; return the structured result without further browser calls";
+  record({ step, at: new Date().toISOString(), tool, input, result, isError: true });
+  return { content: [{ type: "text" as const, text: result }], isError: true };
+}
+
 function preflight(tool: string, input: Record<string, unknown>) {
   step += 1;
+  const terminal = rejectFinalized(tool, input);
+  if (terminal) return terminal;
+  if (evidenceFailure) {
+    const result = `ERROR: ${evidenceFailure}`;
+    record({ step, at: new Date().toISOString(), tool, input, result, isError: true });
+    return { content: [{ type: "text" as const, text: result }], isError: true };
+  }
+  if (
+    context.emailAuthentication &&
+    !emailAuthenticationAttempted &&
+    tool !== "authenticate_email"
+  ) {
+    const result = "ERROR: this scenario requires authenticate_email before other browser actions";
+    record({ step, at: new Date().toISOString(), tool, input, result, isError: true });
+    return { content: [{ type: "text" as const, text: result }], isError: true };
+  }
   if (context.maxToolCalls !== undefined && step > context.maxToolCalls) {
     const result = `ERROR: browser tool-call budget (${context.maxToolCalls}) exhausted. Record what remains unverified and finish the scenario.`;
     record({ step, at: new Date().toISOString(), tool, input, result, isError: true });
@@ -262,6 +339,95 @@ function preflight(tool: string, input: Record<string, unknown>) {
 }
 
 const server = new McpServer({ name: "agent-eval-browser", version: "0.1.0" });
+
+let emailAuthenticationAttempted = false;
+server.registerTool(
+  "authenticate_email",
+  {
+    description:
+      "Perform the declared email login in this persona's browser, consuming the matching link/code privately and verifying the configured account identity. Call once at scenario start, then use snapshot.",
+    inputSchema: {},
+  },
+  () =>
+    serializeTool(async () => {
+      const blocked = preflight("authenticate_email", {});
+      if (blocked) return blocked;
+      if (!context.emailAuthentication || emailAuthenticationAttempted) {
+        const result =
+          "ERROR: email authentication requires authenticateEmail: true and can run only once per scenario";
+        record({
+          step,
+          at: new Date().toISOString(),
+          tool: "authenticate_email",
+          input: {},
+          result,
+          isError: true,
+        });
+        return { content: [{ type: "text" as const, text: result }], isError: true };
+      }
+      emailAuthenticationAttempted = true;
+      const auth = context.emailAuthentication;
+      try {
+        const credential = emailAuthenticationSchema.parse(
+          JSON.parse(fs.readFileSync(auth.credentialFile, "utf8")),
+        );
+        fs.rmSync(auth.credentialFile);
+        const session = await getBrowser();
+        const receipt = await authenticateEmail({
+          browser: session,
+          targetUrl: context.targetUrl,
+          flow: credential.flow,
+          mailbox: credential.mailbox,
+          provider: createMailbox(credential.mailbox, { apiKey: credential.key }),
+        });
+        authenticationExpected = true;
+        loggedOutStreak = 0;
+        const label = "aek-email-authentication";
+        if (files.some((file) => file.label === label))
+          throw new MailboxError("Reserved email evidence label already exists");
+        const file = retainEvidenceFile({
+          directory: context.evidenceDir,
+          label,
+          filename: "email-authentication.json",
+          mediaType: "application/json",
+          bytes: Buffer.from(protect(JSON.stringify({ version: 1, ...receipt }))),
+          step,
+          persona: activePersona,
+        });
+        files.push(file);
+        writeJson(path.join(context.evidenceDir, "files.json"), files);
+        const result = `Email authentication completed and configured identity verified. Receipt: ${file.path}. Use snapshot for fresh refs. Evidence step: ${step}`;
+        record({
+          step,
+          at: new Date().toISOString(),
+          tool: "authenticate_email",
+          input: {},
+          result,
+        });
+        return { content: [{ type: "text" as const, text: result }] };
+      } catch (error) {
+        const message =
+          error instanceof MailboxError || error instanceof EmailAuthenticationBlocked
+            ? error.message
+            : "Email authentication execution failed; check the declared flow and private mailbox credential";
+        sessionLost = protect(message);
+        if (!(error instanceof EmailAuthenticationBlocked))
+          writeJson(path.join(context.evidenceDir, "email-error.json"), { error: sessionLost });
+        const result = `${error instanceof EmailAuthenticationBlocked ? "BLOCKED" : "ERROR"}: ${sessionLost}`;
+        record({
+          step,
+          at: new Date().toISOString(),
+          tool: "authenticate_email",
+          input: {},
+          result,
+          isError: true,
+        });
+        return { content: [{ type: "text" as const, text: result }], isError: true };
+      } finally {
+        fs.rmSync(auth.credentialFile, { force: true });
+      }
+    }),
+);
 
 server.registerTool(
   "switch_persona",
@@ -326,7 +492,9 @@ server.registerTool(
         });
         return { content: [{ type: "text" as const, text: result }] };
       } catch (error) {
-        const result = `${sessionLost ? "BLOCKED" : "ERROR"}: ${error instanceof Error ? error.message : String(error)}`;
+        const result = protect(
+          `${sessionLost ? "BLOCKED" : "ERROR"}: ${error instanceof Error ? error.message : String(error)}`,
+        );
         record({
           step,
           at: new Date().toISOString(),
@@ -390,6 +558,8 @@ server.registerTool(
     callTool("download", { ref, label }, async (session) => {
       if (files.some((file) => file.label === label))
         throw new Error(`Duplicate download label ${label}`);
+      if (label === "aek-email-authentication")
+        throw new Error("This file label is reserved for email authentication");
       const page = session.page!;
       const mediaTypes = new Map<string, string>();
       const responseListener = (response: import("playwright").Response) => {
@@ -556,13 +726,13 @@ server.registerTool(
       if (blocked) return blocked;
       try {
         const session = await getBrowser();
-        const shot = await session.screenshot(label, fullPage);
+        const shot = await session.screenshot(protect(label), fullPage);
         const ref: ScreenshotRef = {
           persona: activePersona,
           path: shot.relPath,
-          label,
+          label: protect(label),
           step,
-          url: session.page?.url(),
+          url: protect(session.page?.url() ?? ""),
         };
         screenshots.push(ref);
         writeJson(screenshotsFile, screenshots);
@@ -579,7 +749,7 @@ server.registerTool(
           ],
         };
       } catch (error) {
-        const result = `ERROR: ${error instanceof Error ? error.message : String(error)}`;
+        const result = stopForEvidenceError(error);
         record({
           step,
           at: new Date().toISOString(),
@@ -604,7 +774,7 @@ server.registerTool(
       const input = { note };
       const blocked = preflight("observe", input);
       if (blocked) return blocked;
-      observations.push(note);
+      observations.push(protect(note));
       writeJson(observationsFile, observations);
       record({
         step,
@@ -634,7 +804,8 @@ registerOutputTool(server, {
 server.registerTool(
   "done",
   {
-    description: "Finish the scenario with an honest outcome and evidence-grounded summary.",
+    description:
+      "Permanently finalize the scenario with an honest outcome and evidence-grounded summary. No further browser tools may be called afterward; return the structured result.",
     inputSchema: {
       outcome: z.enum(["completed", "blocked", "feature_not_found"]),
       summary: z.string().min(1),
@@ -643,27 +814,33 @@ server.registerTool(
   ({ outcome, summary }) =>
     serializeTool(async () => {
       step += 1;
+      const terminal = rejectFinalized("done", { outcome, summary });
+      if (terminal) return terminal;
+      if (context.emailAuthentication && !emailAuthenticationAttempted)
+        sessionLost = "Required email authentication was not attempted";
       let finalUrl: string | undefined;
       let originBlock: string | undefined;
       if (browser) {
-        try {
-          const shot = await browser.screenshot("final-state", false);
-          screenshots.push({
-            persona: activePersona,
-            path: shot.relPath,
-            label: "final-state",
-            step,
-            url: browser.page?.url(),
-          });
-          writeJson(screenshotsFile, screenshots);
-        } catch (error) {
-          if (error instanceof OriginBoundaryError) originBlock = error.message;
-          // Best-effort terminal state.
+        if (!sessionLost && !evidenceFailure) {
+          try {
+            const shot = await browser.screenshot("final-state", false);
+            screenshots.push({
+              persona: activePersona,
+              path: shot.relPath,
+              label: "final-state",
+              step,
+              url: protect(browser.page?.url() ?? ""),
+            });
+            writeJson(screenshotsFile, screenshots);
+          } catch (error) {
+            if (error instanceof OriginBoundaryError) originBlock = protect(error.message);
+            else stopForEvidenceError(error);
+          }
         }
         // screenshot() contains an off-origin page before it fails, so record
         // the safe URL to which the browser was returned rather than the
         // external URL that triggered the boundary.
-        finalUrl = browser.page?.url();
+        finalUrl = protect(browser.page?.url() ?? "");
         if (authenticationExpected && !sessionLost && finalUrl && isLoginWall(finalUrl)) {
           sessionLost =
             `the scenario started with saved authentication but finished on a login wall (${finalUrl.slice(0, 180)}). ` +
@@ -675,10 +852,23 @@ server.registerTool(
           !context.personas &&
           context.storageStateCandidatePath &&
           !sessionLost &&
+          !evidenceFailure &&
           !originBlock
         ) {
           await browser.saveStorageState(context.storageStateCandidatePath);
         }
+      }
+      if (evidenceFailure) {
+        const result = `ERROR: ${evidenceFailure}`;
+        record({
+          step,
+          at: new Date().toISOString(),
+          tool: "done",
+          input: { outcome, summary },
+          result,
+          isError: true,
+        });
+        return { content: [{ type: "text" as const, text: result }], isError: true };
       }
       if (context.personas && !sessionLost && !originBlock) {
         for (const [persona, session] of personaSessions) {
@@ -701,7 +891,7 @@ server.registerTool(
       }
       const state: BrowserResultState = {
         outcome: sessionLost || originBlock ? "blocked" : outcome,
-        summary: sessionLost ?? originBlock ?? summary,
+        summary: protect(sessionLost ?? originBlock ?? summary),
         observations,
         ...(finalUrl === undefined ? {} : { finalUrl: finalUrl }),
         finishedAt: new Date().toISOString(),
@@ -719,6 +909,7 @@ server.registerTool(
         input: { outcome, summary },
         result,
       });
+      finalized = true;
       return { content: [{ type: "text" as const, text: result }] };
     }),
 );

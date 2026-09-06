@@ -55,6 +55,15 @@ export function validateEvidenceFiles(
   for (const entry of transcript.filter((entry) => entry.tool === "download" && !entry.isError))
     if (!files.some((file) => file.step === entry.step && file.label === entry.input.label))
       throw new Error(`Successful download at step ${entry.step} is missing its file metadata`);
+  for (const entry of transcript.filter(
+    (entry) => entry.tool === "authenticate_email" && !entry.isError,
+  ))
+    if (
+      !files.some((file) => file.step === entry.step && file.label === "aek-email-authentication")
+    )
+      throw new Error(
+        `Successful email authentication at step ${entry.step} is missing its file metadata`,
+      );
   for (const label of requiredLabels)
     if (!files.some((file) => file.label === label))
       throw new Error(`Completed collector is missing required file metadata: ${label}`);

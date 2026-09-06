@@ -4,7 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { loadConfig, redactConfig } from "../src/config.js";
+import { loadConfig, loadResolvedConfig, redactConfig } from "../src/config.js";
+import { assertCollectionCompatible, loadCollection, sealCollection } from "../src/collection.js";
 import { assertScenarioTargetCompatibility, loadFixtures, loadSpecs } from "../src/specs.js";
 
 const temporary = () => fs.mkdtempSync(path.join(os.tmpdir(), "aek-test-"));
@@ -379,6 +380,66 @@ target:
   );
   assert.match(safe, /\[REDACTED\]/);
   assert.match(safe, /postgres:\/\/alice:\[REDACTED\]@db\.internal\/app/);
+});
+
+test("email declarations preserve extraction rules while redacting expanded secret values", (t) => {
+  const root = temporary();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, "evalkit.yaml");
+  fs.writeFileSync(path.join(root, ".env"), "AEK_EMAIL_REDACTION_TEST=fixture-selector-secret\n");
+  const original = process.env.AEK_EMAIL_REDACTION_TEST;
+  delete process.env.AEK_EMAIL_REDACTION_TEST;
+  t.after(() => {
+    if (original === undefined) delete process.env.AEK_EMAIL_REDACTION_TEST;
+    else process.env.AEK_EMAIL_REDACTION_TEST = original;
+  });
+  const yaml = `version: 1
+project: { name: Demo, root: . }
+target: { kind: web, url: https://app.example.test }
+mailboxes:
+  session-user:
+    provider: agentmail
+    inboxId: test-inbox
+    address: user@example.test
+    apiKeyEnv: AGENTMAIL_API_KEY
+emailAuth:
+  session-user:
+    mailbox: session-user
+    startPath: /login
+    emailSelector: 'input[data-token="\${AEK_EMAIL_REDACTION_TEST}"]'
+    requestSelector: '#send'
+    message: { from: login@example.test, subject: Sign in }
+    credential: { type: link, path: /verify, parameter: token }
+    success: { selector: '#identity', text: user@example.test }
+`;
+  fs.writeFileSync(file, yaml);
+  const config = loadConfig(file);
+  assert.match(config.emailAuth!["session-user"]!.emailSelector, /fixture-selector-secret/);
+  const safe = redactConfig(config);
+  assert.doesNotMatch(JSON.stringify(safe), /fixture-selector-secret/);
+  assert.match(safe.emailAuth!["session-user"]!.emailSelector, /\[REDACTED\]/);
+  assert.deepEqual(
+    safe.emailAuth!["session-user"]!.credential,
+    config.emailAuth!["session-user"]!.credential,
+  );
+  assert.deepEqual(safe.mailboxes, config.mailboxes);
+  for (const selector of [
+    'input[data-token="fixture-selector-secret"]',
+    "input[data-token='fixture-selector-secret']",
+    "input[data-token=fixture-selector-secret]",
+  ]) {
+    config.emailAuth!["session-user"]!.emailSelector = selector;
+    const redacted = redactConfig(config);
+    fs.writeFileSync(file, JSON.stringify(redacted));
+    sealCollection(root, config, [], "all");
+    const sealed = loadResolvedConfig(file);
+    assertCollectionCompatible(loadCollection(root), sealed, [], false);
+    assert.deepEqual(redactConfig(sealed), redacted);
+    assert.doesNotMatch(JSON.stringify(sealed), /fixture-selector-secret/);
+  }
+  // The review's startPath example is already rejected before snapshotting.
+  fs.writeFileSync(file, yaml.replace("startPath: /login", "startPath: /login?token=secret"));
+  assert.throws(() => loadConfig(file), /credential-bearing/);
 });
 
 test("spec validation catches cross-reference and total-weight errors", () => {

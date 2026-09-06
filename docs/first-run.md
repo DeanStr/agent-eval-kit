@@ -1,6 +1,6 @@
 # Your first evaluation
 
-Run a tiny cart evaluation, read its report, then introduce a defect and compare the two runs. This walkthrough uses deterministic command graders and an offline mock collector: it needs Linux, Node.js 20.12+, and pnpm, but no provider login or browser installation. It demonstrates the harness; it does not measure an LLM judge's accuracy.
+Run a tiny cart evaluation, read its report, then introduce a defect and compare the two runs. This walkthrough uses deterministic command graders and an offline mock collector: it needs Linux, Node.js 20.19+, and pnpm, but no provider login or browser installation. It demonstrates the harness; it does not measure an LLM judge's accuracy.
 
 ## Run the working example
 

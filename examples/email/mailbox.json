@@ -1,0 +1,6 @@
+{
+  "provider": "agentmail",
+  "inboxId": "speaker@agentmail.to",
+  "address": "speaker@agentmail.to",
+  "apiKeyEnv": "AGENTMAIL_API_KEY"
+}

@@ -1,0 +1,4 @@
+{
+  "from": "notifications@app.example.test",
+  "bodyIncludes": ["Hello Priya", "DevFlow Conf 2027"]
+}

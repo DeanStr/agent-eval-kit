@@ -22,3 +22,12 @@ export interface BrowserInteractionContext {
 export class OriginBoundaryError extends Error {
   override readonly name = "OriginBoundaryError";
 }
+
+export class AuthenticationEvidenceError extends Error {
+  override readonly name = "AuthenticationEvidenceError";
+}
+
+/** Evidence inspection or persistence failed, rather than finding unavailable evidence. */
+export class BrowserEvidenceError extends Error {
+  override readonly name = "BrowserEvidenceError";
+}

@@ -25,7 +25,7 @@ function probe(command: string, args: string[], timeout = 15_000) {
 
 export function supportedNodeVersion(version: string): boolean {
   const [major = 0, minor = 0] = version.split(".").map((part) => Number(part));
-  return major > 20 || (major === 20 && minor >= 12);
+  return major > 20 || (major === 20 && minor >= 19);
 }
 
 export function doctor(options: DoctorOptions = {}): DoctorCheck[] {

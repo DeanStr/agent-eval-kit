@@ -1,0 +1,35 @@
+version: 1
+project:
+  name: Email delivery and authentication
+  root: .
+target:
+  kind: web
+  url: https://app.example.test
+agent:
+  provider: codex
+judge:
+  provider: codex
+paths:
+  specs: specs
+mailboxes:
+  speaker:
+    provider: agentmail
+    inboxId: speaker@agentmail.to
+    address: speaker@agentmail.to
+    apiKeyEnv: AGENTMAIL_API_KEY
+emailAuth:
+  speaker:
+    mailbox: speaker
+    startPath: /login
+    emailSelector: 'input[type="email"]'
+    requestSelector: 'button[type="submit"]'
+    message:
+      from: login@app.example.test
+      subject: Your sign-in link
+    credential:
+      type: link
+      path: /auth/verify
+      parameter: token
+    success:
+      selector: '[data-testid="account-email"]'
+      text: speaker@agentmail.to

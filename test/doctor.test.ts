@@ -5,11 +5,13 @@ import os from "node:os";
 import path from "node:path";
 import { doctor, supportedNodeVersion } from "../src/doctor.js";
 
-test("doctor enforces the package's Node 20.12 minimum", () => {
+test("doctor enforces the package's Node 20.19 minimum", () => {
   assert.equal(supportedNodeVersion("19.99.0"), false);
   assert.equal(supportedNodeVersion("20.0.0"), false);
   assert.equal(supportedNodeVersion("20.11.99"), false);
-  assert.equal(supportedNodeVersion("20.12.0"), true);
+  assert.equal(supportedNodeVersion("20.12.0"), false);
+  assert.equal(supportedNodeVersion("20.18.99"), false);
+  assert.equal(supportedNodeVersion("20.19.0"), true);
   assert.equal(supportedNodeVersion("21.0.0"), true);
 });
 

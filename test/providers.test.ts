@@ -226,7 +226,22 @@ console.log(JSON.stringify({ type: "thread.started", thread_id: "isolated" }));`
   process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
   process.env.CLAUDE_CONFIG_DIR = sourceClaudeConfig;
   try {
-    assert.deepEqual((await runCodex(providerInvocation(invocationDir))).structured, { ok: true });
+    assert.deepEqual(
+      (
+        await runCodex({
+          ...providerInvocation(invocationDir),
+          timeoutSeconds: 240,
+          mcp: {
+            name: "browser",
+            command: "true",
+            args: [],
+            configFile: "unused",
+            toolNames: ["authenticate_email"],
+          },
+        })
+      ).structured,
+      { ok: true },
+    );
     assert.deepEqual((await runClaude(providerInvocation(invocationDir))).structured, { ok: true });
     const codex = JSON.parse(fs.readFileSync(codexCapture, "utf8"));
     const claude = JSON.parse(fs.readFileSync(claudeCapture, "utf8"));
@@ -240,6 +255,7 @@ console.log(JSON.stringify({ type: "thread.started", thread_id: "isolated" }));`
       );
     }
     assert.equal(codex.cwdArg, codex.cwd);
+    assert.ok(codex.args.includes("mcp_servers.browser.tool_timeout_sec=240"));
     assert.equal(claude.args.includes("--safe-mode"), false);
     assert.equal(claude.home.startsWith(project), false);
     assert.equal(claude.playwrightBrowsersPath, playwrightBrowsersPath());

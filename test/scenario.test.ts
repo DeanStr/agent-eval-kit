@@ -78,6 +78,35 @@ test("scenario provider launch failures propagate instead of becoming agent_erro
   }
 });
 
+test("retained browser evidence failures override a provider claiming completion", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-browser-evidence-error-"));
+  try {
+    const { config, spec, scenario } = workspaceFixture(root);
+    config.agent.provider = "mock";
+    config.target = {
+      kind: "web",
+      url: "http://127.0.0.1:3000",
+      allowedOrigins: ["http://127.0.0.1:3000"],
+    };
+    scenario.kind = "browser";
+    const directory = path.join(root, "evidence");
+    fs.mkdirSync(directory);
+    fs.writeFileSync(
+      path.join(directory, "browser-error.json"),
+      JSON.stringify({ error: "Inspection failed" }),
+    );
+    // A metadata-write failure can leave the ordinary artifact unreadable.
+    // Read the authoritative execution error before ingesting those artifacts.
+    fs.mkdirSync(path.join(directory, "screenshots.json"));
+    await assert.rejects(
+      executeScenario({ config, spec, scenario, fixtures: {}, directory }),
+      /Browser evidence execution failed: Inspection failed/,
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("malformed scenario transcripts abort evidence ingestion", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-scenario-transcript-"));
   const bin = path.join(root, "bin");

@@ -618,6 +618,8 @@ export function buildRunReceipt(options: {
     agent: config.agent,
     judge: config.judge,
     browser: config.browser,
+    mailboxes: config.mailboxes,
+    emailAuth: config.emailAuth,
     scoring: config.scoring,
     variables: config.variables,
     instructions: config.instructions,

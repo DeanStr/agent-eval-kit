@@ -9,7 +9,12 @@ import {
   type DiagnosticPolicy,
 } from "../visual/contracts.js";
 
-export function attachDiagnostics(page: Page, directory: string, budget: { count: number }): void {
+export function attachDiagnostics(
+  page: Page,
+  directory: string,
+  budget: { count: number },
+  sanitize: (value: string) => string = (value) => value,
+): void {
   const file = path.join(directory, "browser-diagnostics.ndjson");
   const started = path.join(directory, "browser-diagnostics-started.json");
   fs.mkdirSync(directory, { recursive: true });
@@ -31,7 +36,8 @@ export function attachDiagnostics(page: Page, directory: string, budget: { count
       file,
       JSON.stringify({
         ...entry,
-        message: entry.message.slice(0, 2000),
+        message: sanitize(entry.message).slice(0, 2000),
+        ...(entry.url === undefined ? {} : { url: sanitize(entry.url) }),
         at: new Date().toISOString(),
       }) + "\n",
     );

@@ -5,7 +5,9 @@ import { validateOutputs } from "./workflow.js";
 import { collectCommand } from "./collectors/command.js";
 import { controlledCapture } from "./visual/capture.js";
 import { readDiagnostics } from "./browser/diagnostics.js";
+import type { EmailAuthentication } from "./email/contracts.js";
 import fs from "node:fs";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
 import { personaAuthPath } from "./auth.js";
@@ -138,6 +140,7 @@ export async function executeScenario(options: {
   let mcp: ProviderInvocation["mcp"];
   let trustedStorageStatePath: string | undefined;
   let storageStateCandidatePath: string | undefined;
+  let emailCredential: { file: string; payload: EmailAuthentication } | undefined;
   const personaPromotions: Array<{ candidate: string; destination: string }> = [];
   if (kind === "browser") {
     const personaState =
@@ -150,10 +153,13 @@ export async function executeScenario(options: {
       scenario.persona === "anonymous" || scenario.allowedPersonas
         ? undefined
         : chainStorageStatePath(spec, scenario, directory);
-    const stateDestination =
-      existingPersonaState ?? (scenario.requiresAuth ? undefined : chainState);
+    const stateDestination = scenario.authenticateEmail
+      ? personaState
+      : (existingPersonaState ?? (scenario.requiresAuth ? undefined : chainState));
     const existingState =
-      stateDestination && fs.existsSync(stateDestination) ? stateDestination : undefined;
+      !scenario.authenticateEmail && stateDestination && fs.existsSync(stateDestination)
+        ? stateDestination
+        : undefined;
     if (
       (scenario.requiresAuth ||
         (scenario.allowedPersonas && scenario.persona && scenario.persona !== "anonymous")) &&
@@ -189,9 +195,9 @@ export async function executeScenario(options: {
     }
     if (scenario.capture)
       return controlledCapture(config, scenario, directory, existingPersonaState);
-    // A persona path is permanent authentication state and may only be updated
-    // when it was already established by `aek auth`. If an uncaptured persona
-    // participates in a dependency chain, use the run-local chain state instead.
+    // Permanent persona state requires prior capture or an explicit, verified
+    // email-login flow. Other uncaptured personas in dependency chains use
+    // run-local state instead.
     trustedStorageStatePath = stateDestination;
     storageStateCandidatePath = trustedStorageStatePath
       ? path.join(directory, ".storage-state.candidate.json")
@@ -207,7 +213,22 @@ export async function executeScenario(options: {
           }),
         )
       : undefined;
+    let emailAuthentication: BrowserMcpContext["emailAuthentication"];
+    if (scenario.authenticateEmail) {
+      const flow = config.emailAuth?.[scenario.persona!];
+      const mailbox = flow && config.mailboxes?.[flow.mailbox];
+      if (!flow || !mailbox)
+        throw new Error(`No valid emailAuth flow configured for persona ${scenario.persona}`);
+      const key = process.env[mailbox.apiKeyEnv];
+      if (!key) throw new Error(`Missing mailbox credential: set ${mailbox.apiKeyEnv}`);
+      emailCredential = {
+        file: path.join(config.paths.auth, `.email-${randomUUID()}.json`),
+        payload: { key, flow, mailbox },
+      };
+      emailAuthentication = { credentialFile: emailCredential.file };
+    }
     const context: BrowserMcpContext = omitUndefined({
+      ...(emailAuthentication === undefined ? {} : { emailAuthentication }),
       ...(scenario.persona === undefined ? {} : { persona: scenario.persona }),
       ...(personas === undefined ? {} : { personas: personas }),
       ...(scenario.outputs === undefined ? {} : { outputs: scenario.outputs }),
@@ -280,6 +301,11 @@ export async function executeScenario(options: {
       : []),
   ];
   try {
+    if (emailCredential) {
+      fs.mkdirSync(config.paths.auth, { recursive: true, mode: 0o700 });
+      fs.chmodSync(config.paths.auth, 0o700);
+      writeJson(emailCredential.file, emailCredential.payload, { mode: 0o600 });
+    }
     const providerResult = await runProvider(config.agent.provider, {
       purpose: "scenario",
       // Artifacts remain here, while real provider adapters execute from a
@@ -312,6 +338,19 @@ export async function executeScenario(options: {
       policyViolations: providerResult.policyViolations,
     });
 
+    const browserErrorPath = path.join(directory, "browser-error.json");
+    if (fs.existsSync(browserErrorPath)) {
+      const browserError = z
+        .object({ error: z.string() })
+        .strict()
+        .parse(readJson(browserErrorPath));
+      throw new Error(`Browser evidence execution failed: ${browserError.error}`);
+    }
+    const emailErrorPath = path.join(directory, "email-error.json");
+    if (fs.existsSync(emailErrorPath)) {
+      const emailError = z.object({ error: z.string() }).strict().parse(readJson(emailErrorPath));
+      throw new Error(`Email authentication execution failed: ${emailError.error}`);
+    }
     const toolArtifacts = readToolArtifacts(directory, kind);
     const parsed = scenarioOutputValidator.safeParse(providerResult.structured);
     const policyFailed = Boolean(providerResult.policyViolations?.length);
@@ -321,7 +360,9 @@ export async function executeScenario(options: {
     const missingFinalization = config.agent.provider !== "mock" && !toolArtifacts.result;
     const terminalOutcome = toolArtifacts.result?.outcome;
     const evidenceTools =
-      kind === "browser" ? new Set(["navigate"]) : new Set(["list_files", "read_file", "search"]);
+      kind === "browser"
+        ? new Set(["navigate", "authenticate_email"])
+        : new Set(["list_files", "read_file", "search"]);
     const requiresEvidenceActivity =
       terminalOutcome === "completed" || terminalOutcome === "feature_not_found";
     const hasEvidenceActivity = toolArtifacts.transcript.some(
@@ -476,13 +517,17 @@ export async function executeScenario(options: {
             throw new Error("Browser storage-state candidate must be a regular file");
           return { destination, value: readJson(candidate) };
         });
-      for (const { destination, value } of updates) writeJson(destination, value, { mode: 0o600 });
+      for (const { destination, value } of updates) {
+        fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
+        writeJson(destination, value, { mode: 0o600 });
+      }
     }
     if (providerFailed) {
       throw new Error(`${summary} See ${directory} for retained scenario diagnostics.`);
     }
     return evidence;
   } finally {
+    if (emailCredential) fs.rmSync(emailCredential.file, { force: true });
     for (const { candidate } of stateCandidates) fs.rmSync(candidate, { force: true });
   }
 }

@@ -59,6 +59,10 @@ async function runIsolatedCodex(
       `mcp_servers.${invocation.mcp.name}.args=${tomlArray(invocation.mcp.args)}`,
       "--config",
       `mcp_servers.${invocation.mcp.name}.required=true`,
+      // Atomic tools such as email login can exceed Codex's 60-second default.
+      // The invocation's existing process deadline remains the outer bound.
+      "--config",
+      `mcp_servers.${invocation.mcp.name}.tool_timeout_sec=${invocation.timeoutSeconds}`,
     );
   } else {
     args.push("--sandbox", "read-only");

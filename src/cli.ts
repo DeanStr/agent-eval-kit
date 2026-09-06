@@ -47,6 +47,7 @@ import { buildReport, scoreArea } from "./scoring.js";
 import {
   assertScenarioSelectors,
   assertScenarioTargetCompatibility,
+  assertEmailConfiguration,
   loadFixtures,
   loadSpecFile,
   loadSpecs,
@@ -98,6 +99,7 @@ function parseArgs(argv: string[]): Args {
 }
 
 const booleanFlags = new Set([
+  "email",
   "include-images",
   "allow-incompatible",
   "dry-run",
@@ -177,7 +179,7 @@ function validateCliShape(args: Args): void {
       allowed = ["public", "run", "output"];
       break;
     case "auth":
-      allowed = ["config", "url", "headed", "persona", "at", "click"];
+      allowed = ["config", "url", "headed", "persona", "at", "click", "email"];
       break;
     case "rescore":
       allowed = ["run", "config", "fail-under-score", "fail-under-coverage"];
@@ -300,6 +302,7 @@ Usage: aek <command> [flags]
       [--output directory]
   privacy lint --path target       Scan a file or directory for likely private data
   auth --persona name              Capture a browser login session
+       --email                     Use the persona's declared email-login flow
       [--at /login] [--click "Demo login"]
   collect [run selection flags]   Seal evidence and executable checks without a judge
   judge --evidence directory       Judge a sealed collection in a new run
@@ -953,6 +956,7 @@ async function main(): Promise<void> {
   );
   const allSpecs = loadSpecs(config.paths.specs);
   assertScenarioTargetCompatibility(allSpecs, config.target);
+  assertEmailConfiguration(allSpecs, config);
   if (args.command === "validate") {
     await validateEvaluationInputs(config, allSpecs);
     loadFixtures(config.paths.fixtures);
@@ -995,6 +999,7 @@ async function main(): Promise<void> {
         persona,
         startAt: stringFlag(args, "at"),
         clickText: stringFlag(args, "click"),
+        email: Boolean(args.flags.email),
       }),
     );
     console.log(`Saved ${persona} browser session to ${saved}`);

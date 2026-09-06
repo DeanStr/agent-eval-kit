@@ -20,7 +20,7 @@ import { validateOutputs } from "../src/workflow.js";
 import { validateEvidenceFiles } from "../src/evidence/files.js";
 import type { TranscriptEntry } from "../src/types.js";
 import { BrowserSession } from "../src/browser/session.js";
-import { OriginBoundaryError } from "../src/browser/interaction-context.js";
+import { OriginBoundaryError, BrowserEvidenceError } from "../src/browser/interaction-context.js";
 
 test("browser action failures remain errors after leading diagnostic notes", () => {
   assert.equal(
@@ -664,8 +664,44 @@ test("screenshots fail closed when an off-origin child frame cannot be masked", 
         session as unknown as { maskDisallowedFrames(): Promise<() => Promise<void>> }
       ).maskDisallowedFrames(),
     (error) =>
-      error instanceof OriginBoundaryError &&
+      error instanceof BrowserEvidenceError &&
       /Could not mask every off-origin frame.*frame detached/.test(error.message),
+  );
+});
+
+test("iframe inheritance inspection failures propagate instead of excluding the frame", async () => {
+  const session = new BrowserSession("/tmp/aek-unused", true, "https://target.example.test");
+  const main = { url: () => "https://target.example.test" };
+  session.page = { mainFrame: () => main } as never;
+  const inspect = (frame: unknown) =>
+    (
+      session as unknown as {
+        isAllowedFrame(frame: unknown): Promise<boolean>;
+      }
+    ).isAllowedFrame(frame);
+  for (const failure of ["host", "sandbox"]) {
+    const frame = {
+      url: () => "about:srcdoc",
+      parentFrame: () => main,
+      frameElement: async () => {
+        if (failure === "host") throw new Error("detached host");
+        return {
+          evaluate: async () => {
+            throw new Error("inspection failed");
+          },
+        };
+      },
+    };
+    await assert.rejects(inspect(frame), BrowserEvidenceError);
+  }
+  assert.equal(
+    await inspect({
+      url: () => "about:srcdoc",
+      parentFrame: () => main,
+      frameElement: async () => ({ evaluate: async () => false }),
+    }),
+    false,
+    "a successfully inspected opaque sandbox remains excluded",
   );
 });
 
@@ -780,6 +816,27 @@ test("browser MCP exposes the shared tool contract and persists evidence", async
       name: "done",
       arguments: { outcome: "completed", summary: "Primary action worked." },
     });
+    const finalizedResult = fs.readFileSync(path.join(directory, "browser-result.json"), "utf8");
+    const finalizedScreenshots = fs.readFileSync(path.join(directory, "screenshots.json"), "utf8");
+    for (const request of [
+      { name: "screenshot", arguments: { label: "after-finalization" } },
+      { name: "snapshot", arguments: {} },
+      { name: "navigate", arguments: { url } },
+      { name: "observe", arguments: { note: "Late observation" } },
+      { name: "done", arguments: { outcome: "blocked", summary: "Late replacement" } },
+    ]) {
+      const late = await client.callTool(request);
+      assert.equal(late.isError, true);
+      assert.match(JSON.stringify(late.content), /already finalized/);
+    }
+    assert.equal(
+      fs.readFileSync(path.join(directory, "browser-result.json"), "utf8"),
+      finalizedResult,
+    );
+    assert.equal(
+      fs.readFileSync(path.join(directory, "screenshots.json"), "utf8"),
+      finalizedScreenshots,
+    );
     assert.equal(
       JSON.parse(fs.readFileSync(path.join(directory, "browser-result.json"), "utf8")).outcome,
       "completed",

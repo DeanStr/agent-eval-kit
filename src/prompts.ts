@@ -34,6 +34,9 @@ export function scenarioPrompt(options: {
     scenario.caseId ? `CASE_ID: ${scenario.caseId}` : "",
     `SCENARIO: ${scenario.name}`,
     scenario.persona ? `PERSONA: ${scenario.persona}` : "",
+    scenario.authenticateEmail
+      ? `EMAIL AUTHENTICATION: start with authenticate_email. It performs the declared login flow in this browser without exposing emailed links or codes. Verify the resulting visible identity and continue with fresh snapshot refs. A blocked login cannot be bypassed by collecting logged-out evidence.`
+      : "",
     scenario.requiresAuth
       ? `AUTH: a saved browser session is expected for this persona. If it has expired, record blocked rather than treating the logged-out view as product absence.`
       : "",

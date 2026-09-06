@@ -1,5 +1,81 @@
 # Release validation
 
+## AgentMail review/fix loop
+
+The requested GPT-6 Astra review command completed nine rounds on 2026-09-06;
+the final round reported no actionable findings. Fixes cover declaration secrecy
+and stable redaction, Node 20.19 compatibility, delayed identity verification,
+HTML and plain-text email parsing, decoded-text credential guards, and terminal
+browser finalization. The persona regression now exercises missing-session
+blocking in an unfinished scenario.
+
+Final validation passed all 420 tests with concurrency limited to four, type
+checking, build, lint, formatting, whitespace checks and production-package smoke
+on Node 20.19.0. The final reviewer independently passed 92 targeted tests. The
+[review record](review-loop-agentmail-2026-09-06.md) captures every finding,
+decision, regression and intermediate failure. No live AgentMail inbox was used.
+
+## Fail-fast browser evidence
+
+Automatic and final screenshot capture no longer swallow inspection, capture or
+metadata-write failures. Browser execution errors leave a retained error marker
+that the runner rejects even when the agent claims completion. Credential violations
+stop the scenario and prevent session promotion. A final capture that crosses the
+origin boundary blocks completion; ordinary tools still report recovered origin
+violations and allow subsequent actions on the allowed page. Already blocked
+sessions finalize without attempting another screenshot. Failed iframe-origin
+inspection now propagates as an execution error; successfully inspected opaque
+sandboxes remain excluded.
+
+Regression tests cover automatic and final credential rejection, inspection and
+metadata-write failures, unique transcript steps, prevention of session saving,
+runner rejection of ignored errors, and failed versus valid iframe exclusion.
+
+Validated locally on 2026-09-06: all 413 tests passed with `pnpm test`, along with
+type checking, the final build, lint, formatting, production-package smoke and
+whitespace checks. No live AgentMail or subscription calls were made.
+
+## AgentMail authentication and email evidence
+
+AEK now exports a provider-neutral mailbox interface and an AgentMail adapter for
+existing inboxes. Configured magic-link and numeric-code login flows consume the
+credential in the initiating browser, verify a declared account identity, and
+retain a receipt. They support both `aek auth --email` and explicitly opted-in
+browser scenarios. Command collectors can correlate notification delivery and
+retain content assertions through the packaged email helper.
+
+Local integration tests exercise browser-bound challenges, both credential types,
+HTML parsing, stale and ambiguous messages, identity mismatch, credential exposure,
+private-file cleanup, configuration fingerprints, and saved persona permissions.
+Mailbox API failures remain execution errors even when the agent reports completion;
+healthy missing-email observations and unavailable authentication remain distinct.
+Artifact scans check that the fixture API key, link token and code are absent.
+
+The production-package smoke installs without development dependencies and runs
+the email example against a local mailbox API, checking both correct delivery and
+a deliberately incorrect body. No live AgentMail inbox or subscription provider
+was used. A real application and inbox still need a live integration check. See
+[email evidence and authentication](email.md) for supported flows and limitations.
+
+Validated locally on 2026-09-06: all 403 tests passed with `pnpm test`, including
+nine new email tests. Type checking, lint, formatting, both browser smoke suites,
+production-package smoke (including the build), example validation and whitespace
+checks passed.
+
+Follow-up review reproduced and corrected credential leakage in session-expiry
+metadata, credential guards that skipped background tabs and ran before origin
+recovery, and acceptance of emails received after the observation deadline when
+an API response arrived late. Codex MCP calls now use the invocation timeout,
+avoiding its 60-second default cutting off the configured email wait. Regression
+tests cover these paths; provider-argument checks use a fake CLI without consuming
+subscription quota.
+
+After these review fixes, all 405 tests passed with
+`node --import tsx --test --test-concurrency=4 test/*.test.ts`. Type checking,
+lint, formatting, the final build, both browser smoke suites, production-package
+smoke and whitespace checks passed. No live AgentMail or subscription calls were
+made.
+
 ## Browser and fixture fail-fast review (0.3.0)
 
 Styled uploads now fall back only when the file chooser wait times out after a successful click. Failed clicks, origin checks, chooser uploads, input discovery, and fallback uploads propagate instead of silently trying another input. Failed form or scroll inspection no longer fabricates an empty option list, editable metadata, or an immovable page. Failed combobox typing also remains an execution error. Configured fixture files that disappear before snapshot creation now stop the run with the missing source path.
@@ -94,7 +170,7 @@ No live subscription judges or human visual-calibration reviewers were invoked. 
 
 Evaluator fingerprints now include reference-image hashes and browser/image runtime versions. Regenerate runs and baselines when upgrading; pre-release artifact compatibility is not promised. Image-bearing baseline promotion is explicit through `--include-images`.
 
-Run `pnpm typecheck`, `pnpm test`, both browser smoke suites, `pnpm test:reference`, and `pnpm smoke:package` before release. CI runs those commands on Linux with Node 20.12.0, 22, and 24; it does not use subscription credentials or invoke real providers. The package smoke rebuilds before packing and installs a fresh consumer with production dependencies only.
+Run `pnpm typecheck`, `pnpm test`, both browser smoke suites, `pnpm test:reference`, and `pnpm smoke:package` before release. CI runs those commands on Linux with Node 20.19.0, 22, and 24; it does not use subscription credentials or invoke real providers. The package smoke rebuilds before packing and installs a fresh consumer with production dependencies only.
 
 The workflow uses the official [checkout](https://github.com/actions/checkout), [Node setup](https://github.com/actions/setup-node), and [pnpm setup](https://github.com/pnpm/action-setup) actions pinned to commits. It has read-only repository permissions and does not publish packages.
 

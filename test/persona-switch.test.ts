@@ -173,11 +173,10 @@ test("persona switching isolates identities, preserves live contexts, invalidate
     assert.equal(shots.find((shot) => shot.url === `${url}/slow`)?.persona, "organizer");
     const missing = await call("switch_persona", { persona: "missing" });
     assert.equal(missing.isError, true);
-    assert.match(text(missing), /No saved browser session/);
-    await call("done", { outcome: "completed", summary: "Cannot verify missing role" });
+    assert.match(text(missing), /already finalized/);
     assert.equal(
       JSON.parse(fs.readFileSync(path.join(directory, "browser-result.json"), "utf8")).outcome,
-      "blocked",
+      "completed",
     );
   } finally {
     await client.close();
@@ -217,6 +216,7 @@ async function withPersonaFixture(
         candidatePath: path.join(directory, "candidate.json"),
       },
       anonymous: {},
+      missing: { storageStatePath: path.join(directory, "missing.json") },
     },
     fixtureFiles: {},
     expectAuthenticated: true,
@@ -249,6 +249,21 @@ async function withPersonaFixture(
     fs.rmSync(directory, { recursive: true, force: true });
   }
 }
+
+test("switching to a missing persona blocks an unfinished scenario without saving state", async () => {
+  await withPersonaFixture(async ({ call, url, directory }) => {
+    assert.notEqual((await call("navigate", { url })).isError, true);
+    const missing = await call("switch_persona", { persona: "missing" });
+    assert.equal(missing.isError, true);
+    assert.match(JSON.stringify(missing.content), /No saved browser session/);
+    await call("done", { outcome: "completed", summary: "Cannot verify missing role" });
+    assert.equal(
+      JSON.parse(fs.readFileSync(path.join(directory, "browser-result.json"), "utf8")).outcome,
+      "blocked",
+    );
+    assert.equal(fs.existsSync(path.join(directory, "candidate.json")), false);
+  });
+});
 
 test("switching away cannot hide expired persona authentication", async () => {
   await withPersonaFixture(async ({ call, url, directory }) => {

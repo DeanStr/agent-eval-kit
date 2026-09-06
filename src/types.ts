@@ -1,4 +1,5 @@
 import type { TextPairwiseGrader } from "./text/contracts.js";
+import type { MailboxConfig, EmailAuthFlow } from "./email/contracts.js";
 import type {
   CaptureConfig,
   CaptureCheck,
@@ -36,6 +37,8 @@ export interface ProviderConfig {
 }
 
 export interface EvalConfig {
+  mailboxes?: Record<string, MailboxConfig>;
+  emailAuth?: Record<string, EmailAuthFlow>;
   version: 1;
   project: {
     name: string;
@@ -87,6 +90,7 @@ export interface EvalConfig {
 }
 
 export interface Scenario {
+  authenticateEmail?: boolean;
   id: string;
   name: string;
   kind?: ScenarioKind;

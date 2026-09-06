@@ -7,7 +7,12 @@ import { collectFrame, type RawEl } from "./elements.js";
 import { BrowserForms } from "./forms.js";
 import { BrowserPointer } from "./pointer.js";
 import { upload } from "./uploads.js";
-import { OriginBoundaryError, type BrowserInteractionContext } from "./interaction-context.js";
+import {
+  OriginBoundaryError,
+  AuthenticationEvidenceError,
+  BrowserEvidenceError,
+  type BrowserInteractionContext,
+} from "./interaction-context.js";
 import {
   chromium,
   type Browser,
@@ -40,6 +45,111 @@ export class BrowserSession {
   private referencesValid = true;
   private shotCounter = 0;
   private diagnosticBudget = { count: 0 };
+  private privateAuthentication = false;
+  private authenticationSecrets = new Set<string>();
+
+  beginPrivateAuthentication(): void {
+    this.privateAuthentication = true;
+    this.invalidateReferences();
+  }
+
+  protectAuthenticationSecret(secret: string): void {
+    for (const value of [
+      secret,
+      encodeURIComponent(secret),
+      secret.replaceAll("&", "&amp;"),
+      JSON.stringify(secret).slice(1, -1),
+    ])
+      this.authenticationSecrets.add(value);
+  }
+
+  redactAuthentication(value: string): string {
+    if (this.privateAuthentication) return "[private email authentication]";
+    return this.redactSecrets(value);
+  }
+
+  redactSecrets(value: string): string {
+    let result = value;
+    for (const secret of [...this.authenticationSecrets].sort((a, b) => b.length - a.length))
+      result = result.replaceAll(secret, "[authentication credential]");
+    return result;
+  }
+
+  async finishPrivateAuthentication(): Promise<void> {
+    await this.assertNoAuthenticationCredential();
+    this.privateAuthentication = false;
+    this.pendingNotes = [];
+    this.invalidateReferences();
+  }
+
+  async waitForAuthenticationIdentity(selector: string, text: string): Promise<void> {
+    const deadline = performance.now() + this.actionTimeoutMs;
+    const remaining = () => Math.max(1, deadline - performance.now());
+    for (;;) {
+      if (await this.enforceOrigin())
+        throw new AuthenticationEvidenceError(
+          "Identity verification left the allowed application origins",
+        );
+      const identity = this.page.locator(selector);
+      await identity.waitFor({ state: "visible", timeout: remaining() });
+      if ((await identity.innerText({ timeout: remaining() })).trim() === text) return;
+      if (performance.now() >= deadline)
+        throw new AuthenticationEvidenceError(
+          "The authenticated identity did not match the declared success text within the browser action timeout",
+        );
+      await this.page.waitForTimeout(Math.min(100, remaining()));
+    }
+  }
+
+  private async assertNoAuthenticationCredential(): Promise<void> {
+    if (!this.authenticationSecrets.size) return;
+    for (const page of this.context.pages()) {
+      if (page.isClosed()) continue;
+      if (!this.isAllowedUrl(page.url()))
+        throw new Error("Email authentication left an external page open");
+      for (const frame of page.frames()) {
+        if (!(await this.isAllowedFrame(frame, page.mainFrame()))) continue;
+        const content = await frame
+          .evaluate(() => {
+            const roots: Array<Document | ShadowRoot> = [document];
+            const parts = [location.href];
+            for (const root of roots) {
+              parts.push(
+                root instanceof Document ? root.documentElement.outerHTML : root.innerHTML,
+              );
+              // Markup can split a visible credential across inline elements
+              // or encode its characters as entities. Inspect decoded text too.
+              const textRoot = root instanceof Document ? root.documentElement : root;
+              parts.push(textRoot.textContent ?? "");
+              if (root instanceof Document) parts.push(root.documentElement.innerText);
+              for (const element of root.querySelectorAll("*")) {
+                if (element.shadowRoot) roots.push(element.shadowRoot);
+                if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)
+                  parts.push(element.value);
+              }
+            }
+            return parts.join("\n");
+          })
+          .catch(() => {
+            throw new BrowserEvidenceError(
+              "Could not inspect a page for authentication credentials; check browser and frame health",
+            );
+          });
+        if ([...this.authenticationSecrets].some((secret) => content.includes(secret)))
+          throw new AuthenticationEvidenceError(
+            "Authentication credential remains in a page URL or DOM; require a clean post-login redirect and clear verification fields before capturing evidence",
+          );
+      }
+    }
+  }
+
+  private async assertAuthenticationEvidenceSafe(): Promise<void> {
+    if (this.privateAuthentication)
+      throw new AuthenticationEvidenceError(
+        "Email authentication has not completed safely; start a fresh authentication attempt",
+      );
+    await this.assertNoAuthenticationCredential();
+  }
   /** Only Chromium's pristine page may bypass top-level origin enforcement. */
   private initialBlankAllowed = false;
   /** Events (dialogs, popups, origin blocks) surfaced in the next tool result. */
@@ -180,7 +290,9 @@ export class BrowserSession {
   }
 
   private attachPageHandlers(page: Page): void {
-    attachDiagnostics(page, this.evidenceDir, this.diagnosticBudget);
+    attachDiagnostics(page, this.evidenceDir, this.diagnosticBudget, (value) =>
+      this.redactAuthentication(value),
+    );
     page.on("framenavigated", (frame) => {
       if (frame === page.mainFrame() && frame.url() !== "about:blank") {
         this.initialBlankAllowed = false;
@@ -242,8 +354,7 @@ export class BrowserSession {
    * inherit their parent's origin, but an about:blank descendant must not
    * bypass a disallowed parent.
    */
-  private async isAllowedFrame(frame: Frame): Promise<boolean> {
-    const main = this.page.mainFrame();
+  private async isAllowedFrame(frame: Frame, main = this.page.mainFrame()): Promise<boolean> {
     let current: Frame | null = frame;
     while (current && current !== main) {
       const url = current.url();
@@ -262,7 +373,11 @@ export class BrowserSession {
               );
             }),
           )
-          .catch(() => false);
+          .catch(() => {
+            throw new BrowserEvidenceError(
+              "Could not inspect iframe origin inheritance; check browser and frame health",
+            );
+          });
         if (!inheritsOrigin) return false;
       } else if (!this.isOnTarget(url)) {
         return false;
@@ -411,6 +526,7 @@ export class BrowserSession {
   async snapshot(): Promise<string> {
     await this.page.waitForLoadState("domcontentloaded").catch(() => {});
     const originMsg = await this.enforceOrigin();
+    await this.assertAuthenticationEvidenceSafe();
     const url = this.page.url();
     const title = await this.page.title().catch(() => "");
 
@@ -679,6 +795,7 @@ export class BrowserSession {
     // this capture rather than persisting or returning an off-origin image.
     const originMsg = await this.enforceOrigin();
     if (originMsg) throw new OriginBoundaryError(originMsg);
+    await this.assertAuthenticationEvidenceSafe();
 
     this.shotCounter += 1;
     const safe = label.replace(/[^a-z0-9-_]+/gi, "-").slice(0, 60) || "shot";
@@ -738,6 +855,7 @@ export class BrowserSession {
       try {
         const postCaptureOrigin = await this.enforceOrigin();
         if (postCaptureOrigin) throw new OriginBoundaryError(postCaptureOrigin);
+        await this.assertAuthenticationEvidenceSafe();
       } catch (error) {
         // page.screenshot({ path }) writes before returning. Never retain the
         // file or expose its buffer when the page crossed the boundary during
@@ -774,7 +892,7 @@ export class BrowserSession {
       }
     } catch (error) {
       await Promise.allSettled(restorers.reverse().map((restore) => restore()));
-      throw new OriginBoundaryError(
+      throw new BrowserEvidenceError(
         `Could not mask every off-origin frame before capturing evidence: ${error instanceof Error ? error.message : String(error)}`,
       );
     }

@@ -48,7 +48,7 @@ evalkit.yaml + specs + fixtures
 ## Requirements
 
 - Linux is the validated runtime. Native Windows evaluation is unsupported and fails before launch. On Windows, run inside WSL using Linux Node.js, provider CLIs, and browser dependencies—not Windows executables through WSL interop. macOS is not yet CI-certified.
-- Node.js 20.12+
+- Node.js 20.19+
 - pnpm (or npm)
 - at least one supported CLI, already signed into a subscription
 - Playwright Chromium for browser scenarios (`pnpm exec playwright install chromium`)
@@ -417,6 +417,13 @@ app and report false absences.
 
 The kit deliberately does not accept plaintext application passwords in `evalkit.yaml`: provider prompts, exact argv, and raw events are retained for reproducibility. Put non-secret signup identities in fixtures and use captured browser state for existing accounts.
 
+For AgentMail-backed magic links and emailed verification codes, declare an
+`emailAuth` flow and run `aek auth --persona buyer --email`. Scenarios can also
+exercise the login journey with `authenticateEmail: true`. The packaged mailbox
+helper supports command collectors that verify notification delivery and content.
+See [email evidence and authentication](docs/email.md) for configuration, examples,
+credential handling and supported flow boundaries.
+
 ## Run, resume, rescore, finalize
 
 Each completed scenario writes `evidence.json` atomically. Every completed area rebuilds the report, so a late provider or browser failure does not lose earlier work.
@@ -630,7 +637,7 @@ TypeScript enforces strict mode, checked indexed access, exact optional properti
 
 The fast browser smoke covers the basic contract. The full regression fixture covers SPA click targets, custom dropdowns, rich-text editors, temporal inputs, iframes, open shadow DOM, modal scoping, overlays, nested upload controls, drag-and-drop, inner scroll containers, origin containment, synthesized labels, ref-budget collapse, and bounded screenshots.
 
-The CI workflow runs these checks on Linux with Node 20.12, 22, and 24. Package smoke builds a tarball, installs production dependencies in a temporary consumer, and exercises the installed CLI and workspace MCP without TypeScript source or `tsx`.
+The CI workflow runs these checks on Linux with Node 20.19, 22, and 24. Package smoke builds a tarball, installs production dependencies in a temporary consumer, and exercises the installed CLI and workspace MCP without TypeScript source or `tsx`.
 
 Reference checks contain working, broken, and missing cart-total implementations with separately specified expected outcomes. The default command uses deterministic graders and no model quota. To measure a real collector/judge pair or check a provider's browser and workspace integration:
 

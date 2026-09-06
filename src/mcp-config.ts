@@ -5,6 +5,7 @@ import { writeJson } from "./io.js";
 
 export const BROWSER_TOOL_NAMES = [
   "navigate",
+  "authenticate_email",
   "snapshot",
   "click",
   "fill",

@@ -5,6 +5,7 @@ import readline from "node:readline/promises";
 import { BrowserSession } from "./browser/session.js";
 import { safeName, sha256 } from "./io.js";
 import type { EvalConfig } from "./types.js";
+import { authenticateEmail } from "./email/authenticate.js";
 
 function personaStorageName(persona: string): string {
   // Keep a short readable prefix for operators, then use the full digest so
@@ -30,8 +31,14 @@ export async function captureAuth(options: {
   persona: string;
   startAt?: string;
   clickText?: string;
+  email?: boolean;
 }): Promise<string> {
   const { config, persona, clickText } = options;
+  if (options.email && (options.startAt || clickText))
+    throw new Error("aek auth --email uses the configured flow; omit --at and --click");
+  const flow = options.email ? config.emailAuth?.[persona] : undefined;
+  if (options.email && !flow)
+    throw new Error(`No emailAuth flow configured for persona ${persona}`);
   if (persona === "anonymous")
     throw new Error(
       "anonymous is reserved for unauthenticated browser contexts; capture a named persona instead",
@@ -47,7 +54,7 @@ export async function captureAuth(options: {
     // Interactive capture always needs a visible window. Automated capture
     // follows the configured mode so `aek auth --click ... --headed` remains
     // observable and debuggable.
-    Boolean(clickText) && config.browser.headless,
+    Boolean(clickText || options.email) && config.browser.headless,
     config.target.url,
     undefined,
     config.target.allowedOrigins,
@@ -57,6 +64,14 @@ export async function captureAuth(options: {
   );
   await browser.start();
   try {
+    if (flow) {
+      const mailbox = config.mailboxes?.[flow.mailbox];
+      if (!mailbox) throw new Error("Email authentication references a missing mailbox");
+      await authenticateEmail({ browser, targetUrl: config.target.url, flow, mailbox });
+      await browser.finalizeAuthenticationCapture();
+      await browser.saveStorageState(target);
+      return target;
+    }
     const url = new URL(options.startAt ?? "", config.target.url).toString();
     await browser.navigate(url);
     if (clickText) {
