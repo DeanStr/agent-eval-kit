@@ -566,7 +566,12 @@ test("global tag and stratum diagnostics respect top-level area weights", () => 
     startedAt: "2026-01-01T00:00:00Z",
     config: reportConfig,
     areas: [area("large", 90, 1, "pass"), area("small", 10, 100, "fail")],
-    receipt: {} as RunReceipt,
+    receipt: {
+      providers: {
+        agent: { provider: "mock", cliVersion: "mock" },
+        judge: { provider: "mock", cliVersion: "mock" },
+      },
+    } as RunReceipt,
   });
 
   assert.deepEqual(report.byTag.shared, {

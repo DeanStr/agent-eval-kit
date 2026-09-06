@@ -100,6 +100,7 @@ function parseArgs(argv: string[]): Args {
 }
 
 const booleanFlags = new Set([
+  "json",
   "email",
   "include-images",
   "allow-incompatible",
@@ -181,7 +182,7 @@ function validateCliShape(args: Args): void {
       allowed = ["public", "run", "output"];
       break;
     case "auth":
-      allowed = ["config", "url", "headed", "persona", "at", "click", "email"];
+      allowed = ["config", "url", "headed", "persona", "at", "click", "email", "json"];
       break;
     case "rescore":
       allowed = ["run", "config", "fail-under-score", "fail-under-coverage"];
@@ -218,7 +219,9 @@ function validateCliShape(args: Args): void {
           : [...runFlags, "repetitions", "output"];
       break;
     case "run":
-      allowed = runFlags;
+      if (args.flags.json && (!args.flags["dry-run"] || args.flags.resume))
+        throw new Error("run --json requires --dry-run and cannot resume");
+      allowed = [...runFlags, "json"];
       break;
     case "collect":
       allowed = runFlags.filter(
@@ -295,7 +298,7 @@ Usage: aek <command> [flags]
       [--areas a,b] [--scenarios x,y] [--include-optional]
       [--split development|evaluation|all]
       [--agent codex|claude|grok] [--judge codex|claude|grok]
-      [--agent-model id] [--judge-model id] [--headed] [--dry-run]
+      [--agent-model id] [--judge-model id] [--headed] [--dry-run [--json]]
       [--resume run-directory] [--fail-under-score pct]
       [--fail-under-coverage pct]
   campaign [--repetitions n]       Run the same evaluation repeatedly, sequentially
@@ -308,7 +311,7 @@ Usage: aek <command> [flags]
   privacy lint --path target       Scan a file or directory for likely private data
   auth --persona name              Capture a browser login session
        --email                     Use the persona's declared email-login flow
-      [--at /login] [--click "Demo login"]
+      [--at /login] [--click "Demo login"] [--json]
   collect [run selection flags]   Seal evidence and executable checks without a judge
   judge --evidence directory       Judge a sealed collection in a new run
         [--config file] [--judge provider] [--judge-model id]
@@ -1028,7 +1031,11 @@ async function main(): Promise<void> {
         email: Boolean(args.flags.email),
       }),
     );
-    console.log(`Saved ${persona} browser session to ${saved}`);
+    console.log(
+      args.flags.json
+        ? JSON.stringify({ persona, storageStatePath: saved })
+        : `Saved ${persona} browser session to ${saved}`,
+    );
     return;
   }
   if (args.command !== "run" && args.command !== "campaign" && args.command !== "collect")
@@ -1133,6 +1140,7 @@ async function main(): Promise<void> {
       configOverrides: overrides,
       resumeDir: stringFlag(args, "resume"),
       dryRun: Boolean(args.flags["dry-run"]),
+      dryRunJson: Boolean(args.flags.json),
     }),
     fixtures,
     collectOnly: args.command === "collect",

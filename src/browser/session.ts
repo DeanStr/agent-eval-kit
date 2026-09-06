@@ -577,6 +577,12 @@ export class BrowserSession {
       elementList = (elementList ? elementList + "\n" : "") + editorLines.join("\n");
     }
 
+    const excludedFrames = (
+      await Promise.all(
+        this.page.frames().map(async (frame) => !(await this.isAllowedFrame(frame))),
+      )
+    ).filter(Boolean).length;
+    if (excludedFrames) this.pendingNotes.push(this.frameExclusionNote(excludedFrames));
     this.referencesValid = true;
     return [
       this.drainNotes() + (originMsg ? originMsg + "\n" : "") + `URL: ${url}`,
@@ -788,7 +794,7 @@ export class BrowserSession {
     label: string,
     fullPage: boolean,
     timeoutMs?: number,
-  ): Promise<{ relPath: string; base64: string }> {
+  ): Promise<{ relPath: string; base64: string; notes: string }> {
     // Actions such as fill/select/upload/wait do not otherwise need a fresh
     // snapshot, and client-side handlers can redirect during any of them.
     // Evidence is a security boundary of its own: contain the page and fail
@@ -863,10 +869,14 @@ export class BrowserSession {
         fs.rmSync(abs, { force: true });
         throw error;
       }
-      return { relPath, base64: buf.toString("base64") };
+      return { relPath, base64: buf.toString("base64"), notes: this.drainNotes() };
     } finally {
       await restoreFrames();
     }
+  }
+
+  private frameExclusionNote(count: number): string {
+    return `AEK excluded ${count} child frame(s) by origin policy, including sandboxed frames without an allowed origin. Their content is unavailable to this evaluation and is masked in screenshots. Do not interpret blank frame regions as missing or broken product content.`;
   }
 
   private async maskDisallowedFrames(): Promise<() => Promise<void>> {
@@ -896,6 +906,7 @@ export class BrowserSession {
         `Could not mask every off-origin frame before capturing evidence: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+    if (restorers.length) this.pendingNotes.push(this.frameExclusionNote(restorers.length));
     return async () => {
       await Promise.all(restorers.reverse().map((restore) => restore()));
     };

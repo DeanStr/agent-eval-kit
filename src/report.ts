@@ -257,6 +257,14 @@ function areaSections(report: RunReport): string {
     .join("");
 }
 
+function providerTable(report: RunReport): string {
+  const rows = (["agent", "judge"] as const).map((role) => {
+    const provider = report.receipt.providers[role];
+    return `<tr><td>${role}</td><td>${escapeHtml(provider.provider)}</td><td>${escapeHtml(provider.model ?? "Provider default (unrecorded)")}</td><td>${escapeHtml(provider.effort ?? "Provider default (unrecorded)")}</td><td>${escapeHtml(provider.cliVersion)}</td></tr>`;
+  });
+  return `<table><thead><tr><th>Role</th><th>Provider</th><th>Requested model</th><th>Requested reasoning effort</th><th>CLI version</th></tr></thead><tbody>${rows.join("")}</tbody></table><p><small>Model and effort are requested settings, not confirmation of the provider's resolved model snapshot. Provider invocation commands are retained in the run artifacts. <a href="receipt.json">View receipt</a>.</small></p>`;
+}
+
 export function writeHtml(runDir: string, report: RunReport): void {
   const headline = report.scoreWithheld
     ? `<p class="headline low">Score withheld — ${report.overallCoveragePct}% coverage</p><p class="warn">The provisional score over judged evidence is ${report.overallScorePct ?? "n/a"}%. It is not comparable until coverage reaches the configured threshold.</p>`
@@ -267,7 +275,7 @@ export function writeHtml(runDir: string, report: RunReport): void {
   const strata = stratumRows(report);
   const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(report.project)} evaluation</title><style>
 body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;color:#1f2328;max-width:1120px;margin:2rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #d0d7de;padding:.45rem .65rem;text-align:left;vertical-align:top}th{background:#f6f8fa}.headline{font-size:2rem;font-weight:750}.headline span{font-size:1rem;color:#57606a;margin-left:.8rem}.low{color:#cf222e;font-weight:650}.warn{background:#fff8c5;border:1px solid #d4a72c;border-radius:6px;padding:.7rem 1rem}.shots{display:flex;flex-wrap:wrap;gap:12px}figure{margin:0}figcaption,small{color:#57606a;font-size:12px}section{border-top:1px solid #d0d7de;margin-top:2rem;padding-top:1rem}details{margin:.55rem 0}summary{cursor:pointer}code{font-size:.9em}</style></head><body>
-<h1>${escapeHtml(report.project)} evaluation</h1><p>Run ${escapeHtml(report.runId)} · ${escapeHtml(report.startedAt)} → ${escapeHtml(report.finishedAt)}<br>Agent: ${escapeHtml(report.providers.agent.provider)}${report.providers.agent.model ? `/${escapeHtml(report.providers.agent.model)}` : ""} · Judge: ${escapeHtml(report.providers.judge.provider)}${report.providers.judge.model ? `/${escapeHtml(report.providers.judge.model)}` : ""}</p>${report.receipt.collection ? `<p>Evidence from collection ${escapeHtml(report.receipt.collection.runId)}. <a href="receipt.json">View provenance</a>.</p>` : ""}${gateHeadline}${headline}<p>${report.manualPending} item(s) await manual verification.</p>
+<h1>${escapeHtml(report.project)} evaluation</h1><p>Run ${escapeHtml(report.runId)} · ${escapeHtml(report.startedAt)} → ${escapeHtml(report.finishedAt)}</p>${providerTable(report)}${report.receipt.collection ? `<p>Evidence from collection ${escapeHtml(report.receipt.collection.runId)}. <a href="receipt.json">View provenance</a>.</p>` : ""}${gateHeadline}${headline}<p>${report.manualPending} item(s) await manual verification.</p>
 <h2>Areas</h2><table><thead><tr><th>Area</th><th>Weight</th><th>Score</th><th>Coverage</th><th>Points</th><th>Manual</th></tr></thead><tbody>${tableRows(report)}</tbody></table>
 <h2>Tags</h2><p>Rubric items may carry multiple tags; each row is an independent diagnostic slice.</p><table><thead><tr><th>Tag</th><th>Score</th><th>Coverage</th><th>Points</th></tr></thead><tbody>${tagRows(report)}</tbody></table>${strata ? `<h2>Strata</h2><p>Case-level automatic diagnostic slices; they do not replace the weighted headline score.</p><table><thead><tr><th>Stratum</th><th>Score</th><th>Coverage</th><th>Cases</th></tr></thead><tbody>${strata}</tbody></table>` : ""}${areaSections(report)}</body></html>`;
   fs.writeFileSync(path.join(runDir, "report.html"), html);

@@ -20,6 +20,33 @@ export const checkpointEvidenceSchema = z
       .max(20),
   })
   .strict();
+const checkpointInputSchema = z
+  .object({
+    name: z.string(),
+    evidenceRefs: checkpointEvidenceSchema.shape.evidenceRefs,
+  })
+  .strict();
+
+export function requiredCheckpointNames(rubric: RubricItem[], scenarioId: string): string[] {
+  return [...new Set(rubric.flatMap((item) => selectedCheckpoints(item, scenarioId) ?? []))];
+}
+
+export function checkpointCompletionError(
+  required: string[] | undefined,
+  directory: string,
+  outcome: string,
+): string | undefined {
+  if (outcome !== "completed" || !required?.length) return undefined;
+  const file = path.join(directory, "checkpoints.json");
+  const recorded = fs.existsSync(file)
+    ? z
+        .record(z.string(), checkpointEvidenceSchema)
+        .parse(JSON.parse(fs.readFileSync(file, "utf8")))
+    : {};
+  const missing = required.filter((name) => !Object.hasOwn(recorded, name));
+  if (!missing.length) return undefined;
+  return `ERROR: Cannot finalize completed: missing rubric-required checkpoints: ${missing.join(", ")}. Record each with 1–20 unique successful earlier evidence steps and verify the call succeeds, then retry done. If the workflow could not be exercised, finish with an honest blocked or feature_not_found outcome and explain the unavailable evidence. Missing checkpoints remain unavailable coverage.`;
+}
 const evidenceAction = (entry: TranscriptEntry) =>
   !entry.isError &&
   !["observe", "done", "publish_output", "checkpoint", "switch_persona"].includes(entry.tool);
@@ -86,11 +113,20 @@ export function registerCheckpointTool(
   server.registerTool(
     "checkpoint",
     {
-      description: `Record that a declared check was exercised, without grading it. Cite successful earlier steps as step:N. Record immediately after gathering evidence. Declared checks: ${JSON.stringify(options.checkpoints ?? {})}`,
-      inputSchema: { name: z.string(), evidenceRefs: checkpointEvidenceSchema.shape.evidenceRefs },
+      description: `Record that a declared check was exercised, without grading it. name must be a declared checkpoint string; evidenceRefs must contain 1–20 unique successful earlier steps as step:N. Record immediately after gathering evidence and check the call succeeds; correct rejected calls before done. Declared checks: ${JSON.stringify(options.checkpoints ?? {})}`,
+      // Validate inside the recorded call. SDK-level rejection would omit the
+      // failed attempt from the authoritative transcript and its step sequence.
+      inputSchema: z.looseObject({
+        name: z.unknown().optional().describe("Required: declared checkpoint name (string)"),
+        evidenceRefs: z
+          .unknown()
+          .optional()
+          .describe("Required: array of 1–20 unique step:N strings"),
+      }),
     },
-    ({ name, evidenceRefs }) =>
-      options.call({ name, evidenceRefs }, () => {
+    (input) =>
+      options.call(input, () => {
+        const { name, evidenceRefs } = checkpointInputSchema.parse(input);
         const file = path.join(options.directory, "checkpoints.json");
         const prior = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
         if (Object.hasOwn(prior, name))

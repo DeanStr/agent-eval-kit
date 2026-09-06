@@ -218,6 +218,12 @@ For a deployed web app, omit `setup` and `start`; `ready` is optional but useful
 
 Interrupting `run` or `campaign` with Ctrl+C (`SIGINT`) or `SIGTERM` stops active provider, grader, setup, readiness, and managed target processes before returning exit status 130 or 143. The interrupted run is marked failed and its lock is released. Campaigns retain the interrupted repetition and do not start further repetitions. Timeout cleanup waits for the entire process group, including descendants that outlive the original command.
 
+`aek run --dry-run --json` validates inputs and prints a version-1 JSON plan:
+`{ "version": 1, "areas": [{ "id": "area", "scenarios": [{ "id": "scenario" }] }] }`.
+Scenario lists contain only the selected executable cases after split and case
+expansion. This starts no target or provider and creates no run. Coordinators
+can use the plan to validate arguments and choose required services before setup.
+
 ## Specs
 
 Every YAML file under `paths.specs` is one weighted area. Required area weights must total exactly 100; optional areas are excluded from the headline score.
@@ -421,6 +427,8 @@ For AgentMail-backed magic links and emailed verification codes, declare an
 `emailAuth` flow and run `aek auth --persona buyer --email`. Scenarios can also
 exercise the login journey with `authenticateEmail: true`. The packaged mailbox
 helper supports command collectors that verify notification delivery and content.
+`provider: mailpit` supports local capture in `emailAuth`; `createMailpitMailbox`
+also exposes the same recipient-scoped observation helpers for command collectors.
 See [email evidence and authentication](docs/email.md) for configuration, examples,
 credential handling and supported flow boundaries.
 
@@ -436,6 +444,21 @@ aek run --resume .agent-eval/runs/<timestamp>
 Resume reuses non-error scenario evidence and completed area judgements. It requires the current run-state format and its input fingerprint, and refuses changed resolved configuration, provider/evaluator method, selected areas or scenarios, exact spec bytes, fixture manifest or named fixture bytes, and a changed clean Git revision. An exclusive per-run lock rejects concurrent resume or execution before recovery can alter artifacts. Start a new run for changed or unverifiable evaluation inputs.
 
 Every report embeds a versioned receipt and writes the same data to `receipt.json`. It records SHA-256 checksums for evaluation inputs, provider CLI versions, kit/runtime versions, target Git revision when available, and two fingerprints: a strict input fingerprint for resume and an evaluator fingerprint for safe cross-target comparison. Receipt creation fails if a configured provider's CLI version cannot be determined; run `aek doctor` instead of producing an unverifiable receipt. Receipt files contain hashes and metadata, not fixture contents or secrets.
+
+Pin `agent.model`, `judge.model` and their `effort` settings for comparisons.
+The report's provider table shows the requested model, reasoning effort and CLI
+version from the retained receipt; JSON retains these under `providers.agent`
+and `providers.judge`. Changing model or effort changes the evaluation
+fingerprint. Omitted settings appear as `Provider default (unrecorded)` in HTML.
+Rebuilding a report from retained evidence preserves the receipt's provider
+settings, even when the current configuration has changed.
+These fields record requested settings, not a provider-confirmed model snapshot:
+Codex's current `exec --json` stream does not expose that resolved identity.
+The exact invocation argv is retained in `provider-run.json`, with explicit
+`requestedModel` and `requestedEffort` fields for browser/workspace collection
+and ordinary LLM judging. Pinning a model ID does not make model output
+deterministic or freeze a provider's implementation of that ID.
+
 
 After changing only scoring weights/tags, intentionally apply the current specs without a model call. Rescore requires the sealed original resolved-config snapshot and uses its original scoring values when checking that no unrelated collection settings changed:
 

@@ -837,3 +837,29 @@ test("CLI adjudicates automatic abstentions with explicit review, rescore retent
   assert.equal(JSON.parse(baselineText).areas[0].items[0].adjudication, undefined);
   assert.equal(JSON.parse(baselineText).areas[0].items[0].adjudicationReceipt.verdict, "pass");
 });
+
+test("JSON planning validates selectors and returns only selected scenarios without running", () => {
+  const root = temporary();
+  try {
+    writeProject(root);
+    const specFile = path.join(root, "specs/core.yaml");
+    const spec = YAML.parse(fs.readFileSync(specFile, "utf8"));
+    spec.scenarios.push({ ...spec.scenarios[0], id: "S2" });
+    fs.writeFileSync(specFile, YAML.stringify(spec));
+    const result = runCli(root, ["run", "--dry-run", "--json", "--scenarios", "S2"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      version: 1,
+      areas: [{ id: "core", scenarios: [{ id: "S2" }] }],
+    });
+    assert.equal(fs.existsSync(path.join(root, "runs")), false);
+    const invalid = runCli(root, ["run", "--dry-run", "--json", "--scenarios", "missing"]);
+    assert.equal(invalid.status, 1);
+    const executing = runCli(root, ["run", "--json"]);
+    assert.equal(executing.status, 1);
+    assert.match(executing.stderr, /requires --dry-run/);
+    assert.equal(fs.existsSync(path.join(root, "runs")), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

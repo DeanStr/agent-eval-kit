@@ -100,7 +100,12 @@ test("rounded 100% never satisfies exact score or coverage requirements", () => 
       startedAt: "now",
       config,
       areas: [area],
-      receipt: {} as RunReceipt,
+      receipt: {
+        providers: {
+          agent: { provider: "mock", cliVersion: "mock" },
+          judge: { provider: "mock", cliVersion: "mock" },
+        },
+      } as RunReceipt,
     });
     assert.equal(actual.overallScorePct, 100);
     assert.equal(actual.overallCoveragePct, 100);
@@ -152,7 +157,12 @@ test("exact decimal boundaries tolerate arithmetic roundoff without admitting re
         runId: "boundary",
         startedAt: "now",
         areas: [area],
-        receipt: {} as RunReceipt,
+        receipt: {
+          providers: {
+            agent: { provider: "mock", cliVersion: "mock" },
+            judge: { provider: "mock", cliVersion: "mock" },
+          },
+        } as RunReceipt,
         config: { ...config, scoring: { ...config.scoring, minimumCoverage: threshold } },
       });
       assert.equal(actual.scoreWithheld, deficit > 0, `coverage ${observed} vs ${threshold}`);

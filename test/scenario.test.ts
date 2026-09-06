@@ -786,3 +786,41 @@ test("persona-switching scenarios block missing initial authentication even with
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("scenario collection passes rubric-required checkpoints to both MCP contexts", async () => {
+  for (const kind of ["browser", "workspace"] as const) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-required-checkpoints-"));
+    try {
+      const { config, spec, scenario } = workspaceFixture(root);
+      config.agent.provider = "mock";
+      config.target = {
+        kind: "web",
+        url: "http://127.0.0.1:3000",
+        allowedOrigins: ["http://127.0.0.1:3000"],
+      };
+      scenario.kind = kind;
+      scenario.checkpoints = { saved: "Saved content", optional: "Unused by rubric" };
+      spec.rubric = [
+        {
+          id: "SAVE",
+          criterion: "Saved",
+          weight: 1,
+          tags: [],
+          scenarios: [scenario.id],
+          checkpoints: { [scenario.id]: ["saved"] },
+          grader: { type: "llm" },
+          passCriteria: "Saved",
+        },
+      ];
+      const directory = path.join(root, "evidence");
+      await executeScenario({ config, spec, scenario, fixtures: {}, directory });
+      const context = JSON.parse(
+        fs.readFileSync(path.join(directory, `${kind}-context.json`), "utf8"),
+      );
+      assert.deepEqual(context.requiredCheckpoints, ["saved"]);
+      assert.deepEqual(Object.keys(context.checkpoints), ["saved", "optional"]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});

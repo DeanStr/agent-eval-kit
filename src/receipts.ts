@@ -409,7 +409,7 @@ export function judgingProviderReceipt(
 ): RunReceipt["providers"]["judge"] {
   return {
     provider: config.judge.provider,
-    ...omitUndefined({ model: config.judge.model }),
+    ...omitUndefined({ model: config.judge.model, effort: config.judge.effort }),
     cliVersion: requiresModelJudging(specs, split)
       ? providerVersion(config.judge.provider)
       : "not invoked (deterministic judging)",
@@ -515,7 +515,7 @@ export function buildRunReceipt(options: {
       return {
         agent: {
           provider: config.agent.provider,
-          ...(config.agent.model === undefined ? {} : { model: config.agent.model }),
+          ...omitUndefined({ model: config.agent.model, effort: config.agent.effort }),
           cliVersion:
             options.collectionOnly && !usesAgent
               ? "not invoked (deterministic collection)"
@@ -524,7 +524,7 @@ export function buildRunReceipt(options: {
         judge: options.collectionOnly
           ? {
               provider: config.judge.provider,
-              ...omitUndefined({ model: config.judge.model }),
+              ...omitUndefined({ model: config.judge.model, effort: config.judge.effort }),
               cliVersion: "not invoked (collection only)",
             }
           : judgingProviderReceipt(config, specs, options.split),

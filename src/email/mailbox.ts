@@ -1,6 +1,9 @@
+import { requestMailboxJson } from "./http.js";
 import { z } from "zod";
 import { parseFragment, type DefaultTreeAdapterMap } from "parse5";
 import { mailboxSchema, emailMatchSchema, MailboxError, type EmailMatch } from "./contracts.js";
+import { createMailpitMailbox } from "./mailpit.js";
+export { createMailpitMailbox };
 
 const metadataSchema = z.object({
   message_id: z.string().min(1),
@@ -29,47 +32,16 @@ export function createMailbox(
   credentials: { apiKey?: string } = {},
 ): MailboxProvider {
   const config = mailboxSchema.parse(input);
+  if (config.provider === "mailpit") {
+    if (credentials.apiKey !== undefined)
+      throw new MailboxError("Local Mailpit does not accept API credentials");
+    return createMailpitMailbox({ baseUrl: config.baseUrl, address: config.address });
+  }
   const key = credentials.apiKey ?? process.env[config.apiKeyEnv];
   if (!key) throw new MailboxError(`Missing mailbox credential: set ${config.apiKeyEnv}`);
   const root = `${config.baseUrl.replace(/\/$/, "")}/inboxes/${encodeURIComponent(config.inboxId)}/messages`;
-  async function request(url: string, signal?: AbortSignal): Promise<unknown> {
-    try {
-      const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${key}` },
-        redirect: "error",
-        signal: signal
-          ? AbortSignal.any([signal, AbortSignal.timeout(15000)])
-          : AbortSignal.timeout(15000),
-      });
-      if (!response.ok) {
-        await response.body?.cancel();
-        throw new MailboxError(
-          `AgentMail request failed (HTTP ${response.status}); check mailbox access, service status and rate limits`,
-        );
-      }
-      const reader = response.body?.getReader();
-      if (!reader) throw new MailboxError("AgentMail returned an empty response");
-      let size = 0;
-      const chunks: Uint8Array[] = [];
-      for (;;) {
-        const result = await reader.read();
-        if (result.done) break;
-        size += result.value.byteLength;
-        if (size > 2 * 1024 * 1024) {
-          await reader.cancel();
-          throw new MailboxError("AgentMail response exceeds the 2 MiB inspection limit");
-        }
-        chunks.push(result.value);
-      }
-      return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    } catch (error) {
-      if (error instanceof MailboxError) throw error;
-      // Fetch, JSON and schema diagnostics can contain headers, bodies or URLs.
-      throw new MailboxError(
-        "AgentMail transport or response failed; check connectivity, timeout and API compatibility",
-      );
-    }
-  }
+  const request = (url: string, signal?: AbortSignal) =>
+    requestMailboxJson("AgentMail", url, signal, { Authorization: `Bearer ${key}` });
   return {
     async list(signal) {
       const messages: EmailMetadata[] = [];

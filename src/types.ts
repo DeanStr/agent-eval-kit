@@ -409,8 +409,8 @@ export interface RunReceipt {
     treeSha256?: string;
   };
   providers: {
-    agent: { provider: ProviderId; model?: string; cliVersion: string };
-    judge: { provider: ProviderId; model?: string; cliVersion: string };
+    agent: { provider: ProviderId; model?: string; effort?: string; cliVersion: string };
+    judge: { provider: ProviderId; model?: string; effort?: string; cliVersion: string };
   };
   runtime: {
     judging?: {
@@ -472,8 +472,8 @@ export interface RunReport {
   finishedAt: string;
   kitVersion: string;
   providers: {
-    agent: { provider: ProviderId; model?: string };
-    judge: { provider: ProviderId; model?: string };
+    agent: { provider: ProviderId; model?: string; effort?: string };
+    judge: { provider: ProviderId; model?: string; effort?: string };
   };
   areas: AreaResult[];
   overallScorePct: number | null;

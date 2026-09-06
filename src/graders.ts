@@ -291,6 +291,8 @@ async function runLlmJudge(options: {
     ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
   });
   writeJson(path.join(directory, "provider-run.json"), {
+    requestedModel: config.judge.model ?? null,
+    requestedEffort: config.judge.effort ?? null,
     provider: provider.provider,
     command: provider.command,
     exitCode: provider.exitCode,

@@ -1481,3 +1481,24 @@ test("sealed split selections ignore inactive external dependencies and reject m
     }
   }
 });
+
+test("detached judging preserves collected effort through receipt and report validation", async (t) => {
+  const f = fixture(t);
+  const saved = YAML.parse(fs.readFileSync(f.configFile, "utf8"));
+  saved.agent = { provider: "mock", model: "collection-model", effort: "medium" };
+  saved.judge = { provider: "mock", model: "judge-model", effort: "high" };
+  fs.writeFileSync(f.configFile, YAML.stringify(saved));
+  const input = f.options();
+  const collected = await runEvaluation({ ...input, collectOnly: true });
+  const source = JSON.parse(fs.readFileSync(path.join(collected.runDir, "receipt.json"), "utf8"));
+  assert.equal(source.providers.agent.effort, "medium");
+  const judged = await judgeCollected({ ...input, evidenceDir: collected.runDir });
+  assert.equal(judged.report.receipt.providers.agent.effort, "medium");
+  assert.equal(judged.report.providers.agent.effort, "medium");
+  assert.equal(judged.report.receipt.providers.judge.effort, "high");
+  const { runReportSchema, runReceiptSchema } = await import("../src/artifact-schemas.js");
+  assert.deepEqual(runReceiptSchema.parse(source).providers, source.providers);
+  const parsed = runReportSchema.parse(judged.report);
+  assert.deepEqual(parsed.providers, judged.report.providers);
+  assert.deepEqual(parsed.receipt.providers, judged.report.receipt.providers);
+});

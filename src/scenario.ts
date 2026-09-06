@@ -1,4 +1,4 @@
-import { validateCheckpoints } from "./checkpoints.js";
+import { validateCheckpoints, requiredCheckpointNames } from "./checkpoints.js";
 import { evidenceFileSchema, readEvidenceFile, validateEvidenceFiles } from "./evidence/files.js";
 import { requireDefined, omitUndefinedDeep, omitUndefined } from "./invariants.js";
 import { validateOutputs } from "./workflow.js";
@@ -219,15 +219,17 @@ export async function executeScenario(options: {
       const mailbox = flow && config.mailboxes?.[flow.mailbox];
       if (!flow || !mailbox)
         throw new Error(`No valid emailAuth flow configured for persona ${scenario.persona}`);
-      const key = process.env[mailbox.apiKeyEnv];
-      if (!key) throw new Error(`Missing mailbox credential: set ${mailbox.apiKeyEnv}`);
+      const key = mailbox.provider === "agentmail" ? process.env[mailbox.apiKeyEnv] : undefined;
+      if (mailbox.provider === "agentmail" && !key)
+        throw new Error(`Missing mailbox credential: set ${mailbox.apiKeyEnv}`);
       emailCredential = {
         file: path.join(config.paths.auth, `.email-${randomUUID()}.json`),
-        payload: { key, flow, mailbox },
+        payload: { ...(key === undefined ? {} : { key }), flow, mailbox },
       };
       emailAuthentication = { credentialFile: emailCredential.file };
     }
     const context: BrowserMcpContext = omitUndefined({
+      requiredCheckpoints: requiredCheckpointNames(spec.rubric, scenario.id),
       ...(emailAuthentication === undefined ? {} : { emailAuthentication }),
       ...(scenario.persona === undefined ? {} : { persona: scenario.persona }),
       ...(personas === undefined ? {} : { personas: personas }),
@@ -268,6 +270,7 @@ export async function executeScenario(options: {
     };
   } else {
     const context: WorkspaceMcpContext = omitUndefined({
+      requiredCheckpoints: requiredCheckpointNames(spec.rubric, scenario.id),
       ...(scenario.outputs === undefined ? {} : { outputs: scenario.outputs }),
       ...(scenario.checkpoints === undefined ? {} : { checkpoints: scenario.checkpoints }),
       projectRoot: config.project.root,
@@ -328,6 +331,8 @@ export async function executeScenario(options: {
       ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
     });
     writeJson(path.join(directory, "provider-run.json"), {
+      requestedModel: config.agent.model ?? null,
+      requestedEffort: config.agent.effort ?? null,
       provider: config.agent.provider,
       command: providerResult.command,
       exitCode: providerResult.exitCode,

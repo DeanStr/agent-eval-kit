@@ -361,12 +361,22 @@ export function buildReport(options: {
     kitVersion: KIT_VERSION,
     providers: {
       agent: {
-        provider: options.config.agent.provider,
-        ...(options.config.agent.model === undefined ? {} : { model: options.config.agent.model }),
+        provider: options.receipt.providers.agent.provider,
+        ...(options.receipt.providers.agent.model === undefined
+          ? {}
+          : { model: options.receipt.providers.agent.model }),
+        ...(options.receipt.providers.agent.effort === undefined
+          ? {}
+          : { effort: options.receipt.providers.agent.effort }),
       },
       judge: {
-        provider: options.config.judge.provider,
-        ...(options.config.judge.model === undefined ? {} : { model: options.config.judge.model }),
+        provider: options.receipt.providers.judge.provider,
+        ...(options.receipt.providers.judge.model === undefined
+          ? {}
+          : { model: options.receipt.providers.judge.model }),
+        ...(options.receipt.providers.judge.effort === undefined
+          ? {}
+          : { effort: options.receipt.providers.judge.effort }),
       },
     },
     areas: options.areas,

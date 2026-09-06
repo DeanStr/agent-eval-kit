@@ -184,10 +184,21 @@ identify successful earlier evidence actions, excluding observations, persona
 switches, and output/checkpoint declarations themselves. Checkpoints cannot be
 overwritten. Multiple selectors for one scenario must all be exercised.
 
+Calls accept 1–20 unique references. Argument validation runs inside the recorded
+checkpoint call, so rejected attempts remain in the browser/workspace transcript
+as errors and consume a step. Correct the arguments and verify the retry succeeds.
+For browser/workspace collection, `done(completed)` returns a recoverable error
+listing missing rubric-required checkpoints. It does not finalize the scenario;
+record the missing evidence and retry. Declared checkpoints unused by the rubric
+do not prevent completion. Honest `blocked` and `feature_not_found` outcomes can
+still finalize with partial checkpoints and unavailable coverage.
+Once `done` succeeds, finalization is permanent: later browser/workspace calls
+are rejected and cannot change the result, observations, outputs or checkpoints.
+
 If notification is subsequently blocked, the persistence criterion can still be
 judged from the saved checkpoint. Its judge may cite only that checkpoint, its
 referenced steps, and files/images from those steps. An unrecorded checkpoint
-reduces coverage even if the overall scenario says completed. Provider crashes,
+reduces coverage in retained or command evidence even if the overall scenario says completed. Provider crashes,
 invalid outputs, and corrupt checkpoint records remain execution errors.
 
 Checkpoint selectors support LLM/hybrid grading and materialize across case

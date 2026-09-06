@@ -166,7 +166,7 @@ const gateShape = {
   reason: text,
 };
 const gate = z.object(gateShape);
-const providerModel = z.object({ provider, model: text.optional() });
+const providerModel = z.object({ provider, model: text.optional(), effort: id.optional() });
 const receiptProvider = providerModel.extend({ cliVersion: id });
 const receiptTarget = z.object({
   kind: targetKind,

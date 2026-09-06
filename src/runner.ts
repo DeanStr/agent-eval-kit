@@ -49,6 +49,7 @@ export interface RunOptions {
   ignoredTargetPaths?: string[];
   resumeDir?: string;
   dryRun?: boolean;
+  dryRunJson?: boolean;
   collectOnly?: boolean;
 }
 
@@ -157,17 +158,28 @@ export async function runEvaluation(
   assertScenarioSelectors(specs, options.scenarioIds, selectedSplit);
   await validateEvaluationInputs(config, sourceSpecs, selectedSplit, options.scenarioIds);
   if (options.dryRun) {
+    const isSelected = (scenario: EvalSpec["scenarios"][number]) =>
+      !options.scenarioIds?.length ||
+      options.scenarioIds.includes(scenario.id) ||
+      Boolean(scenario.sourceScenarioId && options.scenarioIds.includes(scenario.sourceScenarioId));
+    if (options.dryRunJson) {
+      console.log(
+        JSON.stringify({
+          version: 1,
+          areas: specs.map((spec) => ({
+            id: spec.id,
+            scenarios: spec.scenarios.filter(isSelected).map((scenario) => ({ id: scenario.id })),
+          })),
+        }),
+      );
+      return { runDir: "(dry-run)" };
+    }
     for (const spec of specs) {
       console.log(
         `${spec.id} (${spec.weight}${spec.optional ? ", optional" : ""}) — ${spec.title}`,
       );
       for (const scenario of spec.scenarios) {
-        const selected =
-          !options.scenarioIds?.length ||
-          options.scenarioIds.includes(scenario.id) ||
-          Boolean(
-            scenario.sourceScenarioId && options.scenarioIds.includes(scenario.sourceScenarioId),
-          );
+        const selected = isSelected(scenario);
         console.log(
           `  ${selected ? ">" : "~"} ${scenario.id} [${scenario.kind ?? (config.target.kind === "web" ? "browser" : "workspace")}] ${scenario.name}`,
         );

@@ -208,7 +208,7 @@ test("full-page screenshots enforce the image-width ceiling", async () => {
     assert.ok(dimensions.width <= 1_900, JSON.stringify(dimensions));
     assert.ok(dimensions.height <= 1_900, JSON.stringify(dimensions));
     assert.match(
-      await session.snapshot(),
+      screenshot.notes,
       /Full-page screenshot was clipped to 1900×800px \(page is 3000×800px\)/,
     );
   } finally {
@@ -605,7 +605,13 @@ test("browser sessions exclude cross-origin child frames from actions and eviden
       /Opaque secret control|External secret control|External secret editor/,
     );
 
-    await session.screenshot("frame-boundary", false);
+    assert.match(snapshot, /AEK excluded 2 child frame\(s\) by origin policy/);
+    const screenshot = await session.screenshot("frame-boundary", false);
+    assert.match(
+      screenshot.notes,
+      /Do not interpret blank frame regions as missing or broken product content/,
+    );
+    assert.doesNotMatch(screenshot.notes, /Opaque secret control|External secret control/);
     assert.equal(
       await session.page.locator("body").getAttribute("data-external-frame-was-masked"),
       "yes",

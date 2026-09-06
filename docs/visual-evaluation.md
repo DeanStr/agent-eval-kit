@@ -2,6 +2,15 @@
 
 AEK supports controlled browser capture, deterministic checks, blind image comparisons, and repeated rubric judgements over fixed evidence. These capabilities use the existing providers, coverage rules, run lock, integrity index, reports, and baseline promotion. The design was informed by the visual evals in `DeanStr/traffic`; game-specific setup and metrics remain project-owned.
 
+Agent-driven evidence excludes child frames outside the configured origin policy,
+including sandboxed `srcdoc` frames without an allowed origin. Those frames are
+masked in screenshots and omitted from text/action inspection. Snapshots and
+screenshot tool responses explain the exclusion; screenshot notes are also
+retained as observations for judging. A blank masked region is unavailable
+evidence, not proof that the application rendered an empty or broken component.
+Use a separate project-owned browser check when an opaque preview must be verified;
+do not weaken the application's sandbox to make it visible to the evaluator.
+
 ## Try the example
 
 ```bash

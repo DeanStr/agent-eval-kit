@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { retainEvidenceFile, MAX_EVIDENCE_FILE_BYTES } from "../evidence/files.js";
-import { registerCheckpointTool } from "../checkpoints.js";
+import { registerCheckpointTool, checkpointCompletionError } from "../checkpoints.js";
 import { registerOutputTool } from "../workflow.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -163,6 +163,12 @@ async function getBrowser(): Promise<BrowserSession> {
   return browser;
 }
 
+function retainScreenshotNotes(shot: { relPath: string; notes: string }): void {
+  if (!shot.notes) return;
+  observations.push(protect(`Screenshot ${shot.relPath}: ${shot.notes.trim()}`));
+  writeJson(observationsFile, observations);
+}
+
 async function autoCapture(tool: string): Promise<void> {
   if (!browser || !["navigate", "click", "press"].includes(tool)) return;
   const url = browser.page?.url();
@@ -172,6 +178,7 @@ async function autoCapture(tool: string): Promise<void> {
     const slug =
       evidenceUrl.replace(/^https?:\/\/[^/]+/, "").replace(/[^a-z0-9]+/gi, "-") || "root";
     const shot = await browser.screenshot(`auto-${slug}`.slice(0, 55), false);
+    retainScreenshotNotes(shot);
     screenshots.push({
       persona: activePersona,
       path: shot.relPath,
@@ -378,7 +385,10 @@ server.registerTool(
           targetUrl: context.targetUrl,
           flow: credential.flow,
           mailbox: credential.mailbox,
-          provider: createMailbox(credential.mailbox, { apiKey: credential.key }),
+          provider: createMailbox(
+            credential.mailbox,
+            credential.key === undefined ? {} : { apiKey: credential.key },
+          ),
         });
         authenticationExpected = true;
         loggedOutStreak = 0;
@@ -727,6 +737,7 @@ server.registerTool(
       try {
         const session = await getBrowser();
         const shot = await session.screenshot(protect(label), fullPage);
+        retainScreenshotNotes(shot);
         const ref: ScreenshotRef = {
           persona: activePersona,
           path: shot.relPath,
@@ -736,7 +747,7 @@ server.registerTool(
         };
         screenshots.push(ref);
         writeJson(screenshotsFile, screenshots);
-        const result = `Screenshot saved: ${shot.relPath}`;
+        const result = protect(`${shot.notes}Screenshot saved: ${shot.relPath}`);
         record({ step, at: new Date().toISOString(), tool: "screenshot", input, result });
         return {
           content: [
@@ -804,8 +815,7 @@ registerOutputTool(server, {
 server.registerTool(
   "done",
   {
-    description:
-      "Permanently finalize the scenario with an honest outcome and evidence-grounded summary. No further browser tools may be called afterward; return the structured result.",
+    description: `Finalize with an honest outcome and evidence-grounded summary. Completed requires successful rubric checkpoints: ${JSON.stringify(context.requiredCheckpoints ?? [])}. A missing checkpoint returns a recoverable error: record it or finish honestly blocked. After successful finalization no further browser calls are allowed; return the structured result.`,
     inputSchema: {
       outcome: z.enum(["completed", "blocked", "feature_not_found"]),
       summary: z.string().min(1),
@@ -824,6 +834,7 @@ server.registerTool(
         if (!sessionLost && !evidenceFailure) {
           try {
             const shot = await browser.screenshot("final-state", false);
+            retainScreenshotNotes(shot);
             screenshots.push({
               persona: activePersona,
               path: shot.relPath,
@@ -888,6 +899,21 @@ server.registerTool(
           const candidate = context.personas[persona]?.candidatePath;
           if (candidate) await session.saveStorageState(candidate);
         }
+      }
+      const checkpointError =
+        !sessionLost && !originBlock
+          ? checkpointCompletionError(context.requiredCheckpoints, context.evidenceDir, outcome)
+          : undefined;
+      if (checkpointError) {
+        record({
+          step,
+          at: new Date().toISOString(),
+          tool: "done",
+          input: { outcome, summary },
+          result: checkpointError,
+          isError: true,
+        });
+        return { content: [{ type: "text" as const, text: checkpointError }], isError: true };
       }
       const state: BrowserResultState = {
         outcome: sessionLost || originBlock ? "blocked" : outcome,

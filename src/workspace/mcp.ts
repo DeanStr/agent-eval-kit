@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { registerCheckpointTool } from "../checkpoints.js";
+import { registerCheckpointTool, checkpointCompletionError } from "../checkpoints.js";
 import { registerOutputTool } from "../workflow.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -26,6 +26,7 @@ const observationsFile = path.join(context.evidenceDir, "observations.json");
 const resultFile = path.join(context.evidenceDir, "workspace-result.json");
 const observations: string[] = [];
 let step = 0;
+let finalized = false;
 const MAX_READ_OUTPUT_CHARACTERS = 32_000;
 
 const excludedDirectories = new Set([
@@ -43,6 +44,14 @@ const excludedDirectories = new Set([
 
 function record(entry: TranscriptEntry): void {
   fs.appendFileSync(transcriptFile, `${JSON.stringify(entry)}\n`);
+}
+
+function rejectFinalized(tool: string, input: Record<string, unknown>) {
+  if (!finalized) return undefined;
+  const result =
+    "ERROR: this scenario is already finalized; return the structured result without further workspace calls";
+  record({ step, at: new Date().toISOString(), tool, input, result, isError: true });
+  return { content: [{ type: "text" as const, text: result }], isError: true };
 }
 
 function insideRoot(candidate: string): boolean {
@@ -130,6 +139,8 @@ function textFile(relative: string, maximumBytes = 1_000_000): string | undefine
 
 async function callTool(tool: string, input: Record<string, unknown>, action: () => string) {
   step += 1;
+  const terminal = rejectFinalized(tool, input);
+  if (terminal) return terminal;
   if (context.maxToolCalls !== undefined && step > context.maxToolCalls) {
     const result = `ERROR: workspace tool-call budget (${context.maxToolCalls}) exhausted. Record what remains unverified and finish.`;
     record({ step, at: new Date().toISOString(), tool, input, result, isError: true });
@@ -284,8 +295,7 @@ registerOutputTool(server, {
 server.registerTool(
   "done",
   {
-    description:
-      "Finish workspace evidence collection with an honest outcome and evidence-grounded summary.",
+    description: `Finish with an honest outcome and evidence-grounded summary. Completed requires successful rubric checkpoints: ${JSON.stringify(context.requiredCheckpoints ?? [])}. If a checkpoint is missing, record it and retry, or finish honestly blocked. Successful finalization is permanent; no further workspace calls are allowed.`,
     inputSchema: {
       outcome: z.enum(["completed", "blocked", "feature_not_found"]),
       summary: z.string().min(1),
@@ -294,6 +304,24 @@ server.registerTool(
   ({ outcome, summary }) => {
     // Finalization remains available after the inspection budget is exhausted.
     step += 1;
+    const terminal = rejectFinalized("done", { outcome, summary });
+    if (terminal) return terminal;
+    const checkpointError = checkpointCompletionError(
+      context.requiredCheckpoints,
+      context.evidenceDir,
+      outcome,
+    );
+    if (checkpointError) {
+      record({
+        step,
+        at: new Date().toISOString(),
+        tool: "done",
+        input: { outcome, summary },
+        result: checkpointError,
+        isError: true,
+      });
+      return { content: [{ type: "text" as const, text: checkpointError }], isError: true };
+    }
     const state: WorkspaceResultState = {
       outcome,
       summary,
@@ -309,6 +337,7 @@ server.registerTool(
       input: { outcome, summary },
       result,
     });
+    finalized = true;
     return { content: [{ type: "text" as const, text: result }] };
   },
 );

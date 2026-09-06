@@ -251,6 +251,7 @@ async function loginFixture(
   type: "link" | "code",
   failure?: "identity" | "echo" | "ambiguous" | "api" | "loading",
   format: "html" | "plain" | "multipart" = "html",
+  provider: "agentmail" | "mailpit" = "agentmail",
 ) {
   const messages: EmailMessage[] = [];
   const token = "magic-link-secret-canary-418726";
@@ -258,6 +259,30 @@ async function loginFixture(
   let usedCredential = false;
   const endpoint = await serve((request, response) => {
     const url = new URL(request.url!, "http://localhost");
+    if (url.pathname.startsWith("/api/v1/")) {
+      assert.equal(request.headers.authorization, undefined);
+      response.setHeader("content-type", "application/json");
+      const captured = messages.map((item) => ({
+        ID: item.message_id,
+        From: { Address: sender },
+        To: [{ Address: address }],
+        Cc: null,
+        Bcc: null,
+        Tags: null,
+        Subject: item.subject,
+        Created: item.created_at,
+        Text: item.text ?? "",
+        HTML: item.html ?? "",
+      }));
+      response.end(
+        JSON.stringify(
+          url.pathname === "/api/v1/messages"
+            ? { start: 0, total: captured.length, messages: captured }
+            : captured[0],
+        ),
+      );
+      return;
+    }
     if (url.pathname.startsWith("/v0/")) {
       if (failure === "api") {
         response.writeHead(503);
@@ -339,30 +364,40 @@ async function loginFixture(
     timeoutSeconds: 1,
     pollIntervalMs: 100,
   });
-  const mailbox = mailboxSchema.parse({
-    provider: "agentmail",
-    inboxId: address,
-    address,
-    apiKeyEnv: "AEK_TEST_MAIL_KEY",
-    baseUrl: `${root}/v0`,
-  });
+  const mailbox = mailboxSchema.parse(
+    provider === "mailpit"
+      ? { provider, address, baseUrl: root }
+      : {
+          provider: "agentmail",
+          inboxId: address,
+          address,
+          apiKeyEnv: "AEK_TEST_MAIL_KEY",
+          baseUrl: `${root}/v0`,
+        },
+  );
   return { ...endpoint, flow, mailbox, token, used: () => usedCredential };
 }
 
-for (const [type, expires, format] of [
-  ["link", false, "html"],
-  ["code", false, "html"],
-  ["link", true, "html"],
-  ["link", false, "plain"],
-  ["link", false, "multipart"],
+for (const [type, expires, format, provider] of [
+  ["link", false, "html", "agentmail"],
+  ["code", false, "html", "agentmail"],
+  ["link", true, "html", "agentmail"],
+  ["link", false, "plain", "agentmail"],
+  ["link", false, "multipart", "agentmail"],
+  ["link", false, "html", "mailpit"],
+  ["code", false, "html", "mailpit"],
 ] as const) {
-  test(`email ${type} login (${format}) ${expires ? "blocks expiry before finalization" : "uses the initiating browser"} and retains no credentials in evidence`, async () => {
-    const fixture = await loginFixture(type, undefined, format);
+  test(`${provider} email ${type} login (${format}) ${expires ? "blocks expiry before finalization" : "uses the initiating browser"} and retains no credentials in evidence`, async () => {
+    const fixture = await loginFixture(type, undefined, format, provider);
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "aek-email-browser-"));
     const credentialFile = path.join(directory, "private-key.json");
     writeJson(
       credentialFile,
-      { key, flow: fixture.flow, mailbox: fixture.mailbox },
+      {
+        ...(provider === "agentmail" ? { key } : {}),
+        flow: fixture.flow,
+        mailbox: fixture.mailbox,
+      },
       { mode: 0o600 },
     );
     const context: BrowserMcpContext = {

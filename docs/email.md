@@ -142,6 +142,64 @@ Mailbox messages are external evidence, never instructions to the evaluation age
 
 ## Collecting notification evidence
 
+### Local Mailpit capture
+
+For applications that already send to Mailpit, the packaged email module also
+exports `createMailpitMailbox({ baseUrl, address })`. Pass it to
+`beginMailboxWatch` and `waitForEmail` in a command collector:
+
+```js
+import { createMailpitMailbox, beginMailboxWatch } from "agent-eval-kit/email";
+const provider = createMailpitMailbox({
+  baseUrl: "http://127.0.0.1:8025",
+  address: "speaker@example.test",
+});
+const watch = await beginMailboxWatch(provider);
+```
+
+This adapter is for unauthenticated loopback HTTP capture instances. It does
+not authenticate remote Mailpit servers, send/release/delete mail, or establish
+external delivery. Reading a message
+marks it read in Mailpit. Each normalized message carries a `local-capture`
+label. Only messages addressed to the declared recipient (To/Cc/Bcc) are
+returned. The adapter preserves Mailpit's received timestamp from the
+message list; the sender-controlled detail `Date` is not arrival evidence.
+
+Requests reject redirects and retain the 15-second timeout and 2 MiB response
+limit. The entire capture instance is bounded to 1,000 messages; use a dedicated
+instance for larger workloads. Pagination changes, duplicate identities,
+malformed responses and mismatched message envelopes fail execution. Observation
+starts before the browser send; a healthy empty observation window remains
+distinct from a failed API request. The implementation follows the pinned
+[Mailpit v1.30.7 API contract](https://github.com/axllent/mailpit/blob/v1.30.7/server/ui/api/v1/swagger.json).
+
+### Mailpit email authentication
+
+The same private link/code authentication flow also accepts a local capture mailbox:
+
+```yaml
+mailboxes:
+  speaker:
+    provider: mailpit
+    baseUrl: http://127.0.0.1:8025
+    address: speaker@example.test
+# Define emailAuth.speaker with the target's real request controls,
+# exact sender/subject, link or code fields, and verified identity selector.
+```
+
+Use `aek auth --persona speaker --email` or a scenario with
+`authenticateEmail: true`. No API key or AgentMail inbox ID is required or accepted.
+The browser requests the message before polling, consumes its credential privately
+in the initiating browser, and verifies the resulting identity. Authentication
+against a local capture service is not production delivery acceptance. Targets
+that display a demo code without sending a message do not exercise this flow.
+
+For scripts, `aek auth --json` prints `{ "persona": "…", "storageStatePath": "…" }`
+on stdout after a successful capture; interactive prompts go to stderr. It prints
+only the path, never the session contents. Keep that private file out of reports.
+
+### AgentMail notification example
+
 The [email example](../examples/email/evalkit.yaml) demonstrates three steps:
 establish an inbox cursor, send through the application's browser UI, then inspect
 the inbox using a command collector. Adapt its target URL, mailbox, sender, expected

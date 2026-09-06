@@ -102,9 +102,9 @@ export async function captureAuth(options: {
       if (clickFailure) throw new Error(`Auth capture click failed: ${clickFailure}`);
       await browser.wait(1500);
     } else {
-      console.log(`A browser is open at ${url}. Sign in as persona ${JSON.stringify(persona)}.`);
-      console.log("Complete magic-link or OAuth navigation in that same browser window.");
-      const input = readline.createInterface({ input: process.stdin, output: process.stdout });
+      console.error(`A browser is open at ${url}. Sign in as persona ${JSON.stringify(persona)}.`);
+      console.error("Complete magic-link or OAuth navigation in that same browser window.");
+      const input = readline.createInterface({ input: process.stdin, output: process.stderr });
       await input.question("Press Enter when the authenticated app is visible... ");
       input.close();
     }

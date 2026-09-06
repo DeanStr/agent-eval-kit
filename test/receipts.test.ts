@@ -7,6 +7,8 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { chromium } from "playwright";
 import { buildRunReceipt } from "../src/receipts.js";
+import { buildReport } from "../src/scoring.js";
+import { writeHtml } from "../src/report.js";
 import { captureSchema } from "../src/visual/contracts.js";
 import type { EvalConfig, EvalSpec } from "../src/types.js";
 
@@ -211,6 +213,59 @@ test("run receipts are deterministic and fingerprint exact fixture bytes", () =>
   const changed = buildRunReceipt({ config, specs: [spec], fixtures });
   assert.notEqual(changed.evaluationFingerprint, first.evaluationFingerprint);
   assert.notEqual(changed.inputFingerprint, first.inputFingerprint);
+});
+
+test("model and effort pins are receipted, fingerprinted and visible without claiming a resolved model", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-model-receipt-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const { config, spec, fixtures } = inputs(root);
+  const unpinned = buildRunReceipt({ config, specs: [spec], fixtures });
+  config.agent.model = "browser-model";
+  config.agent.effort = "medium";
+  config.judge.model = "judge-model";
+  config.judge.effort = "high";
+  const receipt = buildRunReceipt({ config, specs: [spec], fixtures });
+  assert.equal(receipt.providers.agent.model, "browser-model");
+  assert.equal(receipt.providers.agent.effort, "medium");
+  assert.equal(receipt.providers.judge.model, "judge-model");
+  assert.equal(receipt.providers.judge.effort, "high");
+  assert.notEqual(receipt.evaluationFingerprint, unpinned.evaluationFingerprint);
+  const report = buildReport({
+    runId: "models",
+    startedAt: "2026-09-06",
+    config,
+    areas: [],
+    receipt,
+  });
+  assert.equal(report.providers.agent.effort, "medium");
+  writeHtml(root, report);
+  const html = fs.readFileSync(path.join(root, "report.html"), "utf8");
+  assert.match(html, /Requested model/);
+  assert.match(html, /browser-model/);
+  assert.match(html, /judge-model/);
+  assert.match(html, /not confirmation of the provider's resolved model snapshot/);
+  assert.match(html, /not invoked \(deterministic judging\)/);
+
+  config.agent.effort = "high";
+  const changed = buildRunReceipt({ config, specs: [spec], fixtures });
+  assert.notEqual(changed.evaluationFingerprint, receipt.evaluationFingerprint);
+  // Rebuilding a report must not relabel the retained invocation with new settings.
+  config.agent.model = "future-agent";
+  config.judge.model = "future-judge";
+  config.judge.effort = "low";
+  const rebuilt = buildReport({
+    runId: "rebuilt",
+    startedAt: "2026-09-06",
+    config,
+    areas: [],
+    receipt,
+  });
+  assert.deepEqual(rebuilt.providers, report.providers);
+  // Offline report display uses its retained receipt, not today's configuration.
+  writeHtml(root, { ...report, receipt: unpinned });
+  const defaultHtml = fs.readFileSync(path.join(root, "report.html"), "utf8");
+  assert.match(defaultHtml, /Provider default \(unrecorded\)/);
+  assert.doesNotMatch(defaultHtml, /browser-model/);
 });
 
 test("prototype-named fixtures remain in receipts and affect fingerprints", () => {
