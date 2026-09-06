@@ -14,6 +14,7 @@ import { verifyArtifactIndex } from "../src/integrity.js";
 import { compareReports, loadComparisonInput } from "../src/compare.js";
 import {
   MAX_TEXT_BYTES,
+  defaultTextVoting,
   textPairwiseSchema,
   validateTextPairResult,
 } from "../src/text/contracts.js";
@@ -456,12 +457,13 @@ test("text contracts require exact quotes, supported local inputs, empty scenari
 });
 
 test("shared pairwise normalization handles both anonymous orders and unavailable comparisons", () => {
-  const policy = textPairwiseSchema.parse({
-    type: "text-pairwise",
-    candidate: "a.md",
-    references: [{ file: "b.md" }],
-    policy: "non_regression",
-  }).voting;
+  const policy =
+    textPairwiseSchema.parse({
+      type: "text-pairwise",
+      candidate: "a.md",
+      references: [{ file: "b.md" }],
+      policy: "non_regression",
+    }).voting ?? defaultTextVoting;
   for (const candidateIsA of [true, false]) {
     assert.equal(
       pairOutcome({ preferred: candidateIsA ? "A" : "B", confidence: 1 }, candidateIsA, 0.55),

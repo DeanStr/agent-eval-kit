@@ -15,6 +15,7 @@ export interface RunState {
   startedAt: string;
   selectedAreas: string[];
   selectedScenarios?: string[];
+  selectedTextCases?: string[];
   selectedSplit?: EvalSplit | "all";
   specHashes: Record<string, string>;
   inputFingerprint: string;
@@ -33,12 +34,14 @@ const runStateSchema = z
     configFile: z.string().min(1),
     startedAt: z.string().min(1),
     selectedAreas: z.array(z.string().min(1)),
+    selectedTextCases: z.array(z.string().min(1)).optional(),
     selectedScenarios: z.array(z.string().min(1)).optional(),
     selectedSplit: z.enum(["development", "evaluation", "all"]).optional(),
     specHashes: z.record(z.string(), z.string()),
     inputFingerprint: z.string().min(1),
     configOverrides: z
       .object({
+        suite: z.string().optional(),
         targetUrl: z.string().optional(),
         agentProvider: z.enum(["codex", "claude", "grok", "mock"]).optional(),
         judgeProvider: z.enum(["codex", "claude", "grok", "mock"]).optional(),

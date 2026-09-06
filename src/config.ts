@@ -106,6 +106,7 @@ const rawConfigSchema = z
   .object({
     mailboxes: z.record(z.string().min(1), mailboxSchema).optional(),
     emailAuth: z.record(z.string().min(1), emailAuthSchema).optional(),
+    suite: z.string().min(1).optional(),
     version: z.literal(1),
     project: z
       .object({
@@ -150,6 +151,7 @@ const rawConfigSchema = z
         runs: z.string().default(".agent-eval/runs"),
         auth: z.string().default(".agent-eval/auth"),
         baselines: z.string().default("evals/baselines"),
+        references: z.string().default("evals/text-references"),
       })
       .strict()
       .default({
@@ -157,6 +159,7 @@ const rawConfigSchema = z
         runs: ".agent-eval/runs",
         auth: ".agent-eval/auth",
         baselines: "evals/baselines",
+        references: "evals/text-references",
       }),
     browser: z
       .object({
@@ -204,6 +207,7 @@ const rawConfigSchema = z
   .strict();
 
 export interface ConfigOverrides {
+  suite?: string;
   targetUrl?: string;
   agentProvider?: ProviderId;
   judgeProvider?: ProviderId;
@@ -268,10 +272,47 @@ function readConfig(configFile: string, overrides: ConfigOverrides, resolved: bo
         throw error;
       // A project may supply variables through the real environment instead.
     }
-  const parsedYaml = YAML.parse(fs.readFileSync(absoluteConfig, "utf8"));
   let parsed: z.infer<typeof rawConfigSchema>;
   try {
-    parsed = rawConfigSchema.parse(resolved ? parsedYaml : expandDeep(parsedYaml, absoluteConfig));
+    const yaml = YAML.parse(fs.readFileSync(absoluteConfig, "utf8"));
+    const parsedYaml = z
+      .record(z.string(), z.unknown())
+      .parse(resolved ? yaml : expandDeep(yaml, absoluteConfig));
+    if (!resolved && parsedYaml.suites !== undefined) {
+      const suites = z
+        .record(z.string().min(1), z.record(z.string(), z.unknown()))
+        .parse(parsedYaml.suites);
+      const selected = overrides.suite ?? parsedYaml.suite;
+      if (typeof selected !== "string" || !Object.hasOwn(suites, selected))
+        throw new Error(
+          `Select a named suite with --suite <name>. Known suites: ${Object.keys(suites).join(", ")}`,
+        );
+      delete parsedYaml.suites;
+      const merge = (base: Record<string, unknown>, overlay: Record<string, unknown>) => {
+        const result = { ...base };
+        for (const [key, value] of Object.entries(overlay)) {
+          if (!["agent", "judge", "paths", "scoring", "instructions"].includes(key))
+            throw new Error(
+              `Unsupported suite override ${key}; use agent, judge, paths, scoring, or instructions`,
+            );
+          if (key === "instructions") result[key] = value;
+          else {
+            const section = z.record(z.string(), z.unknown()).parse(value);
+            const defaults =
+              base[key] === undefined ? {} : z.record(z.string(), z.unknown()).parse(base[key]);
+            result[key] = { ...defaults, ...section };
+          }
+        }
+        return result;
+      };
+      for (const overlay of Object.values(suites))
+        rawConfigSchema.parse(merge(parsedYaml, overlay));
+      Object.assign(parsedYaml, merge(parsedYaml, suites[selected]!));
+      parsedYaml.suite = selected;
+    } else if (overrides.suite !== undefined && overrides.suite !== parsedYaml.suite) {
+      throw new Error(`Unknown suite ${overrides.suite}; this config has no matching suite`);
+    }
+    parsed = rawConfigSchema.parse(parsedYaml);
   } catch (error) {
     if (error instanceof z.ZodError) {
       throw new Error(`Invalid ${absoluteConfig}:\n  - ${formatZodError(error)}`);
@@ -380,6 +421,7 @@ function readConfig(configFile: string, overrides: ConfigOverrides, resolved: bo
       runs: resolveFromRoot(parsed.paths.runs),
       auth: resolveFromRoot(parsed.paths.auth),
       baselines: resolveFromRoot(parsed.paths.baselines),
+      references: resolveFromRoot(parsed.paths.references),
     },
     browser: {
       ...parsed.browser,

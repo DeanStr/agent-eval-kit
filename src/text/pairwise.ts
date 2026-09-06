@@ -4,7 +4,7 @@ import { randomInt } from "node:crypto";
 import { z } from "zod";
 import { aggregateCaseVerdicts } from "../judging/contracts.js";
 import { sha256, writeJson } from "../io.js";
-import { runProvider } from "../providers/index.js";
+import { invokeTextJudge } from "./provider.js";
 import type { EvalConfig, EvalSpec, JudgedItem, RubricItem, RunReceipt } from "../types.js";
 import {
   decideVotes,
@@ -13,7 +13,7 @@ import {
   pairOutcome,
   pairwiseVoteVerdict,
 } from "../visual/votes.js";
-import { textPairResultSchema, validateTextPairResult } from "./contracts.js";
+import { defaultTextVoting, textPairResultSchema, validateTextPairResult } from "./contracts.js";
 import { readTextSnapshot } from "./inputs.js";
 import { textComparisonHtml } from "./report.js";
 
@@ -45,38 +45,14 @@ async function invokeTextPair(
   directory: string,
   texts: { A: string; B: string; R?: string },
 ) {
-  const promptFile = path.join(directory, "prompt.md"),
-    schemaFile = path.join(directory, "schema.json");
-  fs.writeFileSync(promptFile, textPairPrompt(item, texts, config.instructions));
-  writeJson(schemaFile, z.toJSONSchema(textPairResultSchema));
-  const result = await runProvider(config.judge.provider, {
-    purpose: "judge",
-    cwd: directory,
-    promptFile,
-    outputFile: path.join(directory, "provider-final.json"),
-    outputSchemaFile: schemaFile,
-    eventLogFile: path.join(directory, "provider-events.ndjson"),
-    stderrFile: path.join(directory, "provider-stderr.log"),
-    ...(config.judge.model === undefined ? {} : { model: config.judge.model }),
-    ...(config.judge.effort === undefined ? {} : { effort: config.judge.effort }),
-    ...(config.judge.maxTurns === undefined ? {} : { maxTurns: config.judge.maxTurns }),
-    timeoutSeconds: config.judge.timeoutSeconds,
-    extraArgs: config.judge.extraArgs,
-    images: [],
-    additionalDirs: [],
-    allowWorkspaceTools: false,
+  return invokeTextJudge({
+    config,
+    directory,
+    prompt: textPairPrompt(item, texts, config.instructions),
+    schema: textPairResultSchema,
+    validate: (value) => validateTextPairResult(value, texts),
+    label: "Text pairwise judge",
   });
-  writeJson(path.join(directory, "provider-run.json"), result);
-  if (result.timedOut || result.exitCode !== 0 || result.policyViolations?.length)
-    throw new Error(`Text pairwise judge execution failed; see ${directory}`);
-  try {
-    return validateTextPairResult(result.structured, texts);
-  } catch (error) {
-    throw new Error(
-      `Text pairwise judge returned invalid output in ${directory}: ${error instanceof Error ? error.message : error}`,
-      { cause: error },
-    );
-  }
 }
 
 const storedVoteSchema = z
@@ -98,7 +74,10 @@ export async function judgeTextPairwise(options: {
   ) as RunReceipt;
   return mapConcurrent(items, config.judge.concurrency ?? 1, async (item) => {
     if (item.grader.type !== "text-pairwise") throw new Error("Expected text-pairwise grader");
-    const grader = item.grader;
+    const grader = {
+      ...item.grader,
+      voting: item.grader.voting ?? config.judge.voting ?? defaultTextVoting,
+    };
     const candidate = readTextSnapshot(runDir, receipt, item.id, "textCandidates");
     const style = grader.styleTarget
       ? readTextSnapshot(runDir, receipt, `${item.id}/style`, "textReferences")

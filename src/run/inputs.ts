@@ -1,3 +1,4 @@
+import { specSourceBytes, datasetManifestPaths } from "../specs.js";
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
@@ -6,7 +7,7 @@ import { snapshotTextInputs, textInputs, validateTextInputs } from "../text/inpu
 import { snapshotCollectorInputs } from "../collectors/inputs.js";
 import { snapshotVisualInputs, visualInputs, validateVisualInputs } from "../visual/inputs.js";
 import { graderMethodInputs, snapshotGraderMethods } from "../judging/command-inputs.js";
-import { sha256 } from "../io.js";
+import { sha256, stableJson } from "../io.js";
 import { assertArtifactIntegrity } from "../integrity.js";
 import { loadSpecFile, loadSelectedSpecs } from "../specs.js";
 import type { EvalConfig, EvalSpec, EvalSplit, RunReceipt } from "../types.js";
@@ -22,7 +23,18 @@ function snapshotInputs(
   const safeConfig = redactConfig(config);
   fs.writeFileSync(path.join(inputDir, "config.resolved.yaml"), YAML.stringify(safeConfig));
   for (const spec of specs) {
-    fs.copyFileSync(spec.sourceFile, path.join(inputDir, "specs", path.basename(spec.sourceFile)));
+    const destination = path.join(inputDir, "specs", path.basename(spec.sourceFile));
+    fs.writeFileSync(destination, specSourceBytes(spec));
+    if (spec.rubric.some((item) => ["text-pairwise", "text-rubric"].includes(item.grader.type))) {
+      const snapshot = loadSpecFile(destination);
+      if (
+        stableJson({ ...snapshot, sourceFile: undefined }) !==
+        stableJson({ ...spec, sourceFile: undefined })
+      )
+        throw new Error(
+          `Text evaluation definition ${spec.id} changed during snapshot; reload specs and start a new run`,
+        );
+    }
   }
   if (fixturesFile) {
     fs.copyFileSync(
@@ -38,6 +50,18 @@ export async function validateEvaluationInputs(
   split: EvalSplit | "all" = "all",
   scenarioIds?: string[],
 ): Promise<void> {
+  for (const spec of specs) {
+    if (!spec.rubric.some((item) => ["text-pairwise", "text-rubric"].includes(item.grader.type)))
+      continue;
+    const current = loadSpecFile(spec.sourceFile);
+    if (
+      stableJson({ ...current, sourceFile: undefined }) !==
+      stableJson({ ...spec, sourceFile: undefined })
+    )
+      throw new Error(
+        `Text evaluation definition ${spec.id} changed after loading; reload specs before starting a run`,
+      );
+  }
   graderMethodInputs(config, specs, split);
   validateTextInputs(config, specs, split);
   await validateVisualInputs(config, specs, split, scenarioIds);
@@ -64,10 +88,11 @@ export function evaluatorInputPaths(
   split: EvalSplit | "all",
 ): string[] {
   return [
+    ...specs.flatMap(datasetManifestPaths).map((file) => ({ file })),
     ...Object.values(graderMethodInputs(config, specs, split)),
     ...Object.values(visualInputs(config, specs, split)),
     ...Object.values(textInputs(config, specs, split)),
-  ].map((input) => input.file);
+  ].flatMap((input) => (input.file ? [input.file] : []));
 }
 
 export const SCORING_DEFINITIONS = "scoring-definitions";
@@ -87,7 +112,7 @@ export function scoringDefinitionFiles(
     [scoringConfigPath]: Buffer.from(YAML.stringify(redactConfig(config))),
   };
   for (const spec of specs) {
-    const bytes = fs.readFileSync(spec.sourceFile);
+    const bytes = specSourceBytes(spec);
     const expected = receipt.inputs.specs[spec.id];
     if (!expected || bytes.length !== expected.bytes || sha256(bytes) !== expected.sha256)
       throw new Error(`Scoring spec ${spec.id} changed before publication; reload definitions`);

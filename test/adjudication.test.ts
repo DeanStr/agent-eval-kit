@@ -32,7 +32,7 @@ function fixture(t: { after(fn: () => void): void }, hybrid = false) {
     target: { kind: "repository", allowedOrigins: [] },
     agent: { provider: "mock", timeoutSeconds: 10, extraArgs: [] },
     judge: { provider: "mock", timeoutSeconds: 10, extraArgs: [] },
-    paths: { specs: root, runs: root, auth: root },
+    paths: { specs: root, runs: root, auth: root, references: path.join(root, "text-references") },
     browser: { headless: true, viewport: { width: 1280, height: 800 }, actionTimeoutMs: 1000 },
     scoring: { partialCredit: 0.5, minimumCoverage: 60 },
     variables: {},
@@ -100,6 +100,7 @@ function fixture(t: { after(fn: () => void): void }, hybrid = false) {
       methodSha256: "a".repeat(64),
       specs: { area: { file: "spec.yaml", sha256: "b".repeat(64), bytes: 1 } },
       selection: { areas: ["area"] },
+      specMethods: { area: "b".repeat(64) },
     },
     target: { kind: "repository" },
     providers: {

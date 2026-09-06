@@ -1,3 +1,4 @@
+import { specSourceBytes } from "./specs.js";
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
@@ -117,7 +118,7 @@ export function snapshotJudgingDefinitions(
   fs.rmSync(directory, { recursive: true, force: true });
   fs.mkdirSync(directory, { recursive: true });
   for (const spec of specs) {
-    const bytes = fs.readFileSync(spec.sourceFile),
+    const bytes = specSourceBytes(spec),
       expected = receipt.inputs.specs[spec.id];
     if (!expected || sha256(bytes) !== expected.sha256 || bytes.length !== expected.bytes)
       throw new Error(`Spec ${spec.id} changed during judging snapshot; start a new judging run`);

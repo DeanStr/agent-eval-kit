@@ -13,7 +13,7 @@ It supports:
 - black-box browser scenarios through a shared Playwright MCP server and path-contained repository inspection through a read-only workspace MCP server;
 - deterministic command graders, independent LLM judges, manual graders, true weighted hybrid graders, and critical pass/fail gates;
 - controlled visual capture, independent motion/repeatability tolerances, image-health and scoped distinctness checks, opt-in image-statistic baseline gates, blind pairwise image graders, and resumable repeated judging;
-- direct text comparisons for writing style and taste, with anonymous A/B votes, optional target voice, and verified passage citations;
+- direct text comparisons and rubric grading, reusable datasets/templates, grouped case results, named suites, promoted text references, and changed-case selection with verified quotations;
 - command collectors for exported artifacts with snapshotted sources, validated image manifests, and extraction provenance; named capture checkpoints for irregular temporal sampling;
 - immutable collect-then-judge bundles, explicit release/milestone promotion policies;
 - incremental artifacts, fingerprint-checked resume, reproducibility receipts, tamper-evident output indexes, offline rescore, auditable manual finalization, coverage thresholds, and diagnostic tags;
@@ -44,6 +44,25 @@ evalkit.yaml + specs + fixtures
                          │
                          └── report.json + report.html + manual checklist
 ```
+
+## Built package distribution
+
+`pnpm package:release` builds a versioned production tarball and SHA-256 checksum
+under `.agent-eval/release/`. Consumers can install the tarball directly:
+
+```sh
+npm install --save-dev /path/to/agent-eval-kit-0.4.0.tgz
+npx aek --help
+```
+
+No repository clone, TypeScript build, or development dependencies are needed in
+the consuming project. The package includes the text-datasets example. Provider CLIs and browser dependencies still apply to the
+selected evaluation mode. For a published GitHub release, download its `.tgz` and
+matching `.sha256`, verify with `sha256sum -c`, then install the tarball.
+
+The release workflow tests and publishes these artifacts when a matching `v*`
+tag is pushed. The tag, `package.json`, and `src/version.ts` versions must agree.
+Adding the workflow does not publish a release or establish npm registry availability.
 
 ## Requirements
 
@@ -378,7 +397,7 @@ pnpm aek run --config examples/text/evalkit.yaml --judge codex
 
 See the [text example](examples/text/README.md) for direct reference comparisons,
 style-guided revisions, and separate voice and editorial-quality evaluations.
-See [text evaluation](docs/text-evaluation.md) for the full configuration. Direct text grading requires no collection scenario.
+See the [dataset example](examples/text-datasets/README.md) for shared voice, quality, and policy suites. See [text evaluation](docs/text-evaluation.md) for the full configuration. Direct text grading requires no collection scenario.
 
 ## Visual evaluation and repeated judges
 

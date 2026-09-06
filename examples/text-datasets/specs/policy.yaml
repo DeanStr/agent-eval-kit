@@ -1,0 +1,19 @@
+id: policy
+title: Coherence and factual fidelity
+weight: 100
+description: Assess related texts together without collection scaffolding.
+datasets:
+  posts: {file: ../posts.json}
+rubric:
+  - id: COHERENCE
+    dataset: posts
+    criterion: Do the post and social copy agree with each other and preserve the source record's claims and uncertainty?
+    passCriteria: Both texts preserve the source's numbers, scope, limitations, and uncertainty without unsupported claims.
+    weight: 1
+    gate: true
+    grader:
+      type: text-rubric
+      inputs:
+        post: {file: '{{inputs.post}}'}
+        social: {file: '{{inputs.social}}'}
+        source: {file: '{{inputs.source}}', role: reference}

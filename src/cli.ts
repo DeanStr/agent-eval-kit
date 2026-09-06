@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { specSourceBytes } from "./specs.js";
+import { promoteTextReference, listTextReferences } from "./text/references.js";
+import { changedTextCases } from "./text/selection.js";
 import { requireDefined, omitUndefined } from "./invariants.js";
 import fs from "node:fs";
 import { loadSealedDefinitions, validateEvaluationInputs } from "./run/inputs.js";
@@ -32,7 +35,7 @@ import {
 import { loadConfig, loadResolvedConfig, type ConfigOverrides } from "./config.js";
 import { doctor } from "./doctor.js";
 import { assertArtifactIntegrity } from "./integrity.js";
-import { isWithin, prospectiveRealPath, readJson, sha256, stableJson } from "./io.js";
+import { isWithin, prospectiveRealPath, sha256, stableJson } from "./io.js";
 import {
   adjudicateReport,
   finalizeReport,
@@ -117,6 +120,7 @@ function validateCliShape(args: Args): void {
     "adjudicate",
     "auth",
     "baseline",
+    "reference",
     "campaign",
     "compare",
     "doctor",
@@ -140,6 +144,7 @@ function validateCliShape(args: Args): void {
     );
   }
   const configOverrides = [
+    "suite",
     "config",
     "url",
     "max-turns",
@@ -167,7 +172,7 @@ function validateCliShape(args: Args): void {
       break;
     case "validate":
     case "list":
-      allowed = ["config"];
+      allowed = ["config", "suite"];
       break;
     case "doctor":
       allowed = ["config", "providers"];
@@ -206,6 +211,12 @@ function validateCliShape(args: Args): void {
         "allow-incompatible",
       ];
       break;
+    case "reference":
+      allowed =
+        args.positionals[0] === "promote"
+          ? ["run", "name", "reviewer", "config", "suite"]
+          : ["config", "suite"];
+      break;
     case "baseline":
       allowed =
         args.positionals[0] === "promote"
@@ -221,7 +232,7 @@ function validateCliShape(args: Args): void {
     case "run":
       if (args.flags.json && (!args.flags["dry-run"] || args.flags.resume))
         throw new Error("run --json requires --dry-run and cannot resume");
-      allowed = [...runFlags, "json"];
+      allowed = [...runFlags, "json", "changed-since", "text-cases"];
       break;
     case "collect":
       allowed = runFlags.filter(
@@ -241,6 +252,7 @@ function validateCliShape(args: Args): void {
       ];
       break;
   }
+  if (allowed.includes("config")) allowed.push("suite");
   allowed.push("help");
   const unknown = Object.keys(args.flags).filter((flag) => !allowed.includes(flag));
   if (unknown.length)
@@ -252,7 +264,10 @@ function validateCliShape(args: Args): void {
       throw new Error(`--${flag} does not take a value`);
   }
   const maximumPositionals =
-    args.command === "init" || ["baseline", "campaign", "privacy"].includes(args.command) ? 1 : 0;
+    args.command === "init" ||
+    ["baseline", "reference", "campaign", "privacy"].includes(args.command)
+      ? 1
+      : 0;
   if (args.positionals.length > maximumPositionals) {
     throw new Error(`Unexpected positional argument: ${args.positionals[maximumPositionals]}`);
   }
@@ -296,7 +311,8 @@ Usage: aek <command> [flags]
   run [--config file]              Execute scenarios, graders, and reports
       [--url https://target] [--max-turns n (provider turns / Codex MCP calls)]
       [--areas a,b] [--scenarios x,y] [--include-optional]
-      [--split development|evaluation|all]
+      [--split development|evaluation|all] [--suite name]
+      [--changed-since prior-run | --text-cases area/dataset/case,...]
       [--agent codex|claude|grok] [--judge codex|claude|grok]
       [--agent-model id] [--judge-model id] [--headed] [--dry-run [--json]]
       [--resume run-directory] [--fail-under-score pct]
@@ -305,6 +321,8 @@ Usage: aek <command> [flags]
       [run flags] [--output directory]
   campaign compare --baseline campaign --candidate campaign
       [--output directory] [--fail-on-regression] [--allow-incompatible]
+  reference promote --run directory --name name --reviewer name [--config file] [--suite name]
+  reference list [--config file] [--suite name]
   verify --run directory           Verify checksums for retained run artifacts
   export --public --run directory  Create a minimal, privacy-linted shareable package
       [--output directory]
@@ -331,6 +349,7 @@ Usage: aek <command> [flags]
       [--max-score-drop points] [--max-coverage-drop points]
       [--allow-incompatible]
 
+Commands accepting --config also accept --suite <name>.
 The --fail-under-* gates also work with rescore and finalize. Rubric items with
 gate: true are always enforced. A failed CI gate uses exit code 2 while still
 preserving all generated artifacts. Compare requires compatible receipts unless
@@ -397,6 +416,8 @@ function configFor(
 ): { file: string; config: EvalConfig; overrides: ConfigOverrides } {
   const file = path.resolve(stringFlag(args, "config") ?? fallbackFile);
   const overrides: ConfigOverrides = { ...inheritedOverrides };
+  const suite = stringFlag(args, "suite");
+  if (suite !== undefined) overrides.suite = suite;
   const targetUrl = stringFlag(args, "url");
   const agentProvider = providerFlag(args, "agent");
   const judgeProvider = providerFlag(args, "judge");
@@ -436,6 +457,7 @@ function enforceRunThresholds(args: Args, report: RunReport): void {
 function loadRunConfig(args: Args, runDir: string) {
   const state = loadRunState(runDir);
   const explicitFile = stringFlag(args, "config");
+  const suite = stringFlag(args, "suite");
   const file = path.resolve(explicitFile ?? state.configFile);
   const resolved =
     !explicitFile &&
@@ -444,7 +466,10 @@ function loadRunConfig(args: Args, runDir: string) {
     file === path.join(state.evidenceSource, "inputs", "config.resolved.yaml");
   return {
     file,
-    config: (resolved ? loadResolvedConfig : loadConfig)(file, state.configOverrides),
+    config: (resolved ? loadResolvedConfig : loadConfig)(file, {
+      ...state.configOverrides,
+      ...(suite === undefined ? {} : { suite }),
+    }),
     state,
   };
 }
@@ -458,7 +483,7 @@ function assertFinalizeSpecsUnchanged(
     const spec = byId.get(area.id);
     if (!spec) throw new Error(`Current specs do not contain prior area ${area.id}`);
     const expected = report.receipt.inputs.specs[spec.id];
-    if (!expected || sha256(fs.readFileSync(spec.sourceFile)) !== expected.sha256) {
+    if (!expected || sha256(specSourceBytes(spec)) !== expected.sha256) {
       throw new Error(
         `Spec ${spec.id} changed since evidence was judged. Use rescore intentionally before finalizing manual results.`,
       );
@@ -495,6 +520,7 @@ function judgementDefinition(spec: ReturnType<typeof loadSpecFile>): unknown {
     title: spec.title,
     description: spec.description,
     scenarios: spec.scenarios,
+    datasets: spec.datasets,
     rubric: spec.rubric.map((item) => {
       const { weight: _weight, tags: _tags, gate: _gate, ...judgement } = item;
       return {
@@ -668,6 +694,26 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args.command === "reference") {
+    const { config } = configFor(args);
+    if (args.positionals[0] === "list") {
+      for (const reference of listTextReferences(config))
+        console.log(`${reference.name}\t${reference.snapshot}\t${reference.manifest.reviewer}`);
+      return;
+    }
+    if (args.positionals[0] !== "promote") throw new Error("reference requires promote or list");
+    const runDir = stringFlag(args, "run"),
+      name = stringFlag(args, "name"),
+      reviewer = stringFlag(args, "reviewer");
+    if (!runDir || !name || !reviewer)
+      throw new Error("reference promote requires --run, --name, and --reviewer");
+    const result = promoteTextReference({ config, runDir, name, reviewer });
+    console.log(
+      `Promoted text reference ${name}: ${result.snapshot}\n${result.directory}\nKeys: ${result.keys.join(", ")}`,
+    );
+    return;
+  }
+
   if (args.command === "baseline") {
     const action = args.positionals[0];
     if (action === "promote") {
@@ -736,12 +782,10 @@ async function main(): Promise<void> {
     assertCompletedComparisonRun(candidate.file, "candidate");
     let baseline: ReturnType<typeof loadComparisonInput>;
     if (baselineName) {
-      const stateFile = path.join(path.dirname(candidate.file), "run-state.json");
-      const fallbackConfig = fs.existsSync(stateFile)
-        ? readJson<{ configFile: string }>(stateFile).configFile
-        : "evalkit.yaml";
-      const configFile = path.resolve(stringFlag(args, "config") ?? fallbackConfig);
-      baseline = loadPromotedBaseline(loadConfig(configFile), baselineName);
+      baseline = loadPromotedBaseline(
+        loadRunConfig(args, path.dirname(candidate.file)).config,
+        baselineName,
+      );
     } else {
       baseline = loadComparisonInput(baselineInput!);
       assertArtifactIntegrity(path.dirname(baseline.file), { require: true });
@@ -785,8 +829,12 @@ async function main(): Promise<void> {
     const configFile = path.resolve(stringFlag(args, "config") ?? "evalkit.yaml");
     let configuredProviders: ProviderId[] | undefined;
     let requireBrowser = false;
-    if (stringFlag(args, "config") || fs.existsSync(configFile)) {
-      const config = loadConfig(configFile);
+    if (
+      stringFlag(args, "config") !== undefined ||
+      stringFlag(args, "suite") !== undefined ||
+      fs.existsSync(configFile)
+    ) {
+      const { config } = configFor(args, configFile);
       const specs = loadSpecs(config.paths.specs);
       assertScenarioTargetCompatibility(specs, config.target);
       configuredProviders = [...new Set([config.agent.provider, config.judge.provider])];
@@ -834,6 +882,11 @@ async function main(): Promise<void> {
       const prior = loadComparisonInput(path.join(runDir, "report.json")).report;
       const definitions = sealed ? loadSealedDefinitions(runDir, prior.receipt) : undefined;
       const config = definitions ? definitions.config : loadRunConfig(args, runDir).config;
+      const requestedSuite = stringFlag(args, "suite");
+      if (sealed && requestedSuite !== undefined && requestedSuite !== config.suite)
+        throw new Error(
+          `Suite ${requestedSuite} does not match the sealed run. Supply --config to select a project suite explicitly.`,
+        );
       // Sealed config is already integrity-checked and may contain redacted secrets.
       // Compare current project config only when the caller chose to load it.
       if (!sealed) assertEvidenceConfigCompatible(runDir, prior, config);
@@ -1012,6 +1065,11 @@ async function main(): Promise<void> {
           );
         }
       }
+      for (const [dataset, cases] of Object.entries(spec.datasets ?? {}))
+        for (const c of cases)
+          console.log(
+            `  text case ${spec.id}/${dataset}/${c.id} ${c.split ?? "all"} [${c.strata.join(", ")}]`,
+          );
       for (const rubric of spec.rubric)
         console.log(
           `  rubric   ${rubric.id.padEnd(18)} w${rubric.weight} ${rubric.grader.type}${rubric.gate ? " GATE" : ""} [${rubric.tags.join(", ")}]`,
@@ -1130,8 +1188,24 @@ async function main(): Promise<void> {
     else if (failures.length) process.exitCode = 2;
     return;
   }
+  const changedSince = stringFlag(args, "changed-since");
+  if (changedSince && (args.flags["text-cases"] !== undefined || resumeState))
+    throw new Error(
+      "--changed-since cannot be combined with --text-cases or --resume; resume reuses the recorded selection",
+    );
+  const textCaseIds = changedSince
+    ? changedTextCases(
+        changedSince,
+        buildRunReceipt({ config, specs: selected, fixtures, split: selectedSplit }),
+      )
+    : (csv(stringFlag(args, "text-cases")) ?? resumeState?.selectedTextCases);
+  if (textCaseIds !== undefined && !args.flags.json)
+    console.log(
+      `Selected ${textCaseIds.length} text dataset cases; unselected cases reduce coverage.`,
+    );
   const result = await runEvaluation({
     ...omitUndefined({
+      textCaseIds,
       config,
       configFile: file,
       specs: selected,

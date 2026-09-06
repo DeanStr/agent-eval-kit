@@ -33,3 +33,24 @@ export function textComparisonHtml(options: {
 ${options.style === undefined ? "" : panel("Style target", options.style)}
 <h2>Votes and passage citations</h2><ol>${votes.map((vote) => `<li><strong>${escapeHtml(vote.outcome)}</strong><p>A = ${vote.candidateIsA ? "Candidate; B = Reference" : "Reference; B = Candidate"}</p><p>${escapeHtml(vote.reasoning)}</p>${vote.citations.map((citation) => `<p><strong>${escapeHtml(citation.text)}</strong></p><blockquote>${escapeHtml(citation.quote)}</blockquote><p>${escapeHtml(citation.explanation)}</p>`).join("")}</li>`).join("")}</ol></html>`;
 }
+
+export function textRubricHtml(options: {
+  id: string;
+  decision: VoteSummary;
+  texts: Record<string, string>;
+  votes: Array<{
+    verdict: string;
+    reasoning: string;
+    citations: Array<{ text: string; quote: string; explanation: string }>;
+  }>;
+}): string {
+  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(options.id)} text rubric</title>
+<style>body{font:16px system-ui,sans-serif;line-height:1.6;max-width:1100px;margin:32px}pre,blockquote{white-space:pre-wrap;overflow-wrap:anywhere}pre{background:#f4f6f8;padding:20px}blockquote{border-left:3px solid #ccd3dc;padding-left:16px}</style>
+<h1>${escapeHtml(options.id)} — ${escapeHtml(options.decision.decision)}</h1>
+<p>${options.decision.judgeable}/${options.decision.attempted} judgeable votes. Vote fractions describe consistency, not calibrated probabilities.</p>
+<p><a href="judgment.json">Judgment and votes (JSON)</a></p>
+${Object.entries(options.texts)
+  .map(([name, text]) => `<h2>${escapeHtml(name)}</h2><pre>${escapeHtml(text)}</pre>`)
+  .join("")}
+<h2>Votes and quotations</h2>${options.votes.map((vote) => `<h3>${escapeHtml(vote.verdict)}</h3><p>${escapeHtml(vote.reasoning)}</p>${vote.citations.map((citation) => `<strong>${escapeHtml(citation.text)}</strong><blockquote>${escapeHtml(citation.quote)}</blockquote><p>${escapeHtml(citation.explanation)}</p>`).join("")}`).join("")}</html>`;
+}

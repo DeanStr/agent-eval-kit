@@ -163,6 +163,7 @@ test("pending hybrid reviews preserve automatic credit without claiming a campai
         methodSha256: "m",
         specs: {},
         selection: { areas: [area.id] },
+        specMethods: {},
       },
       target: { kind: "repository" },
       providers: {

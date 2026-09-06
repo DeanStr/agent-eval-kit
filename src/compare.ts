@@ -205,6 +205,21 @@ function compatibility(
   candidate: RunReceipt,
   overridden: boolean,
 ): ComparisonCompatibility {
+  for (const [label, receipt] of [
+    ["Baseline", baseline],
+    ["Candidate", candidate],
+  ] as const) {
+    const methods = receipt.inputs.specMethods;
+    if (
+      !methods ||
+      stableValue(Object.keys(methods).sort()) !==
+        stableValue(Object.keys(receipt.inputs.specs).sort()) ||
+      Object.values(methods).some((hash) => typeof hash !== "string" || !hash.trim())
+    )
+      throw new Error(
+        `${label} receipt is missing complete spec method hashes. Restore the complete receipt or start a new run; comparison cannot reconstruct evaluator provenance.`,
+      );
+  }
   if (baseline.evaluationFingerprint === candidate.evaluationFingerprint) {
     return { status: "compatible", differences: [], overridden };
   }
@@ -221,12 +236,9 @@ function compatibility(
     differences.push("One or more declared command grader method files changed.");
   }
   if (stableValue(baseline.inputs.selection) !== stableValue(candidate.inputs.selection)) {
-    differences.push("Selected areas or scenarios changed.");
+    differences.push("Selected areas, scenarios, or text cases changed.");
   }
-  if (
-    stableValue(recordHashes(baseline.inputs.specs)) !==
-    stableValue(recordHashes(candidate.inputs.specs))
-  ) {
+  if (stableValue(baseline.inputs.specMethods) !== stableValue(candidate.inputs.specMethods)) {
     differences.push("One or more evaluation specs changed.");
   }
   if (

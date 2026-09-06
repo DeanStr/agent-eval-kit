@@ -32,7 +32,7 @@ function fixture(t: TestContext) {
     target: { kind: "repository", allowedOrigins: [] },
     agent: { provider: "mock", timeoutSeconds: 10, extraArgs: [] },
     judge: { provider: "claude", timeoutSeconds: 10, extraArgs: [] },
-    paths: { specs: root, runs: root, auth: root },
+    paths: { specs: root, runs: root, auth: root, references: path.join(root, "text-references") },
     browser: { headless: true, viewport: { width: 800, height: 600 }, actionTimeoutMs: 1_000 },
     scoring: { partialCredit: 0.5, minimumCoverage: 60 },
     variables: {},

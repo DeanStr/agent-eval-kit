@@ -1,7 +1,7 @@
 import { requireDefined, omitUndefinedDeep } from "./invariants.js";
 import { collectedCommandResultsSchema } from "./artifact-schemas.js";
 import { assertGraderMethods } from "./judging/command-inputs.js";
-import { judgeTextPairwise } from "./text/pairwise.js";
+import { judgeDirectText } from "./text/judge.js";
 import {
   requiredJudgeResult,
   assertJudgementIdentities,
@@ -543,7 +543,7 @@ export async function judgeArea(options: {
       })
     : { items: [], cases: [], defects: [], notes: "No LLM-graded rubric items." };
   const pairwise = await judgePairwise(options);
-  const textPairwise = await judgeTextPairwise(options);
+  const textPairwise = await judgeDirectText(options);
   const captureResults: JudgedItem[] = options.spec.rubric
     .filter((item) => item.grader.type === "capture")
     .map((item) => {
@@ -576,7 +576,7 @@ export async function judgeArea(options: {
       ...visualChecks,
       ...llm.items,
       ...pairwise.items,
-      ...textPairwise,
+      ...textPairwise.items,
     ].map((item) => [item.id, item]),
   );
   return {
@@ -584,7 +584,7 @@ export async function judgeArea(options: {
       const result = byId.get(item.id);
       return result ? [result] : [];
     }),
-    cases: [...llm.cases, ...pairwise.cases],
+    cases: [...llm.cases, ...pairwise.cases, ...textPairwise.cases],
     defects: [...llm.defects, ...pairwise.defects],
     notes: llm.notes,
   };

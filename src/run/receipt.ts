@@ -21,6 +21,10 @@ export class RunReceipts {
 
   refresh(phase: string, state: RunState, priorEvidenceEligible: boolean): void {
     const refreshed = buildRunReceipt(this.inputs);
+    if (stableJson(refreshed.inputs.specs) !== stableJson(this.current.inputs.specs))
+      throw new Error(
+        `Target ${phase} changed evaluator specs or dataset manifests; prepare inputs before starting a new run`,
+      );
     if (
       stableJson(refreshed.inputs.textCandidates) !== stableJson(this.current.inputs.textCandidates)
     ) {

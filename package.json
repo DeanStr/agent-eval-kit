@@ -21,7 +21,11 @@
   "files": [
     "dist",
     "docs",
-    "README.md"
+    "README.md",
+    "examples/text-datasets/*.yaml",
+    "examples/text-datasets/*.json",
+    "examples/text-datasets/*.md",
+    "examples/text-datasets/specs/*.yaml"
   ],
   "engines": {
     "node": ">=20.19.0"
@@ -42,7 +46,8 @@
     "test:reference": "tsx scripts/reference-eval.ts",
     "install:browser": "playwright install chromium",
     "aek": "tsx src/cli.ts",
-    "prepack": "pnpm build"
+    "prepack": "pnpm build",
+    "package:release": "tsx scripts/package-release.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

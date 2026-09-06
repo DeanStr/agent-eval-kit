@@ -29,6 +29,7 @@ const receipt = (fingerprint = "same", methodSha256 = "method"): RunReceipt => (
   inputs: {
     config: { sha256: "c".repeat(64), bytes: 1 },
     methodSha256,
+    specMethods: { core: "s".repeat(64) },
     specs: { core: { file: "core.yaml", sha256: "s".repeat(64), bytes: 1 } },
     selection: { areas: ["core"] },
   },
@@ -432,6 +433,7 @@ test("report loading rejects a sealed partial run missing a receipted area", () 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-partial-report-"));
   const partial = report("partial", [], 100, 100);
   partial.receipt.inputs.selection.areas = ["core", "later"];
+  partial.receipt.inputs.specMethods.later = "l".repeat(64);
   partial.receipt.inputs.specs.later = {
     file: "later.yaml",
     sha256: "l".repeat(64),
@@ -493,4 +495,32 @@ test("saved reports preserve structured provider usage metadata", () => {
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("comparison rejects missing spec method provenance even with matching fingerprints or an override", () => {
+  for (const side of ["baseline", "candidate"] as const) {
+    for (const methods of [undefined, {}, { unexpected: "hash" }]) {
+      const baseline = report("baseline", [], 100, 100);
+      const candidate = report("candidate", [], 100, 100);
+      const invalid = side === "baseline" ? baseline : candidate;
+      Reflect.set(invalid.receipt.inputs, "specMethods", methods);
+      assert.throws(
+        () => compareReports(baseline, candidate),
+        /missing complete spec method hashes/,
+      );
+      assert.throws(
+        () => compareReports(baseline, candidate, { allowIncompatible: true }),
+        /missing complete spec method hashes/,
+      );
+    }
+  }
+});
+
+test("report loading requires explicit spec method hashes", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-missing-spec-methods-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const invalid = report("missing-methods", [], 100, 100);
+  Reflect.deleteProperty(invalid.receipt.inputs, "specMethods");
+  fs.writeFileSync(path.join(root, "report.json"), JSON.stringify(invalid));
+  assert.throws(() => loadComparisonInput(root), /specMethods/);
 });

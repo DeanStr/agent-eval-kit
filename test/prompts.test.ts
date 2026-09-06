@@ -1,3 +1,4 @@
+import path from "node:path";
 import { requireDefined } from "../src/invariants.js";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -11,7 +12,12 @@ test("repository scenario prompts expose the task but not evaluator rubric or ab
     target: { kind: "repository", allowedOrigins: [] },
     agent: { provider: "mock", timeoutSeconds: 10, extraArgs: [] },
     judge: { provider: "mock", timeoutSeconds: 10, extraArgs: [] },
-    paths: { specs: "/private/evals", runs: "/tmp/runs", auth: "/tmp/auth" },
+    paths: {
+      specs: "/private/evals",
+      runs: "/tmp/runs",
+      auth: "/tmp/auth",
+      references: path.join("/tmp/auth", "text-references"),
+    },
     browser: { headless: true, viewport: { width: 1280, height: 800 }, actionTimeoutMs: 1_000 },
     scoring: { partialCredit: 0.5, minimumCoverage: 60 },
     variables: {},

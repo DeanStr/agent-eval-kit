@@ -1,3 +1,6 @@
+import { specSourceBytes } from "./specs.js";
+import { specMethodHash } from "./text/datasets.js";
+import { textCaseFingerprints } from "./text/selection.js";
 import { omitUndefined } from "./invariants.js";
 import { graderMethodReceipts } from "./judging/command-inputs.js";
 import { textInputDefinitions, textInputs } from "./text/inputs.js";
@@ -396,7 +399,7 @@ export function requiresModelJudging(specs: EvalSpec[], split?: EvalSplit | "all
   return materializeSpecs(specs, split).some((spec) =>
     spec.rubric.some(
       (item) =>
-        ["llm", "pairwise", "text-pairwise"].includes(item.grader.type) ||
+        ["llm", "pairwise", "text-pairwise", "text-rubric"].includes(item.grader.type) ||
         (item.grader.type === "hybrid" && item.grader.autoShare > 0),
     ),
   );
@@ -437,6 +440,7 @@ export function buildRunReceipt(options: {
   /** Preserve the inputs that produced existing evidence during an offline rescore. */
   evidenceProvenance?: RunReceipt;
   collectionOnly?: boolean;
+  textCaseIds?: string[];
 }): RunReceipt {
   const { config, specs, fixtures } = options;
   const selectedScenarios = materializeSpecs(specs, options.split)
@@ -493,7 +497,10 @@ export function buildRunReceipt(options: {
           file:
             options.evidenceProvenance?.inputs.specs[spec.id]?.file ??
             path.basename(spec.sourceFile),
-          ...fileReceipt(spec.sourceFile),
+          ...(() => {
+            const bytes = specSourceBytes(spec);
+            return { sha256: sha256(bytes), bytes: bytes.length };
+          })(),
         },
       ]),
   );
@@ -662,7 +669,16 @@ export function buildRunReceipt(options: {
       judgingRuntime,
     }),
   );
+  const textCases = textCaseFingerprints(
+    specs,
+    options.split,
+    methodSha256,
+    textCandidates,
+    textReferences,
+  );
+  const textCaseIds = options.textCaseIds ?? options.evidenceProvenance?.inputs.selection.textCases;
   const selection = omitUndefined({
+    textCases: textCaseIds === undefined ? undefined : [...new Set(textCaseIds)].sort(),
     areas: materializeSpecs(specs, options.split)
       .filter((spec) => spec.rubric.length || spec.exclusions?.length)
       .map((spec) => spec.id)
@@ -670,13 +686,12 @@ export function buildRunReceipt(options: {
     scenarios: options.scenarioIds ? [...new Set(options.scenarioIds)].sort() : undefined,
     split: options.split && options.split !== "all" ? options.split : undefined,
   });
+  const specMethods = Object.fromEntries(specs.map((spec) => [spec.id, specMethodHash(spec)]));
   const definition = {
     methodSha256,
     visual,
     textReferences: Object.keys(textReferences).length ? textReferences : undefined,
-    specs: Object.fromEntries(
-      Object.entries(specReceipts).map(([id, receipt]) => [id, receipt.sha256]),
-    ),
+    specs: specMethods,
     fixtures: fixtureReceipt
       ? {
           manifest: fixtureReceipt.manifest.sha256,
@@ -699,6 +714,7 @@ export function buildRunReceipt(options: {
         config.paths.runs,
         config.paths.auth,
         ...(config.paths.baselines ? [config.paths.baselines] : []),
+        ...(config.paths.references ? [config.paths.references] : []),
         ...managedRoots,
         ...(options.ignoredTargetPaths ?? []),
       ];
@@ -718,6 +734,7 @@ export function buildRunReceipt(options: {
       stableJson({
         evaluationFingerprint,
         configSha256: configReceipt.sha256,
+        specSources: specReceipts,
         ...omitUndefined({ collection: options.evidenceProvenance?.collection }),
         collectorSources,
         textCandidates: Object.keys(textCandidates).length ? textCandidates : undefined,
@@ -738,10 +755,12 @@ export function buildRunReceipt(options: {
       visual,
       textCandidates,
       textReferences,
+      textCases,
       ...(collectorSources === undefined ? {} : { collectorSources: collectorSources }),
       ...(collectorMethods === undefined ? {} : { collectorMethods: collectorMethods }),
       graderMethods,
       specs: specReceipts,
+      specMethods,
       ...(fixtureReceipt === undefined ? {} : { fixtures: fixtureReceipt }),
       selection,
     }),

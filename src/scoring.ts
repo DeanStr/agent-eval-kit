@@ -125,7 +125,7 @@ export function scoreArea(options: {
     // judgeable evidence. Command and direct text graders are independent of scenario reach.
     const backingWasReached =
       rubric.grader.type === "command" ||
-      rubric.grader.type === "text-pairwise" ||
+      ["text-pairwise", "text-rubric"].includes(rubric.grader.type) ||
       rubricWasReached(rubric, evidence);
 
     if (rubric.grader.type === "manual") {
@@ -138,6 +138,31 @@ export function scoreArea(options: {
         judgeable = rubric.weight;
         earned = rubric.weight * points;
       }
+    } else if (
+      rubric.dataset &&
+      (!item?.adjudication || item.adjudication.verdict === "cannot_judge")
+    ) {
+      const expected = spec.datasets?.[rubric.dataset] ?? [];
+      const results = (options.caseResults ?? []).filter((result) => result.rubricId === rubric.id);
+      if (
+        !expected.length ||
+        results.length !== expected.length ||
+        new Set(results.map((result) => result.caseId)).size !== expected.length ||
+        expected.some((c) => !results.some((result) => result.caseId === c.id))
+      )
+        throw new Error(`Text dataset case results do not match ${rubric.id}`);
+      let judgeableCases = 0;
+      let passingCases = 0;
+      let partialCases = 0;
+      for (const result of results) {
+        if (result.verdict !== "cannot_judge") judgeableCases++;
+        if (result.verdict === "pass") passingCases++;
+        if (result.verdict === "partial") partialCases++;
+      }
+      judgeable = rubric.weight * (judgeableCases / expected.length);
+      earned =
+        rubric.weight *
+        ((passingCases + partialCases * config.scoring.partialCredit) / expected.length);
     } else if (rubric.grader.type === "hybrid") {
       const automaticVerdict = item?.adjudication?.verdict ?? item?.components?.automatic;
       const manualVerdict = item?.components?.manual;
@@ -211,8 +236,12 @@ export function scoreArea(options: {
       throw new Error(
         `Case result ${item.caseId} refers to unknown rubric ${item.rubricId} in area ${spec.id}`,
       );
+    const caseCount = rubric.dataset ? spec.datasets?.[rubric.dataset]?.length : 1;
+    if (!caseCount) throw new Error(`Missing or empty text dataset for ${rubric.id}`);
     const weight =
-      rubric.grader.type === "hybrid" ? rubric.weight * rubric.grader.autoShare : rubric.weight;
+      rubric.grader.type === "hybrid"
+        ? rubric.weight * rubric.grader.autoShare
+        : rubric.weight / caseCount;
     for (const stratum of new Set(item.strata)) {
       let aggregate = byStratum.get(stratum);
       if (!aggregate) {

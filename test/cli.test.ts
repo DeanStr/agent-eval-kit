@@ -863,3 +863,59 @@ test("JSON planning validates selectors and returns only selected scenarios with
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("CLI doctor honors explicit suite selection and requires its config", (t) => {
+  const root = temporary();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  writeProject(root);
+  const configFile = path.join(root, "evalkit.yaml");
+  const base = YAML.parse(fs.readFileSync(configFile, "utf8"));
+  const suites = {
+    local: { agent: { provider: "mock" }, judge: { provider: "mock" }, paths: { specs: "specs" } },
+    other: { judge: { provider: "claude" }, paths: { specs: "missing-default-specs" } },
+  };
+  for (const selectedDefault of [undefined, "other"]) {
+    fs.writeFileSync(
+      configFile,
+      YAML.stringify({ ...base, suites, ...(selectedDefault ? { suite: selectedDefault } : {}) }),
+    );
+    const result = runCli(root, ["doctor", "--suite", "local"]);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.doesNotMatch(result.stdout, /codex binary|claude binary|grok binary/);
+  }
+  const unknown = runCli(root, ["doctor", "--suite", "missing"]);
+  assert.equal(unknown.status, 1);
+  assert.match(unknown.stderr, /Known suites/);
+  fs.unlinkSync(configFile);
+  const missing = runCli(root, ["doctor", "--suite", "local", "--providers", "mock"]);
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /No config file/);
+});
+
+test("JSON planning stays machine-readable with text-case selection", (t) => {
+  const root = temporary();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  writeProject(root);
+  const specFile = path.join(root, "specs/core.yaml");
+  const spec = YAML.parse(fs.readFileSync(specFile, "utf8"));
+  spec.scenarios = [];
+  spec.datasets = { drafts: [{ id: "one", inputs: { draft: { text: "A clear draft." } } }] };
+  spec.rubric = [
+    {
+      id: "QUALITY",
+      dataset: "drafts",
+      criterion: "Clear writing",
+      passCriteria: "Clear",
+      weight: 1,
+      grader: { type: "text-rubric", inputs: { draft: { file: "{{inputs.draft}}" } } },
+    },
+  ];
+  fs.writeFileSync(specFile, YAML.stringify(spec));
+  const result = runCli(root, ["run", "--dry-run", "--json", "--text-cases", "core/drafts/one"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    version: 1,
+    areas: [{ id: "core", scenarios: [] }],
+  });
+  assert.equal(fs.existsSync(path.join(root, "runs")), false);
+});

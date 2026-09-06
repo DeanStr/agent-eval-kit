@@ -1,0 +1,18 @@
+id: quality
+title: Editorial quality
+weight: 100
+description: Compare editorial quality independently of voice.
+datasets:
+  posts: {file: ../posts.json}
+rubric:
+  - id: QUALITY
+    dataset: posts
+    criterion: Which passage is better written overall for its intended audience?
+    passCriteria: The revision preserves or improves overall editorial quality.
+    weight: 1
+    gate: true
+    grader:
+      type: text-pairwise
+      candidate: '{{inputs.post}}'
+      references: [{file: '{{inputs.original}}'}]
+      policy: non_regression

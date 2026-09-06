@@ -1,5 +1,5 @@
+import { specSourceBytes } from "./specs.js";
 import { omitUndefined } from "./invariants.js";
-import fs from "node:fs";
 import { evaluateCiThresholds } from "./ci.js";
 import { sha256 } from "./io.js";
 import { loadSpecs, materializeSpecs } from "./specs.js";
@@ -57,9 +57,46 @@ export function evaluatePromotion(
     failures.push(
       `run split ${runSplit} does not match promotion split ${policy.split}; evaluate the required split before promotion`,
     );
+  const selectedTextCases = report.receipt.inputs.selection.textCases;
+  if (selectedTextCases !== undefined) {
+    const fingerprints = report.receipt.inputs.textCases;
+    // Only unchanged definitions can establish which fingerprints the retained
+    // run must contain. A different release split or edited suite is a policy
+    // mismatch, not proof that the run lost provenance.
+    const expectedCases = sourceSpecs
+      .filter(
+        (spec) =>
+          report.receipt.inputs.selection.areas.includes(spec.id) &&
+          report.receipt.inputs.specs[spec.id]?.sha256 === sha256(specSourceBytes(spec)),
+      )
+      .flatMap((spec) =>
+        spec.rubric.flatMap((item) =>
+          item.dataset && item.applicability?.applicable !== false
+            ? spec
+                .datasets![item.dataset]!.filter(
+                  (entry) => !entry.split || runSplit === "all" || entry.split === runSplit,
+                )
+                .map((entry) => `${spec.id}/${item.dataset}/${entry.id}`)
+            : [],
+        ),
+      );
+    if (
+      !fingerprints ||
+      [...expectedCases, ...selectedTextCases].some(
+        (key) => !Object.hasOwn(fingerprints, key) || !/^[a-f0-9]{64}$/.test(fingerprints[key]!),
+      )
+    )
+      throw new Error(
+        "Text case selection requires complete case fingerprints in the receipt. Restore the complete receipt or start a new run before release promotion.",
+      );
+    if (Object.keys(fingerprints).some((key) => !selectedTextCases.includes(key)))
+      failures.push(
+        "text dataset selection is incomplete; evaluate all required cases before release promotion",
+      );
+  }
   if (report.scoreWithheld) failures.push("headline score is withheld");
   for (const spec of plan) {
-    if (report.receipt.inputs.specs[spec.id]?.sha256 !== sha256(fs.readFileSync(spec.sourceFile)))
+    if (report.receipt.inputs.specs[spec.id]?.sha256 !== sha256(specSourceBytes(spec)))
       failures.push(
         `suite definition changed for ${spec.id}; evaluate the current suite before promotion`,
       );

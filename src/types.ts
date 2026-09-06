@@ -1,4 +1,4 @@
-import type { TextPairwiseGrader } from "./text/contracts.js";
+import type { TextPairwiseGrader, TextRubricGrader, TextSource } from "./text/contracts.js";
 import type { MailboxConfig, EmailAuthFlow } from "./email/contracts.js";
 import type {
   CaptureConfig,
@@ -37,6 +37,7 @@ export interface ProviderConfig {
 }
 
 export interface EvalConfig {
+  suite?: string;
   mailboxes?: Record<string, MailboxConfig>;
   emailAuth?: Record<string, EmailAuthFlow>;
   version: 1;
@@ -67,6 +68,7 @@ export interface EvalConfig {
     auth: string;
     /** Commit-friendly promoted comparison snapshots. */
     baselines?: string;
+    references: string;
   };
   browser: {
     headless: boolean;
@@ -159,6 +161,7 @@ export interface HybridGrader {
 
 export type Grader =
   | TextPairwiseGrader
+  | TextRubricGrader
   | CommandGrader
   | LlmGrader
   | ManualGrader
@@ -168,7 +171,16 @@ export type Grader =
   | ImageRegressionGrader
   | { type: "capture" };
 
+export interface TextCase {
+  id: string;
+  name?: string;
+  inputs: Record<string, TextSource>;
+  strata: string[];
+  split?: EvalSplit;
+}
+
 export interface RubricItem {
+  dataset?: string;
   applicability?: { applicable: boolean; reason: string };
   checkpoints?: Record<string, string[]>;
   id: string;
@@ -191,6 +203,7 @@ export interface ExcludedCriterion {
 }
 
 export interface EvalSpec {
+  datasets?: Record<string, TextCase[]>;
   exclusions?: ExcludedCriterion[];
   id: string;
   title: string;
@@ -303,7 +316,7 @@ export interface JudgedCase {
   confidence: "high" | "medium" | "low";
   reasoning: string;
   evidenceRefs: string[];
-  source: "llm" | "pairwise";
+  source: "llm" | "pairwise" | "text-pairwise" | "text-rubric";
   /** Numeric value under this run's configured partial-credit rule. */
   points?: number | null;
 }
@@ -316,6 +329,7 @@ export interface JudgedItem {
   evidenceRefs: string[];
   source:
     | "text-pairwise"
+    | "text-rubric"
     | "llm"
     | "command"
     | "manual"
@@ -389,6 +403,8 @@ export interface RunReceipt {
     methodSha256: string;
     collectionMethodSha256?: string;
     visual?: Record<string, ArtifactReceipt>;
+    textCases?: Record<string, string>;
+    specMethods: Record<string, string>;
     textCandidates?: Record<string, ArtifactReceipt>;
     textReferences?: Record<string, ArtifactReceipt>;
     collectorSources?: Record<string, ArtifactReceipt>;
@@ -399,7 +415,12 @@ export interface RunReceipt {
       manifest: ArtifactReceipt;
       files: Record<string, ArtifactReceipt & { configuredPath: string }>;
     };
-    selection: { areas: string[]; scenarios?: string[]; split?: EvalSplit | "all" };
+    selection: {
+      areas: string[];
+      textCases?: string[];
+      scenarios?: string[];
+      split?: EvalSplit | "all";
+    };
   };
   target: {
     kind: TargetKind;

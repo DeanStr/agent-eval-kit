@@ -14,6 +14,7 @@ function receipt(fingerprint = "f".repeat(64)): RunReceipt {
       methodSha256: "m".repeat(64),
       specs: {},
       selection: { areas: ["core"] },
+      specMethods: {},
     },
     target: { kind: "repository" },
     providers: {

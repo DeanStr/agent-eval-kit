@@ -18,6 +18,7 @@ const receipt: RunReceipt = {
     methodSha256: "m".repeat(64),
     specs: { core: { file: "core.yaml", sha256: "s".repeat(64), bytes: 1 } },
     selection: { areas: ["core"], split: "evaluation" },
+    specMethods: { core: "s".repeat(64) },
   },
   target: { kind: "repository" },
   providers: {

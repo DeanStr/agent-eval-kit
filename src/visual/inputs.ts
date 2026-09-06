@@ -137,12 +137,17 @@ export async function validateVisualInputs(
         if (
           scenario.collect &&
           "candidate" in item.grader &&
+          typeof item.grader.candidate === "string" &&
           !scenario.collect.images.includes(item.grader.candidate)
         )
           throw new Error(
             `${item.id}: undeclared collector image label ${item.grader.candidate} for ${id}`,
           );
-        if (scenario.capture && "candidate" in item.grader) {
+        if (
+          scenario.capture &&
+          "candidate" in item.grader &&
+          typeof item.grader.candidate === "string"
+        ) {
           const labels = controlledScreenshotLabels(scenario.capture);
           if (!labels.includes(item.grader.candidate))
             throw new Error(

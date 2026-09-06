@@ -28,51 +28,58 @@ export async function runMock(invocation: ProviderInvocation): Promise<ProviderR
           observations: ["Mock provider: no agent actions were executed."],
           evidenceRefs: [],
         }
-      : prompt.startsWith("TEXT_PAIRWISE_EVALUATION:")
+      : prompt.startsWith("TEXT_RUBRIC_EVALUATION:")
         ? {
-            preferred: "abstain",
+            verdict: "cannot_judge",
             confidence: 0,
             reasoning: "Offline mock judge does not evaluate writing.",
             citations: [],
           }
-        : prompt.startsWith("PAIRWISE_EVALUATION:")
+        : prompt.startsWith("TEXT_PAIRWISE_EVALUATION:")
           ? {
               preferred: "abstain",
               confidence: 0,
-              reasoning: "Offline mock judge does not inspect images.",
-              findings: [],
+              reasoning: "Offline mock judge does not evaluate writing.",
+              citations: [],
             }
-          : {
-              items: rubric.flatMap((item) =>
-                item.id
-                  ? [
-                      {
-                        id: item.id,
-                        verdict: "cannot_judge",
-                        confidence: "low",
-                        reasoning: "Offline mock judge does not inspect evidence.",
-                        evidenceRefs: [],
-                      },
-                    ]
-                  : [],
-              ),
-              cases: cases.flatMap((item) =>
-                item.rubricId && item.caseId
-                  ? [
-                      {
-                        rubricId: item.rubricId,
-                        caseId: item.caseId,
-                        verdict: "cannot_judge",
-                        confidence: "low",
-                        reasoning: "Offline mock judge does not inspect evidence.",
-                        evidenceRefs: [],
-                      },
-                    ]
-                  : [],
-              ),
-              defects: [],
-              notes: "Offline mock judge.",
-            };
+          : prompt.startsWith("PAIRWISE_EVALUATION:")
+            ? {
+                preferred: "abstain",
+                confidence: 0,
+                reasoning: "Offline mock judge does not inspect images.",
+                findings: [],
+              }
+            : {
+                items: rubric.flatMap((item) =>
+                  item.id
+                    ? [
+                        {
+                          id: item.id,
+                          verdict: "cannot_judge",
+                          confidence: "low",
+                          reasoning: "Offline mock judge does not inspect evidence.",
+                          evidenceRefs: [],
+                        },
+                      ]
+                    : [],
+                ),
+                cases: cases.flatMap((item) =>
+                  item.rubricId && item.caseId
+                    ? [
+                        {
+                          rubricId: item.rubricId,
+                          caseId: item.caseId,
+                          verdict: "cannot_judge",
+                          confidence: "low",
+                          reasoning: "Offline mock judge does not inspect evidence.",
+                          evidenceRefs: [],
+                        },
+                      ]
+                    : [],
+                ),
+                defects: [],
+                notes: "Offline mock judge.",
+              };
   const finalText = JSON.stringify(structured);
   fs.writeFileSync(invocation.outputFile, finalText);
   fs.writeFileSync(

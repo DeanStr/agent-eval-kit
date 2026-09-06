@@ -1,3 +1,4 @@
+import { specSourceBytes } from "./specs.js";
 import { assertSavedWorkflowEvidence, bindInputs, validateWorkflowSelection } from "./workflow.js";
 import { withRunLock, loadRunState, processIsAlive, type RunState } from "./run/state.js";
 import { recoverRunArtifacts } from "./run/recovery.js";
@@ -51,6 +52,7 @@ export interface RunOptions {
   dryRun?: boolean;
   dryRunJson?: boolean;
   collectOnly?: boolean;
+  textCaseIds?: string[];
 }
 
 function createRunDir(root: string): string {
@@ -58,9 +60,7 @@ function createRunDir(root: string): string {
 }
 
 function specHashes(specs: EvalSpec[]): Record<string, string> {
-  return Object.fromEntries(
-    specs.map((spec) => [spec.id, sha256(fs.readFileSync(spec.sourceFile))]),
-  );
+  return Object.fromEntries(specs.map((spec) => [spec.id, sha256(specSourceBytes(spec))]));
 }
 
 function skippedEvidence(spec: EvalSpec, scenarioId: string, config: EvalConfig): ScenarioEvidence {
@@ -153,6 +153,21 @@ export async function runEvaluation(
   if (!specs.some((spec) => spec.rubric.length) && !options.resumeDir) {
     throw new Error(`Split ${selectedSplit} selects no rubric items in the selected areas`);
   }
+  if (options.textCaseIds !== undefined) {
+    if (options.collectOnly)
+      throw new Error("Text case selection is supported by run, not collect");
+    const known = new Set(
+      specs.flatMap((spec) =>
+        spec.rubric.flatMap((item) =>
+          item.dataset
+            ? (spec.datasets?.[item.dataset] ?? []).map((c) => `${spec.id}/${item.dataset}/${c.id}`)
+            : [],
+        ),
+      ),
+    );
+    for (const id of options.textCaseIds)
+      if (!known.has(id)) throw new Error(`Unknown text case selector ${id}`);
+  }
   validateWorkflowSelection(specs);
   const sourceSpecs = options.specs;
   assertScenarioSelectors(specs, options.scenarioIds, selectedSplit);
@@ -184,6 +199,13 @@ export async function runEvaluation(
           `  ${selected ? ">" : "~"} ${scenario.id} [${scenario.kind ?? (config.target.kind === "web" ? "browser" : "workspace")}] ${scenario.name}`,
         );
       }
+      for (const [dataset, cases] of Object.entries(spec.datasets ?? {}))
+        for (const c of cases) {
+          const id = `${spec.id}/${dataset}/${c.id}`;
+          console.log(
+            `  ${options.textCaseIds === undefined || options.textCaseIds.includes(id) ? ">" : "~"} ${id} [text] ${c.name ?? c.id}`,
+          );
+        }
       for (const item of spec.exclusions ?? [])
         console.log(`    ${item.id} w${item.weight} EXCLUDED: ${item.reason}`);
       for (const rubric of spec.rubric) {
@@ -235,6 +257,7 @@ export async function runEvaluation(
       {
         config,
         specs: sourceSpecs,
+        ...(options.textCaseIds === undefined ? {} : { textCaseIds: options.textCaseIds }),
         fixtures,
         ...(options.scenarioIds === undefined ? {} : { scenarioIds: options.scenarioIds }),
         split: selectedSplit,
@@ -268,6 +291,7 @@ export async function runEvaluation(
         options.scenarioIds,
       );
     }
+    const selectedTextCases = receipts.current.inputs.selection.textCases;
     const state: RunState = existingState ?? {
       schemaVersion: 1,
       ...(options.collectOnly ? { mode: "collect" as const } : {}),
@@ -276,6 +300,7 @@ export async function runEvaluation(
       pid: process.pid,
       configFile: path.resolve(options.configFile),
       startedAt: new Date().toISOString(),
+      ...(selectedTextCases === undefined ? {} : { selectedTextCases }),
       selectedAreas: sourceSpecs.map((spec) => spec.id),
       ...(options.scenarioIds === undefined ? {} : { selectedScenarios: options.scenarioIds }),
       selectedSplit,
@@ -470,6 +495,7 @@ export async function runEvaluation(
             config.paths.runs,
             config.paths.auth,
             config.paths.baselines,
+            config.paths.references,
             runDir,
             ...(options.ignoredTargetPaths ?? []),
           ].filter((value): value is string => Boolean(value)),
@@ -526,7 +552,10 @@ export async function runEvaluation(
         // Text inputs are collected directly, without scenario evidence. Seal
         // them and completed setup before the first vote so a failed judge call
         // can resume with intact inputs without repeating successful setup.
-        if (evidence.length || spec.rubric.some((item) => item.grader.type === "text-pairwise"))
+        if (
+          evidence.length ||
+          spec.rubric.some((item) => ["text-pairwise", "text-rubric"].includes(item.grader.type))
+        )
           writeArtifactIndex(runDir);
         if (options.collectOnly) {
           const commands: JudgedItem[] = [];

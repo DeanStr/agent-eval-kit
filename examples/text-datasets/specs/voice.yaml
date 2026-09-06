@@ -1,0 +1,21 @@
+id: voice
+title: Authorial voice
+weight: 100
+description: Compare each revision with its original against a fixed target voice.
+datasets:
+  posts: {file: ../posts.json}
+templates:
+  comparison:
+    criterion: Which passage better achieves the authorial voice exemplified by R?
+    passCriteria: The revision preserves or improves voice relative to the original.
+    weight: 1
+    gate: true
+    dataset: posts
+    grader:
+      type: text-pairwise
+      candidate: '{{inputs.post}}'
+      references: [{file: '{{inputs.original}}'}]
+      styleTarget: {file: '{{inputs.voice}}'}
+      policy: non_regression
+rubric:
+  - {id: VOICE, template: comparison}

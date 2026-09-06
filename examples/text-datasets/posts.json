@@ -1,0 +1,26 @@
+[
+  {
+    "id": "launch",
+    "split": "development",
+    "strata": {"topic": "launch"},
+    "inputs": {
+      "post": {"text": "We tested the new export on 40 projects. Thirty-eight finished without a retry; two needed a second attempt. We'll keep watching the failures before widening the rollout."},
+      "social": {"text": "Our export pilot completed 38 of 40 projects without a retry. We're investigating the other two before expanding access."},
+      "original": {"text": "The export pilot involved 40 projects, with 38 completing without retries. The remaining two completed after a second attempt. The rollout remains limited."},
+      "voice": {"text": "We ran the test twice because the first result looked too tidy. The second run exposed the queue delay we'd missed."},
+      "source": {"text": "Pilot: 40 projects. First-attempt success: 38. The other two completed after one retry. Rollout remains limited while failures are investigated."}
+    }
+  },
+  {
+    "id": "latency",
+    "split": "evaluation",
+    "strata": {"topic": "performance"},
+    "inputs": {
+      "post": {"text": "The new queue cut median wait time from 12 seconds to 8 in our staging test. We haven't measured production traffic yet."},
+      "social": {"text": "Staging result: median queue wait fell from 12 seconds to 8. Production measurements are still ahead."},
+      "original": {"text": "Median queue wait decreased from 12 seconds to 8 in staging. Production results are not yet available."},
+      "voice": {"text": "We ran the test twice because the first result looked too tidy. The second run exposed the queue delay we'd missed."},
+      "source": {"text": "Staging experiment only. Median queue wait: before 12 seconds; after 8 seconds. No production measurements."}
+    }
+  }
+]

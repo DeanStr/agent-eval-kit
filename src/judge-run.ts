@@ -36,7 +36,7 @@ import { materializeSpecs } from "./specs.js";
 import { loadRunState, withRunLock, type RunState } from "./run/state.js";
 import { recoverRunArtifacts } from "./run/recovery.js";
 import { graderMethodInputs } from "./judging/command-inputs.js";
-import { textInputs, textInputPath } from "./text/inputs.js";
+import { textInputs, textInputPath, readTextSource } from "./text/inputs.js";
 import { snapshotVisualInputs, validateVisualInputs, visualInputs } from "./visual/inputs.js";
 import type { AreaResult, EvalConfig, EvalSpec, RunReceipt, ScenarioEvidence } from "./types.js";
 
@@ -209,7 +209,7 @@ export async function judgeCollected(options: {
         snapshotVisualInputs(config, specs, runDir, manifest.split, receipt.inputs.visual!);
         fs.rmSync(path.join(runDir, "inputs", "textReferences"), { recursive: true, force: true });
         for (const [key, input] of Object.entries(newTextReferences!)) {
-          const bytes = fs.readFileSync(input.file);
+          const { bytes } = readTextSource(input.source);
           if (sha256(bytes) !== input.sha256)
             throw new Error(`Text reference changed during snapshot: ${key}`);
           const file = textInputPath(runDir, key, "textReferences");

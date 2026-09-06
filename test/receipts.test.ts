@@ -35,6 +35,7 @@ function inputs(root: string): {
       fixtures: fixturesFile,
       runs: path.join(root, "runs"),
       auth: path.join(root, "auth"),
+      references: path.join(root, "text-references"),
     },
     browser: { headless: true, viewport: { width: 1280, height: 800 }, actionTimeoutMs: 1_000 },
     scoring: { partialCredit: 0.5, minimumCoverage: 60 },

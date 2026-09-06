@@ -1,5 +1,6 @@
+import { textInstances } from "./text/datasets.js";
 import { omitUndefinedDeep, omitUndefined } from "./invariants.js";
-import { textPairwiseSchema } from "./text/contracts.js";
+import { textPairwiseSchema, textRubricSchema, textSourceSchema } from "./text/contracts.js";
 import {
   pairwiseSchema,
   captureSchema,
@@ -17,6 +18,7 @@ import type { EvalConfig, EvalSpec, EvalSplit, RubricItem, Scenario } from "./ty
 const graderSchema = z.discriminatedUnion("type", [
   pairwiseSchema,
   textPairwiseSchema,
+  textRubricSchema,
   distinctnessSchema,
   imageRegressionSchema,
   z.object({ type: z.literal("capture") }).strict(),
@@ -107,6 +109,7 @@ const scenarioSchema = z
 const rubricSchema = z
   .object({
     // Command graders derive artifact filenames from rubric IDs too.
+    dataset: artifactIdSchema.optional(),
     id: artifactIdSchema,
     criterion: z.string().min(1),
     applicability: z
@@ -125,6 +128,12 @@ const rubricSchema = z
   })
   .strict()
   .superRefine((item, context) => {
+    if (item.dataset && !["text-pairwise", "text-rubric"].includes(item.grader.type))
+      context.addIssue({
+        code: "custom",
+        path: ["dataset"],
+        message: "Datasets require a direct text grader",
+      });
     if (item.gate && item.applicability?.applicable === false) {
       context.addIssue({
         code: "custom",
@@ -139,11 +148,11 @@ const rubricSchema = z
         message: "Checkpoint selectors require llm or hybrid grading",
       });
     }
-    if (item.grader.type === "text-pairwise" && item.scenarios.length) {
+    if (["text-pairwise", "text-rubric"].includes(item.grader.type) && item.scenarios.length) {
       context.addIssue({
         code: "custom",
         path: ["scenarios"],
-        message: "text-pairwise reads candidate files directly; scenarios must be empty",
+        message: "Direct text grading reads inputs directly; scenarios must be empty",
       });
     }
     if (
@@ -165,6 +174,24 @@ const specSchema = z
     weight: z.number().positive(),
     optional: z.boolean().default(false),
     description: z.string().min(1),
+    datasets: z
+      .record(
+        artifactIdSchema,
+        z
+          .array(
+            z
+              .object({
+                id: artifactIdSchema,
+                name: z.string().min(1).optional(),
+                inputs: z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9_-]*$/), textSourceSchema),
+                strata: strataSchema,
+                split: splitSchema.optional(),
+              })
+              .strict(),
+          )
+          .min(1),
+      )
+      .optional(),
     scenarios: z.array(scenarioSchema).default([]),
     rubric: z.array(rubricSchema).min(1),
   })
@@ -172,7 +199,9 @@ const specSchema = z
   .superRefine((spec, context) => {
     if (
       !spec.scenarios.length &&
-      spec.rubric.some((item) => !["command", "manual", "text-pairwise"].includes(item.grader.type))
+      spec.rubric.some(
+        (item) => !["command", "manual", "text-pairwise", "text-rubric"].includes(item.grader.type),
+      )
     ) {
       context.addIssue({
         code: "custom",
@@ -208,6 +237,41 @@ const reservedScenarioArtifactIds = new Set(
 
 export function loadSpecFile(file: string): EvalSpec {
   const raw = YAML.parse(fs.readFileSync(file, "utf8"));
+  if (raw?.datasets && typeof raw.datasets === "object") {
+    for (const [name, value] of Object.entries(raw.datasets)) {
+      if (Array.isArray(value)) continue;
+      const source = z
+        .object({ file: z.string().min(1) })
+        .strict()
+        .parse(value);
+      const datasetFile = path.resolve(path.dirname(file), source.file);
+      const bytes = fs.readFileSync(datasetFile);
+      if (bytes.length > 16 * 1024 * 1024)
+        throw new Error(`Dataset manifest exceeds 16 MiB: ${datasetFile}`);
+      raw.datasets[name] = YAML.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+      if (!Array.isArray(raw.datasets[name]))
+        throw new Error(`Dataset ${datasetFile} must contain an array of cases`);
+    }
+  }
+  // Templates are local, shallow, and fully expanded before validation or execution.
+  if (raw && typeof raw === "object" && raw.templates !== undefined) {
+    const templates = z
+      .record(artifactIdSchema, z.record(z.string(), z.unknown()))
+      .parse(raw.templates);
+    raw.rubric = z
+      .array(z.record(z.string(), z.unknown()))
+      .parse(raw.rubric)
+      .map((item) => {
+        if (item.template === undefined) return item;
+        if (typeof item.template !== "string" || !Object.hasOwn(templates, item.template))
+          throw new Error(`Unknown rubric template ${String(item.template)} in ${file}`);
+        const { template, ...overrides } = item;
+        if (Object.hasOwn(templates[template]!, "template"))
+          throw new Error("Nested rubric templates are not supported");
+        return { ...templates[template], ...overrides };
+      });
+    delete raw.templates;
+  }
   try {
     return omitUndefinedDeep({ ...specSchema.parse(raw), sourceFile: file });
   } catch (error) {
@@ -219,6 +283,28 @@ export function loadSpecFile(file: string): EvalSpec {
     }
     throw error;
   }
+}
+
+export function datasetManifestPaths(spec: EvalSpec): string[] {
+  const raw = YAML.parse(fs.readFileSync(spec.sourceFile, "utf8"));
+  return Object.values(raw?.datasets ?? {}).flatMap((value) => {
+    if (Array.isArray(value)) return [];
+    const source = z
+      .object({ file: z.string().min(1) })
+      .strict()
+      .parse(value);
+    return [fs.realpathSync(path.resolve(path.dirname(spec.sourceFile), source.file))];
+  });
+}
+
+/** External datasets are embedded in the sealed definition so replay needs no originals. */
+export function specSourceBytes(spec: EvalSpec): Buffer {
+  const bytes = fs.readFileSync(spec.sourceFile);
+  const raw = YAML.parse(bytes.toString("utf8"));
+  if (!raw?.datasets || !Object.values(raw.datasets).some((value) => !Array.isArray(value)))
+    return bytes;
+  const { sourceFile: _, ...resolved } = loadSpecFile(spec.sourceFile);
+  return Buffer.from(YAML.stringify(resolved));
 }
 
 export function loadSpecs(specsPath: string): EvalSpec[] {
@@ -271,6 +357,17 @@ function readSpecs(
   for (const id of sourceExecutableIds) {
     if (!foldedExecutableIds.has(filesystemKey(id))) foldedExecutableIds.set(filesystemKey(id), id);
   }
+  const textIds = new Set<string>();
+  for (const spec of specs)
+    for (const item of spec.rubric) {
+      if (!["text-pairwise", "text-rubric"].includes(item.grader.type)) continue;
+      for (const instance of textInstances(spec, item)) {
+        const id = instance.item.id.toLowerCase();
+        if (textIds.has(id))
+          throw new Error(`Expanded text rubric ID collision: ${instance.item.id}`);
+        textIds.add(id);
+      }
+    }
   const rubricIds = new Set<string>();
   const foldedRubricIds = new Map<string, string>();
   const problems: string[] = [];
@@ -286,6 +383,14 @@ function readSpecs(
       );
     areaIds.add(spec.id);
     if (!foldedArea) foldedAreaIds.set(filesystemKey(spec.id), spec.id);
+    for (const [name, cases] of Object.entries(spec.datasets ?? {})) {
+      const ids = cases.map((item) => item.id.toLowerCase());
+      if (new Set(ids).size !== ids.length)
+        problems.push(`Dataset ${name} has duplicate or case-colliding case IDs`);
+    }
+    for (const item of spec.rubric)
+      if (item.dataset && !Object.hasOwn(spec.datasets ?? {}, item.dataset))
+        problems.push(`${item.id} uses unknown dataset ${item.dataset}`);
     const localScenarios = new Set(spec.scenarios.map((scenario) => scenario.id));
     for (const scenario of spec.scenarios) {
       const scenarioKey = filesystemKey(scenario.id);
@@ -626,6 +731,7 @@ export function materializeSpec(
   }
   const rubric: RubricItem[] = spec.rubric.flatMap((item) => {
     if (item.applicability?.applicable === false) return [];
+    if (!hasDatasetCases(spec, item, selectedSplit)) return [];
     if (!item.scenarios.length) return [{ ...item }];
     const references = item.scenarios.flatMap(
       (id) => expandedBySource.get(id)?.map((scenario) => scenario.id) ?? [],
@@ -654,7 +760,32 @@ export function materializeSpec(
       .filter((item) => item.applicability?.applicable === false)
       .map((item) => ({ id: item.id, weight: item.weight, reason: item.applicability!.reason })),
   ];
-  return { ...spec, scenarios, rubric, ...(exclusions.length ? { exclusions } : {}) };
+  const datasets =
+    spec.datasets &&
+    Object.fromEntries(
+      Object.entries(spec.datasets).map(([name, cases]) => [
+        name,
+        cases.filter((c) => splitMatches(c.split, selectedSplit)),
+      ]),
+    );
+  return {
+    ...spec,
+    ...(datasets ? { datasets } : {}),
+    scenarios,
+    rubric,
+    ...(exclusions.length ? { exclusions } : {}),
+  };
+}
+
+function hasDatasetCases(
+  spec: EvalSpec,
+  item: RubricItem,
+  selectedSplit: EvalSplit | "all",
+): boolean {
+  if (!item.dataset) return true;
+  const cases = spec.datasets?.[item.dataset];
+  if (!cases) throw new Error(`${item.id} uses unknown dataset ${item.dataset}`);
+  return cases.some((entry) => splitMatches(entry.split, selectedSplit));
 }
 
 export function materializeSpecs(
@@ -671,7 +802,10 @@ export function materializeSpecs(
         .filter((item) => item.applicability?.applicable === false)
         .map((item) => ({ id: item.id, weight: item.weight, reason: item.applicability!.reason })),
     ],
-    rubric: spec.rubric.filter((item) => item.applicability?.applicable !== false),
+    rubric: spec.rubric.filter(
+      (item) =>
+        item.applicability?.applicable !== false && hasDatasetCases(spec, item, selectedSplit),
+    ),
     scenarios: spec.scenarios.filter((scenario) =>
       scenario.cases?.length
         ? scenario.cases.some((item) => splitMatches(item.split ?? scenario.split, selectedSplit))

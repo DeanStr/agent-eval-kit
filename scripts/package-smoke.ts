@@ -74,6 +74,36 @@ try {
   );
   const cli = path.join(consumer, "node_modules/.bin/aek");
   assert.match(await run(cli, ["--help"], consumer), /Agent Eval Kit/);
+  // Exercise text datasets and suite/selection/reference commands from the tarball.
+  const textExample = path.join(consumer, "text-example");
+  fs.cpSync(path.join(installed, "examples/text-datasets"), textExample, {
+    recursive: true,
+    filter: (source) => path.basename(source) !== ".agent-eval",
+  });
+  await run(cli, ["validate", "--suite", "policy"], textExample);
+  await run(cli, ["run", "--suite", "policy"], textExample, 2);
+  const textRuns = path.join(textExample, ".agent-eval/runs");
+  const textRun = path.join(textRuns, fs.readdirSync(textRuns)[0]!);
+  await run(cli, ["verify", "--run", textRun], textExample);
+  await run(cli, ["run", "--resume", textRun], textExample, 2);
+  await run(
+    cli,
+    [
+      "reference",
+      "promote",
+      "--suite",
+      "policy",
+      "--run",
+      textRun,
+      "--name",
+      "fixture",
+      "--reviewer",
+      "package-smoke",
+    ],
+    textExample,
+  );
+  await run(cli, ["reference", "list", "--suite", "policy"], textExample);
+  await run(cli, ["run", "--suite", "policy", "--changed-since", textRun], textExample, 2);
   // Exercise file collection and the public parser from a production-only install.
   const fileExample = path.join(consumer, "file-example");
   fs.cpSync(path.join(kitRoot, "examples/files"), fileExample, {
@@ -321,7 +351,7 @@ console.log(JSON.stringify({ version: 1, outcome: 'completed', summary: 'Sent no
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
   console.log(
-    "Package smoke passed: tarball install, file and email collector/checker pass and failure, executable bin, init, validate, run, collect, judge, release promotion, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
+    "Package smoke passed: tarball install, text datasets/suites/selection/reference promotion, file and email collector/checker pass and failure, executable bin, init, validate, run, collect, judge, release promotion, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
   );
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });

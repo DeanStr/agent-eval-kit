@@ -1,0 +1,19 @@
+version: 1
+project: {name: Text datasets, root: .}
+target: {kind: repository}
+agent: {provider: mock}
+judge:
+  provider: mock
+  voting: {minimumVotes: 3, maximumVotes: 5, agreement: 0.8}
+paths: {runs: .agent-eval/runs}
+scoring: {minimumCoverage: 100}
+suites:
+  voice:
+    paths: {specs: specs/voice.yaml}
+    instructions: Judge authorial voice. Better copyediting does not compensate for a weaker voice.
+  quality:
+    paths: {specs: specs/quality.yaml}
+    instructions: Judge overall editorial quality for the intended reader.
+  policy:
+    paths: {specs: specs/policy.yaml}
+    instructions: Assess the related texts together against the supplied source record.

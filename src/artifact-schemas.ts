@@ -89,6 +89,7 @@ const originalItem = z.object({
   id,
   source: z.enum([
     "text-pairwise",
+    "text-rubric",
     "llm",
     "command",
     "manual",
@@ -187,6 +188,8 @@ const receipt = z.object({
     methodSha256: id,
     collectionMethodSha256: id.optional(),
     visual: record(artifact).optional(),
+    textCases: record(id).optional(),
+    specMethods: record(id),
     textCandidates: record(artifact).optional(),
     textReferences: record(artifact).optional(),
     collectorSources: record(artifact).optional(),
@@ -198,6 +201,7 @@ const receipt = z.object({
       .optional(),
     selection: z.object({
       areas: strings,
+      textCases: strings.optional(),
       scenarios: strings.optional(),
       split: z.enum(["development", "evaluation", "all"]).optional(),
     }),
@@ -296,7 +300,7 @@ const judgedCase = z
     scenarioIds: strings,
     strata: strings,
     split: split.optional(),
-    source: z.enum(["llm", "pairwise"]),
+    source: z.enum(["llm", "pairwise", "text-pairwise", "text-rubric"]),
     points: fraction.nullable(),
   })
   .refine(validCasePoints, casePointsMessage);
