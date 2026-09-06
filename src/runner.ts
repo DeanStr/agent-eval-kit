@@ -1,7 +1,11 @@
 import { assertSavedWorkflowEvidence, bindInputs, validateWorkflowSelection } from "./workflow.js";
 import { withRunLock, loadRunState, processIsAlive, type RunState } from "./run/state.js";
 import { recoverRunArtifacts } from "./run/recovery.js";
-import { evaluatorInputPaths, snapshotEvaluationInputs, validateEvaluationInputs } from "./run/inputs.js";
+import {
+  evaluatorInputPaths,
+  snapshotEvaluationInputs,
+  validateEvaluationInputs,
+} from "./run/inputs.js";
 import fs from "node:fs";
 import path from "node:path";
 import { loadResumableRunReport } from "./compare.js";
@@ -17,8 +21,19 @@ import { executeScenario } from "./scenario.js";
 import { throwIfCancelled } from "./cancellation.js";
 import { assertEvaluationPlatform } from "./platform.js";
 import { buildReport, scoreArea } from "./scoring.js";
-import { assertScenarioSelectors, assertScenarioTargetCompatibility, materializeSpecs } from "./specs.js";
-import type { AreaResult, EvalConfig, EvalSpec, EvalSplit, RunReport, ScenarioEvidence } from "./types.js";
+import {
+  assertScenarioSelectors,
+  assertScenarioTargetCompatibility,
+  materializeSpecs,
+} from "./specs.js";
+import type {
+  AreaResult,
+  EvalConfig,
+  EvalSpec,
+  EvalSplit,
+  RunReport,
+  ScenarioEvidence,
+} from "./types.js";
 
 export interface RunOptions {
   config: EvalConfig;
@@ -89,7 +104,10 @@ function dependencyBlockedEvidence(
     split: scenario.split,
     outcome: "blocked",
     summary: `Dependency not completed: ${unmet.map((item) => `${item.id} (${item.evidence?.outcome ?? "missing"})`).join(", ")}.`,
-    observations: unmet.map((item) => `${item.id}: ${item.evidence?.summary ?? "No dependency result was available in this execution."}`),
+    observations: unmet.map(
+      (item) =>
+        `${item.id}: ${item.evidence?.summary ?? "No dependency result was available in this execution."}`,
+    ),
     evidenceRefs: unmet.flatMap((item) => item.evidence?.evidenceRefs ?? []),
     transcript: [],
     screenshots: [],
@@ -102,7 +120,9 @@ function dependencyBlockedEvidence(
   };
 }
 
-export async function runEvaluation(options: RunOptions): Promise<{ runDir: string; report?: RunReport }> {
+export async function runEvaluation(
+  options: RunOptions,
+): Promise<{ runDir: string; report?: RunReport }> {
   assertEvaluationPlatform();
   throwIfCancelled();
   const { config, fixtures } = options;
@@ -118,53 +138,90 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
   await validateEvaluationInputs(config, sourceSpecs, selectedSplit, options.scenarioIds);
   if (options.dryRun) {
     for (const spec of specs) {
-      console.log(`${spec.id} (${spec.weight}${spec.optional ? ", optional" : ""}) — ${spec.title}`);
+      console.log(
+        `${spec.id} (${spec.weight}${spec.optional ? ", optional" : ""}) — ${spec.title}`,
+      );
       for (const scenario of spec.scenarios) {
-        const selected = !options.scenarioIds?.length || options.scenarioIds.includes(scenario.id) || Boolean(scenario.sourceScenarioId && options.scenarioIds.includes(scenario.sourceScenarioId));
-        console.log(`  ${selected ? ">" : "~"} ${scenario.id} [${scenario.kind ?? (config.target.kind === "web" ? "browser" : "workspace")}] ${scenario.name}`);
+        const selected =
+          !options.scenarioIds?.length ||
+          options.scenarioIds.includes(scenario.id) ||
+          Boolean(
+            scenario.sourceScenarioId && options.scenarioIds.includes(scenario.sourceScenarioId),
+          );
+        console.log(
+          `  ${selected ? ">" : "~"} ${scenario.id} [${scenario.kind ?? (config.target.kind === "web" ? "browser" : "workspace")}] ${scenario.name}`,
+        );
       }
       for (const rubric of spec.rubric) {
-        console.log(`    ${rubric.id} w${rubric.weight} ${rubric.grader.type}${rubric.gate ? " GATE" : ""} [${rubric.tags.join(", ")}]`);
+        console.log(
+          `    ${rubric.id} w${rubric.weight} ${rubric.grader.type}${rubric.gate ? " GATE" : ""} [${rubric.tags.join(", ")}]`,
+        );
       }
     }
     return { runDir: "(dry-run)" };
   }
 
-  const runDir = options.resumeDir ? path.resolve(options.resumeDir) : createRunDir(config.paths.runs);
+  const runDir = options.resumeDir
+    ? path.resolve(options.resumeDir)
+    : createRunDir(config.paths.runs);
   const stateFile = path.join(runDir, "run-state.json");
   if (options.resumeDir && !fs.existsSync(stateFile)) {
     throw new Error(`Cannot resume ${runDir}: run-state.json does not exist`);
   }
   return withRunLock(runDir, async () => {
     const existingState = fs.existsSync(stateFile) ? loadRunState(runDir) : undefined;
-    if (options.resumeDir && existingState?.status === "running" && processIsAlive(existingState.pid)) {
-      throw new Error(`Cannot resume ${runDir}: run-state.json belongs to active process ${existingState.pid}`);
+    if (
+      options.resumeDir &&
+      existingState?.status === "running" &&
+      processIsAlive(existingState.pid)
+    ) {
+      throw new Error(
+        `Cannot resume ${runDir}: run-state.json belongs to active process ${existingState.pid}`,
+      );
     }
     if (!specs.length) {
       throw new Error(`Split ${selectedSplit} selects no rubric items in the selected areas`);
     }
-    const { priorIndex, sealedPaths, prefixIsFullySealed, reportIsSealed } = recoverRunArtifacts(runDir, specs, existingState);
+    const { priorIndex, sealedPaths, prefixIsFullySealed, reportIsSealed } = recoverRunArtifacts(
+      runDir,
+      specs,
+      existingState,
+    );
     const reportFile = path.join(runDir, "report.json");
     const hashes = specHashes(sourceSpecs);
-    const receipts = new RunReceipts({
-      config,
-      specs: sourceSpecs,
-      fixtures,
-      scenarioIds: options.scenarioIds,
-      split: selectedSplit,
-      ignoredTargetPaths: options.ignoredTargetPaths,
-    }, runDir);
+    const receipts = new RunReceipts(
+      {
+        config,
+        specs: sourceSpecs,
+        fixtures,
+        scenarioIds: options.scenarioIds,
+        split: selectedSplit,
+        ignoredTargetPaths: options.ignoredTargetPaths,
+      },
+      runDir,
+    );
     if (existingState) {
       if (existingState.inputFingerprint !== receipts.current.inputFingerprint) {
-        throw new Error("Configuration, fixtures, provider method, selected inputs, or target revision changed since this run began. Start a new run instead.");
+        throw new Error(
+          "Configuration, fixtures, provider method, selected inputs, or target revision changed since this run began. Start a new run instead.",
+        );
       }
       for (const [id, hash] of Object.entries(existingState.specHashes)) {
         if (hashes[id] && hashes[id] !== hash) {
-          throw new Error(`Spec ${id} changed since this run began. Start a new run, or use rescore intentionally.`);
+          throw new Error(
+            `Spec ${id} changed since this run began. Start a new run, or use rescore intentionally.`,
+          );
         }
       }
     } else {
-      snapshotEvaluationInputs(config, sourceSpecs, runDir, selectedSplit, receipts.current, options.scenarioIds);
+      snapshotEvaluationInputs(
+        config,
+        sourceSpecs,
+        runDir,
+        selectedSplit,
+        receipts.current,
+        options.scenarioIds,
+      );
     }
     const state: RunState = existingState ?? {
       schemaVersion: 1,
@@ -190,35 +247,56 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
     writeJson(path.join(runDir, "receipt.json"), receipts.current);
 
     const logger = new RunLogger(path.join(runDir, "run.log"));
-    const priorReport = reportIsSealed
-      ? loadResumableRunReport(reportFile).report
-      : undefined;
-    const reusePriorEvidence = !priorReport || stableJson(priorReport.receipt.target) === stableJson(receipts.current.target);
-    const hasReusableScenarioEvidence = specs.some(spec => spec.scenarios.some(scenario => {
-      const relative = `${scenario.id}/evidence.json`;
-      if (!sealedPaths.has(relative) || !prefixIsFullySealed(`${scenario.id}/`)) return false;
-      const evidence = JSON.parse(fs.readFileSync(path.join(runDir, relative), "utf8")) as ScenarioEvidence;
-      return evidence.outcome === "completed" || evidence.outcome === "feature_not_found";
-    }));
-    const priorAreas = new Map((reusePriorEvidence ? priorReport?.areas ?? [] : []).map((area) => [area.id, area]));
+    const priorReport = reportIsSealed ? loadResumableRunReport(reportFile).report : undefined;
+    const reusePriorEvidence =
+      !priorReport ||
+      stableJson(priorReport.receipt.target) === stableJson(receipts.current.target);
+    const hasReusableScenarioEvidence = specs.some((spec) =>
+      spec.scenarios.some((scenario) => {
+        const relative = `${scenario.id}/evidence.json`;
+        if (!sealedPaths.has(relative) || !prefixIsFullySealed(`${scenario.id}/`)) return false;
+        const evidence = JSON.parse(
+          fs.readFileSync(path.join(runDir, relative), "utf8"),
+        ) as ScenarioEvidence;
+        return evidence.outcome === "completed" || evidence.outcome === "feature_not_found";
+      }),
+    );
+    const priorAreas = new Map(
+      (reusePriorEvidence ? (priorReport?.areas ?? []) : []).map((area) => [area.id, area]),
+    );
     const areaResults: AreaResult[] = [];
     let lifecycle: Awaited<ReturnType<typeof startLifecycle>> | undefined;
 
     const persist = () => {
-      const report = buildReport({ runId: state.runId, startedAt: state.startedAt, config, areas: areaResults, receipt: receipts.current });
+      const report = buildReport({
+        runId: state.runId,
+        startedAt: state.startedAt,
+        config,
+        areas: areaResults,
+        receipt: receipts.current,
+      });
       writeReportArtifacts(runDir, report, specs);
       return report;
     };
 
     try {
-      logger.line(`${options.resumeDir ? "Resuming" : "Starting"} ${config.project.name} in ${runDir}`);
-      logger.line(`Agent ${config.agent.provider}${config.agent.model ? `/${config.agent.model}` : ""}; judge ${config.judge.provider}${config.judge.model ? `/${config.judge.model}` : ""}`);
-      if (priorReport && !reusePriorEvidence) {
-        logger.line("Prior evidence targets an earlier canonical target revision; rerunning it on the recovered revision");
-      }
-      const refreshTargetReceipt = (phase: string) => receipts.refresh(
-        phase, state, Boolean(reusePriorEvidence && (priorReport?.areas.length || hasReusableScenarioEvidence)),
+      logger.line(
+        `${options.resumeDir ? "Resuming" : "Starting"} ${config.project.name} in ${runDir}`,
       );
+      logger.line(
+        `Agent ${config.agent.provider}${config.agent.model ? `/${config.agent.model}` : ""}; judge ${config.judge.provider}${config.judge.model ? `/${config.judge.model}` : ""}`,
+      );
+      if (priorReport && !reusePriorEvidence) {
+        logger.line(
+          "Prior evidence targets an earlier canonical target revision; rerunning it on the recovered revision",
+        );
+      }
+      const refreshTargetReceipt = (phase: string) =>
+        receipts.refresh(
+          phase,
+          state,
+          Boolean(reusePriorEvidence && (priorReport?.areas.length || hasReusableScenarioEvidence)),
+        );
       lifecycle = await startLifecycle(config, runDir, {
         skipSetup: Boolean(priorIndex),
         onSetupComplete: () => {
@@ -234,17 +312,35 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
       });
       const allEvidence = new Map<string, ScenarioEvidence>();
       const reusedScenarios = new Set<string>();
-      const scenarioOwners = new Map(specs.flatMap(spec => spec.scenarios.map(scenario => [scenario.id, { spec, scenario }] as const)));
+      const scenarioOwners = new Map(
+        specs.flatMap((spec) =>
+          spec.scenarios.map((scenario) => [scenario.id, { spec, scenario }] as const),
+        ),
+      );
       async function collectScenario(id: string): Promise<ScenarioEvidence> {
         const cached = allEvidence.get(id);
         if (cached) return cached;
         const { spec, scenario } = scenarioOwners.get(id)!;
-        const selectedScenarioIds = spec.scenarios.filter(candidate => !options.scenarioIds?.length || options.scenarioIds.includes(candidate.id) || Boolean(candidate.sourceScenarioId && options.scenarioIds.includes(candidate.sourceScenarioId))).map(candidate => candidate.id);
+        const selectedScenarioIds = spec.scenarios
+          .filter(
+            (candidate) =>
+              !options.scenarioIds?.length ||
+              options.scenarioIds.includes(candidate.id) ||
+              Boolean(
+                candidate.sourceScenarioId &&
+                  options.scenarioIds.includes(candidate.sourceScenarioId),
+              ),
+          )
+          .map((candidate) => candidate.id);
         lifecycle!.assertRunning();
         const scenarioDir = path.join(runDir, scenario.id);
         const evidenceFile = path.join(scenarioDir, "evidence.json");
         const evidenceRelative = `${scenario.id}/evidence.json`;
-        const evidenceIsSealed = reusePriorEvidence && sealedPaths.has(evidenceRelative) && prefixIsFullySealed(`${scenario.id}/`) && fs.existsSync(evidenceFile);
+        const evidenceIsSealed =
+          reusePriorEvidence &&
+          sealedPaths.has(evidenceRelative) &&
+          prefixIsFullySealed(`${scenario.id}/`) &&
+          fs.existsSync(evidenceFile);
         if (!evidenceIsSealed && fs.existsSync(scenarioDir)) {
           // An interrupted provider may have left a plausible-looking but
           // unsealed evidence file and partial transcripts. Never reuse or
@@ -253,10 +349,13 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
         }
         if (!selectedScenarioIds.includes(scenario.id)) {
           const skipped = evidenceIsSealed
-            ? JSON.parse(fs.readFileSync(evidenceFile, "utf8")) as ScenarioEvidence
+            ? (JSON.parse(fs.readFileSync(evidenceFile, "utf8")) as ScenarioEvidence)
             : skippedEvidence(spec, scenario.id, config);
           if (evidenceIsSealed) reusedScenarios.add(scenario.id);
-          else { fs.mkdirSync(scenarioDir, { recursive: true }); writeJson(evidenceFile, skipped); }
+          else {
+            fs.mkdirSync(scenarioDir, { recursive: true });
+            writeJson(evidenceFile, skipped);
+          }
           allEvidence.set(scenario.id, skipped);
           return skipped;
         }
@@ -264,14 +363,21 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
         const unmet = scenario.dependsOn
           .map((id) => ({ id, evidence: allEvidence.get(id) }))
           .filter((item) => item.evidence?.outcome !== "completed");
-        const dependencyEvidence = Object.fromEntries(scenario.dependsOn.map(id => [id, sha256(stableJson(allEvidence.get(id)!))]));
+        const dependencyEvidence = Object.fromEntries(
+          scenario.dependsOn.map((id) => [id, sha256(stableJson(allEvidence.get(id)!))]),
+        );
         const inputs = unmet.length ? {} : bindInputs(scenario, allEvidence);
-        if (evidenceIsSealed && scenario.dependsOn.every(id => reusedScenarios.has(id))) {
-          const priorEvidence = JSON.parse(fs.readFileSync(evidenceFile, "utf8")) as ScenarioEvidence;
-          if (priorEvidence.outcome !== "agent_error") assertSavedWorkflowEvidence(scenario, priorEvidence);
-          if (priorEvidence.outcome !== "agent_error" &&
-              stableJson(priorEvidence.dependencyEvidence ?? {}) === stableJson(dependencyEvidence) &&
-              stableJson(priorEvidence.inputs ?? {}) === stableJson(inputs)) {
+        if (evidenceIsSealed && scenario.dependsOn.every((id) => reusedScenarios.has(id))) {
+          const priorEvidence = JSON.parse(
+            fs.readFileSync(evidenceFile, "utf8"),
+          ) as ScenarioEvidence;
+          if (priorEvidence.outcome !== "agent_error")
+            assertSavedWorkflowEvidence(scenario, priorEvidence);
+          if (
+            priorEvidence.outcome !== "agent_error" &&
+            stableJson(priorEvidence.dependencyEvidence ?? {}) === stableJson(dependencyEvidence) &&
+            stableJson(priorEvidence.inputs ?? {}) === stableJson(inputs)
+          ) {
             logger.line(`  = ${scenario.id}: reusing ${priorEvidence.outcome}`);
             reusedScenarios.add(scenario.id);
             allEvidence.set(scenario.id, priorEvidence);
@@ -313,7 +419,9 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
         });
         if (scenario.collect) refreshTargetReceipt(`collector ${scenario.id}`);
         lifecycle!.assertRunning();
-        logger.line(`    ${result.outcome} in ${(result.durationMs / 1000).toFixed(1)}s; ${result.screenshots.length} screenshots`);
+        logger.line(
+          `    ${result.outcome} in ${(result.durationMs / 1000).toFixed(1)}s; ${result.screenshots.length} screenshots`,
+        );
         result.dependencyEvidence = dependencyEvidence;
         writeJson(evidenceFile, result);
         allEvidence.set(scenario.id, result);
@@ -326,16 +434,28 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
         logger.line(`Area ${spec.id}: ${spec.title}`);
         throwIfCancelled();
         const selectedScenarioIds = spec.scenarios
-          .filter((scenario) => !options.scenarioIds?.length || options.scenarioIds.includes(scenario.id) || Boolean(scenario.sourceScenarioId && options.scenarioIds.includes(scenario.sourceScenarioId)))
+          .filter(
+            (scenario) =>
+              !options.scenarioIds?.length ||
+              options.scenarioIds.includes(scenario.id) ||
+              Boolean(
+                scenario.sourceScenarioId &&
+                  options.scenarioIds.includes(scenario.sourceScenarioId),
+              ),
+          )
           .map((scenario) => scenario.id);
         const prior = priorAreas.get(spec.id);
         const evidence: ScenarioEvidence[] = [];
         for (const scenario of spec.scenarios) evidence.push(await collectScenario(scenario.id));
-        const reusableArea = prior && prefixIsFullySealed(`areas/${spec.id}/`) &&
-          selectedScenarioIds.every(id => reusedScenarios.has(id)) &&
+        const reusableArea =
+          prior &&
+          prefixIsFullySealed(`areas/${spec.id}/`) &&
+          selectedScenarioIds.every((id) => reusedScenarios.has(id)) &&
           stableJson(prior.scenarios) === stableJson(evidence);
         if (reusableArea) {
-          logger.line(`  = reusing completed area (${prior.scorePct ?? "n/a"}% / ${prior.coveragePct}% coverage)`);
+          logger.line(
+            `  = reusing completed area (${prior.scorePct ?? "n/a"}% / ${prior.coveragePct}% coverage)`,
+          );
           areaResults.push(prior);
           continue;
         }
@@ -344,7 +464,8 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
         // Text inputs are collected directly, without scenario evidence. Seal
         // them and completed setup before the first vote so a failed judge call
         // can resume with intact inputs without repeating successful setup.
-        if (evidence.length || spec.rubric.some(item => item.grader.type === "text-pairwise")) writeArtifactIndex(runDir);
+        if (evidence.length || spec.rubric.some((item) => item.grader.type === "text-pairwise"))
+          writeArtifactIndex(runDir);
         const judged = await judgeArea({
           config,
           spec,
@@ -369,7 +490,9 @@ export async function runEvaluation(options: RunOptions): Promise<{ runDir: stri
           caseResults: judged.cases,
         });
         areaResults.push(area);
-        logger.line(`  score ${area.scorePct ?? "n/a"}% / ${area.coveragePct}% coverage; ${area.pendingManual.length} manual`);
+        logger.line(
+          `  score ${area.scorePct ?? "n/a"}% / ${area.coveragePct}% coverage; ${area.pendingManual.length} manual`,
+        );
         persist();
       }
 

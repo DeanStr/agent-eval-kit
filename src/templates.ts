@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 export const STARTER_KINDS = ["web", "repository", "command", "artifact"] as const;
-export type StarterKind = typeof STARTER_KINDS[number];
+export type StarterKind = (typeof STARTER_KINDS)[number];
 
 function configTemplate(kind: StarterKind): string {
   return `version: 1
@@ -13,7 +13,9 @@ project:
 
 target:
   kind: ${kind === "artifact" ? "repository" : kind}
-${kind === "web" ? `  url: http://127.0.0.1:3000
+${
+  kind === "web"
+    ? `  url: http://127.0.0.1:3000
   allowedOrigins: [http://127.0.0.1:3000]
   # For a local application, replace these with your commands.
   # setup: pnpm install --frozen-lockfile
@@ -21,7 +23,9 @@ ${kind === "web" ? `  url: http://127.0.0.1:3000
   # ready:
   #   url: http://127.0.0.1:3000/health
   #   timeoutSeconds: 120
-` : ""}
+`
+    : ""
+}
 agent:
 ${kind === "command" || kind === "artifact" ? "  # Collection needs no agent subscription.\n" : ""}  provider: ${kind === "command" || kind === "artifact" ? "mock" : "codex"}
   effort: high
@@ -321,27 +325,38 @@ reserved for evaluation; ordinary runs default to the development split.
 }
 
 export function initializeProject(directory: string, requestedKind: string = "web"): string[] {
-  const kind = STARTER_KINDS.find(candidate => candidate === requestedKind);
+  const kind = STARTER_KINDS.find((candidate) => candidate === requestedKind);
   if (!kind) {
     throw new Error(`Unknown starter ${requestedKind}; expected ${STARTER_KINDS.join(", ")}`);
   }
   const root = path.resolve(directory);
   const files: Array<{ target: string; content: string; staged?: string }> = [
     { target: path.join(root, "evalkit.yaml"), content: configTemplate(kind) },
-    { target: path.join(root, "evals", "specs", "core.yaml"), content: authoringNotes + specs[kind] },
+    {
+      target: path.join(root, "evals", "specs", "core.yaml"),
+      content: authoringNotes + specs[kind],
+    },
     { target: path.join(root, "evals", "fixtures.yaml"), content: fixturesTemplate },
   ];
-  files.push({ target: path.join(root, "evals", "ONBOARDING.md"), content: onboardingTemplate(kind) });
-  if (kind === "command") files.push({ target: path.join(root, "evals", "check.mjs"), content: commandChecker });
-  if (kind === "artifact") files.push({ target: path.join(root, "evals", "collect.mjs"), content: artifactCollector });
+  files.push({
+    target: path.join(root, "evals", "ONBOARDING.md"),
+    content: onboardingTemplate(kind),
+  });
+  if (kind === "command")
+    files.push({ target: path.join(root, "evals", "check.mjs"), content: commandChecker });
+  if (kind === "artifact")
+    files.push({ target: path.join(root, "evals", "collect.mjs"), content: artifactCollector });
   const conflicts = files.filter(({ target }) => fs.existsSync(target)).map(({ target }) => target);
   if (conflicts.length) {
     throw new Error(`Refusing to overwrite existing files:\n  - ${conflicts.join("\n  - ")}`);
   }
 
   const published: string[] = [];
-  const createdDirectories = [root, path.join(root, "evals"), path.join(root, "evals", "specs")]
-    .filter((directoryPath) => !fs.existsSync(directoryPath));
+  const createdDirectories = [
+    root,
+    path.join(root, "evals"),
+    path.join(root, "evals", "specs"),
+  ].filter((directoryPath) => !fs.existsSync(directoryPath));
   try {
     // Stage every complete file before making any of them visible at its final path.
     for (const file of files) {

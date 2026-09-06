@@ -29,42 +29,64 @@ function fixture(t: TestContext) {
   return { root, config, specs, checker, receipt, prepare };
 }
 
-test("checker bytes change compatibility; target bytes do not; offline rescore preserves the original checker", t => {
+test("checker bytes change compatibility; target bytes do not; offline rescore preserves the original checker", (t) => {
   const { root, config, specs, checker, receipt } = fixture(t);
   const before = receipt();
   fs.appendFileSync(path.join(root, "cart.mjs"), "\n// target revision\n");
   const targetChanged = receipt();
   assert.equal(before.evaluationFingerprint, targetChanged.evaluationFingerprint);
   assert.notEqual(before.inputFingerprint, targetChanged.inputFingerprint);
-  fs.writeFileSync(checker, 'console.log(JSON.stringify({verdict:"pass",reasoning:"Always pass"}));\n');
+  fs.writeFileSync(
+    checker,
+    'console.log(JSON.stringify({verdict:"pass",reasoning:"Always pass"}));\n',
+  );
   assert.notEqual(before.evaluationFingerprint, receipt().evaluationFingerprint);
   fs.unlinkSync(checker);
-  const rescore = buildRunReceipt({ config, specs, fixtures: {}, split: "development", evidenceProvenance: before });
+  const rescore = buildRunReceipt({
+    config,
+    specs,
+    fixtures: {},
+    split: "development",
+    evidenceProvenance: before,
+  });
   assert.deepEqual(rescore.inputs.graderMethods, before.inputs.graderMethods);
   assert.equal(rescore.evaluationFingerprint, before.evaluationFingerprint);
   const corrupt = structuredClone(before);
-  delete corrupt.inputs.graderMethods!['QUANTITY/check.mjs'];
-  assert.throws(() => buildRunReceipt({ config, specs, fixtures: {}, split: "development", evidenceProvenance: corrupt }), /provenance does not match/);
+  delete corrupt.inputs.graderMethods!["QUANTITY/check.mjs"];
+  assert.throws(
+    () =>
+      buildRunReceipt({
+        config,
+        specs,
+        fixtures: {},
+        split: "development",
+        evidenceProvenance: corrupt,
+      }),
+    /provenance does not match/,
+  );
 });
 
-test("method declarations fail before execution when missing, duplicated, or unreadable", async t => {
+test("method declarations fail before execution when missing, duplicated, or unreadable", async (t) => {
   const { config, specs, checker } = fixture(t);
   const file = specs[0].sourceFile;
   const original = fs.readFileSync(file, "utf8");
-  fs.writeFileSync(file, original.replaceAll('methodFiles: [check.mjs], ', ''));
+  fs.writeFileSync(file, original.replaceAll("methodFiles: [check.mjs], ", ""));
   assert.throws(() => loadSpecs(config.paths.specs), /methodFiles/);
-  fs.writeFileSync(file, original.replaceAll('[check.mjs]', '[check.mjs, check.mjs]'));
+  fs.writeFileSync(file, original.replaceAll("[check.mjs]", "[check.mjs, check.mjs]"));
   assert.throws(() => loadSpecs(config.paths.specs), /methodFiles must be unique/);
   fs.writeFileSync(file, original);
   fs.unlinkSync(checker);
-  await assert.rejects(validateEvaluationInputs(config, specs), /Command grader method.*unavailable/);
+  await assert.rejects(
+    validateEvaluationInputs(config, specs),
+    /Command grader method.*unavailable/,
+  );
   fs.mkdirSync(checker);
   assert.throws(() => graderMethodInputs(config, specs), /Command grader method.*invalid/);
 });
 
-test("checker and snapshot mutation are rejected before launch, and self-modification is an execution error", async t => {
+test("checker and snapshot mutation are rejected before launch, and self-modification is an execution error", async (t) => {
   for (const mutation of ["checker", "snapshot", "during"] as const) {
-    await t.test(mutation, async t => {
+    await t.test(mutation, async (t) => {
       const { root, config, specs, checker, prepare } = fixture(t);
       const sentinel = path.join(root, "launched");
       const source = `import fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(sentinel)}, 'yes');\n${mutation === "during" ? "fs.appendFileSync(import.meta.filename, '// changed');" : ""}\nconsole.log(JSON.stringify({verdict:'pass',reasoning:'Observed'}));\n`;
@@ -76,21 +98,34 @@ test("checker and snapshot mutation are rejected before launch, and self-modific
         fs.chmodSync(snapshot, 0o600);
         fs.appendFileSync(snapshot, "\n// corrupt snapshot\n");
       }
-      await assert.rejects(judgeArea({ config, spec: specs[0], evidence: [], runDir, areaDirectory: path.join(runDir, "areas/cart") }), /Command grader method changed/);
+      await assert.rejects(
+        judgeArea({
+          config,
+          spec: specs[0],
+          evidence: [],
+          runDir,
+          areaDirectory: path.join(runDir, "areas/cart"),
+        }),
+        /Command grader method changed/,
+      );
       assert.equal(fs.existsSync(sentinel), mutation === "during");
     });
   }
 });
 
-
-test("snapshot rejects a configured fixture that disappears after receipt creation", t => {
+test("snapshot rejects a configured fixture that disappears after receipt creation", (t) => {
   const { root, config, specs, receipt } = fixture(t);
   config.paths.fixtures = path.join(root, "fixtures.json");
   fs.writeFileSync(config.paths.fixtures, "{}");
   const original = receipt();
   fs.unlinkSync(config.paths.fixtures);
   assert.throws(
-    () => snapshotEvaluationInputs(config, specs, path.join(root, "snapshot"), "development", original),
-    error => error instanceof Error && "code" in error && error.code === "ENOENT" && error.message.includes("fixtures.json"),
+    () =>
+      snapshotEvaluationInputs(config, specs, path.join(root, "snapshot"), "development", original),
+    (error) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "ENOENT" &&
+      error.message.includes("fixtures.json"),
   );
 });

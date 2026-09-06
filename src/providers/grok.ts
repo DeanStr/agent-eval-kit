@@ -31,7 +31,9 @@ export async function runGrok(invocation: ProviderInvocation): Promise<ProviderR
     const authFile = grokAuthPath();
     const sourceGrokHome = path.dirname(authFile);
     if (!fs.existsSync(authFile) || !fs.statSync(authFile).isFile()) {
-      throw new Error(`Grok subscription auth was not found at ${authFile}; run \`grok login\` first`);
+      throw new Error(
+        `Grok subscription auth was not found at ${authFile}; run \`grok login\` first`,
+      );
     }
     for (const name of ["auth.json", "agent_id", ".metadata_version"]) {
       const source = path.join(sourceGrokHome, name);
@@ -43,7 +45,8 @@ export async function runGrok(invocation: ProviderInvocation): Promise<ProviderR
         fs.chmodSync(destination, fs.statSync(source).mode & 0o777);
       }
     }
-    if (invocation.mcp) fs.copyFileSync(invocation.mcp.configFile, path.join(isolatedWork, ".mcp.json"));
+    if (invocation.mcp)
+      fs.copyFileSync(invocation.mcp.configFile, path.join(isolatedWork, ".mcp.json"));
     const args = ["--no-auto-update", ...invocation.extraArgs];
     // Evaluator-controlled scalars follow project-supplied extras so duplicate
     // flags cannot override the receipted model, effort, or turn budget.
@@ -92,7 +95,8 @@ export async function runGrok(invocation: ProviderInvocation): Promise<ProviderR
       "GROK_CLAUDE_AGENTS_ENABLED",
       "GROK_CLAUDE_MCPS_ENABLED",
       "GROK_CLAUDE_HOOKS_ENABLED",
-    ]) environment[name] = "0";
+    ])
+      environment[name] = "0";
 
     const result = await spawnCaptured({
       command: "grok",
@@ -110,7 +114,8 @@ export async function runGrok(invocation: ProviderInvocation): Promise<ProviderR
     if (structured && typeof structured === "object") {
       const outer = structured as Record<string, unknown>;
       sessionId = typeof outer.session_id === "string" ? outer.session_id : undefined;
-      usage = outer.usage && typeof outer.usage === "object" ? (outer.usage as ProviderUsage) : undefined;
+      usage =
+        outer.usage && typeof outer.usage === "object" ? (outer.usage as ProviderUsage) : undefined;
       if (outer.structured_output !== undefined) structured = outer.structured_output;
       else if (outer.result !== undefined) {
         finalText = typeof outer.result === "string" ? outer.result : JSON.stringify(outer.result);

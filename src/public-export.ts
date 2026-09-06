@@ -24,14 +24,48 @@ export interface PrivacyLintReport {
 }
 
 const rules: Array<{ id: string; expression: RegExp; message: string }> = [
-  { id: "private-key", expression: /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/i, message: "Private-key material" },
-  { id: "bearer-token", expression: /\bBearer\s+[A-Za-z0-9._~+/-]{12,}={0,2}\b/i, message: "Bearer credential" },
-  { id: "known-api-token", expression: /\b(?:sk-(?:proj-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{16,}|AKIA[0-9A-Z]{16})\b/, message: "Token matching a known credential format" },
-  { id: "secret-assignment", expression: /\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|private[_-]?key|session[_-]?cookie|password|secret)\b["']?\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{8,}/i, message: "Probable secret assignment" },
-  { id: "jwt", expression: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/, message: "JSON Web Token" },
-  { id: "email-address", expression: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i, message: "Email address" },
-  { id: "home-path", expression: /(?:^|[\s"'])(?:\/home\/[^/\s"']+|\/Users\/[^/\s"']+|[A-Za-z]:\\Users\\[^\\\s"']+)/, message: "User-specific absolute home path" },
-  { id: "credential-url", expression: /https?:\/\/[^\s/:]+:[^\s/@]+@|[?&](?:token|key|secret|password)=[^&\s]+/i, message: "Credential embedded in a URL" },
+  {
+    id: "private-key",
+    expression: /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/i,
+    message: "Private-key material",
+  },
+  {
+    id: "bearer-token",
+    expression: /\bBearer\s+[A-Za-z0-9._~+/-]{12,}={0,2}\b/i,
+    message: "Bearer credential",
+  },
+  {
+    id: "known-api-token",
+    expression:
+      /\b(?:sk-(?:proj-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{16,}|AKIA[0-9A-Z]{16})\b/,
+    message: "Token matching a known credential format",
+  },
+  {
+    id: "secret-assignment",
+    expression:
+      /\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|private[_-]?key|session[_-]?cookie|password|secret)\b["']?\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{8,}/i,
+    message: "Probable secret assignment",
+  },
+  {
+    id: "jwt",
+    expression: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/,
+    message: "JSON Web Token",
+  },
+  {
+    id: "email-address",
+    expression: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
+    message: "Email address",
+  },
+  {
+    id: "home-path",
+    expression: /(?:^|[\s"'])(?:\/home\/[^/\s"']+|\/Users\/[^/\s"']+|[A-Za-z]:\\Users\\[^\\\s"']+)/,
+    message: "User-specific absolute home path",
+  },
+  {
+    id: "credential-url",
+    expression: /https?:\/\/[^\s/:]+:[^\s/@]+@|[?&](?:token|key|secret|password)=[^&\s]+/i,
+    message: "Credential embedded in a URL",
+  },
 ];
 
 const PRIVACY_SCAN_CHUNK_BYTES = 64 * 1024;
@@ -92,7 +126,10 @@ function filesUnder(target: string): string[] {
   const visit = (candidate: string): void => {
     const stat = fs.lstatSync(candidate);
     if (stat.isSymbolicLink()) throw new Error(`Privacy lint refuses symbolic link: ${candidate}`);
-    if (stat.isFile()) { files.push(candidate); return; }
+    if (stat.isFile()) {
+      files.push(candidate);
+      return;
+    }
     if (!stat.isDirectory()) throw new Error(`Privacy lint refuses non-file target: ${candidate}`);
     for (const entry of fs.readdirSync(candidate).sort()) visit(path.join(candidate, entry));
   };
@@ -108,7 +145,10 @@ export function privacyLint(target: string): PrivacyLintReport {
   let scannedFiles = 0;
   let skippedBinaryFiles = 0;
   for (const file of files) {
-    if (!likelyTextFile(file)) { skippedBinaryFiles += 1; continue; }
+    if (!likelyTextFile(file)) {
+      skippedBinaryFiles += 1;
+      continue;
+    }
     scannedFiles += 1;
     scanTextFile(file, (line, lineNumber) => {
       for (const rule of rules) {
@@ -124,7 +164,13 @@ export function privacyLint(target: string): PrivacyLintReport {
       }
     });
   }
-  return { schemaVersion: 1, status: findings.length ? "failed" : "passed", scannedFiles, skippedBinaryFiles, findings };
+  return {
+    schemaVersion: 1,
+    status: findings.length ? "failed" : "passed",
+    scannedFiles,
+    skippedBinaryFiles,
+    findings,
+  };
 }
 
 function publicReport(report: RunReport, artifactRootSha256: string, sourceReportSha256: string) {
@@ -166,9 +212,10 @@ function publicReport(report: RunReport, artifactRootSha256: string, sourceRepor
         verdict: area.unproven.includes(item.id) ? "cannot_judge" : item.verdict,
         confidence: item.confidence,
         source: item.source,
-        components: area.unproven.includes(item.id) && item.components
-          ? { ...item.components, automatic: "cannot_judge" as const }
-          : item.components,
+        components:
+          area.unproven.includes(item.id) && item.components
+            ? { ...item.components, automatic: "cannot_judge" as const }
+            : item.components,
       })),
       cases: area.caseResults.map((item) => ({
         rubricId: item.rubricId,
@@ -194,11 +241,17 @@ export function defaultPublicExportOutput(runDir: string): string {
   return path.join(path.dirname(path.dirname(resolved)), "exports", path.basename(resolved));
 }
 
-export function createPublicExport(options: { runDir: string; output: string }): { directory: string; report: string; lint: PrivacyLintReport } {
+export function createPublicExport(options: { runDir: string; output: string }): {
+  directory: string;
+  report: string;
+  lint: PrivacyLintReport;
+} {
   const runDir = fs.realpathSync(path.resolve(options.runDir));
   const output = path.resolve(options.output);
   if (isWithin(runDir, prospectiveRealPath(output))) {
-    throw new Error("Public export output must be outside the source run so its sealed artifact index remains valid");
+    throw new Error(
+      "Public export output must be outside the source run so its sealed artifact index remains valid",
+    );
   }
   if (fs.existsSync(output)) throw new Error(`Public export output already exists: ${output}`);
   const state = loadRunState(runDir);
@@ -215,11 +268,19 @@ export function createPublicExport(options: { runDir: string; output: string }):
   fs.mkdirSync(staged);
   try {
     const exportedReport = path.join(staged, "public-report.json");
-    writeJson(exportedReport, publicReport(report, integrity.rootSha256, sha256(fs.readFileSync(reportFile))));
-    fs.writeFileSync(path.join(staged, "README.md"), "# Agent Eval Kit public results\n\nThis package intentionally excludes raw evidence, prompts, fixtures, secrets, absolute paths, and evaluator-only material. `privacy-lint.json` records the automated pre-publication scan.\n");
+    writeJson(
+      exportedReport,
+      publicReport(report, integrity.rootSha256, sha256(fs.readFileSync(reportFile))),
+    );
+    fs.writeFileSync(
+      path.join(staged, "README.md"),
+      "# Agent Eval Kit public results\n\nThis package intentionally excludes raw evidence, prompts, fixtures, secrets, absolute paths, and evaluator-only material. `privacy-lint.json` records the automated pre-publication scan.\n",
+    );
     const lint = privacyLint(staged);
     if (lint.status === "failed") {
-      throw new Error(`Public export privacy lint failed:\n  - ${lint.findings.map((item) => `${item.file}:${item.line} ${item.rule}`).join("\n  - ")}`);
+      throw new Error(
+        `Public export privacy lint failed:\n  - ${lint.findings.map((item) => `${item.file}:${item.line} ${item.rule}`).join("\n  - ")}`,
+      );
     }
     writeJson(path.join(staged, "privacy-lint.json"), lint);
     fs.renameSync(staged, output);

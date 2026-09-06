@@ -11,7 +11,13 @@ import {
   writeReportArtifactsRecoverably,
 } from "../src/report.js";
 import { buildReport, scoreArea } from "../src/scoring.js";
-import type { EvalConfig, EvalSpec, JudgedItem, RunReceipt, ScenarioEvidence } from "../src/types.js";
+import type {
+  EvalConfig,
+  EvalSpec,
+  JudgedItem,
+  RunReceipt,
+  ScenarioEvidence,
+} from "../src/types.js";
 
 const receipt: RunReceipt = {
   schemaVersion: 1,
@@ -24,8 +30,16 @@ const receipt: RunReceipt = {
     selection: { areas: ["area"] },
   },
   target: { kind: "repository" },
-  providers: { agent: { provider: "mock", cliVersion: "mock 0.1.0" }, judge: { provider: "mock", cliVersion: "mock 0.1.0" } },
-  runtime: { kitVersion: "0.1.0", node: process.version, platform: process.platform, arch: process.arch },
+  providers: {
+    agent: { provider: "mock", cliVersion: "mock 0.1.0" },
+    judge: { provider: "mock", cliVersion: "mock 0.1.0" },
+  },
+  runtime: {
+    kitVersion: "0.1.0",
+    node: process.version,
+    platform: process.platform,
+    arch: process.arch,
+  },
 };
 
 test("finalizing an unproven hybrid result scores only its manual share", () => {
@@ -48,17 +62,28 @@ test("finalizing an unproven hybrid result scores only its manual share", () => 
     optional: false,
     description: "Hybrid finalization",
     sourceFile: path.join(runDir, "spec.yaml"),
-    scenarios: [{ id: "S1", name: "Blocked", instructions: "Try", successSignals: [], dependsOn: [], requiresAuth: false }],
-    rubric: [{
-      id: "H1",
-      criterion: "Side effect happened",
-      weight: 4,
-      tags: ["side-effect"],
-      scenarios: ["S1"],
-      grader: { type: "hybrid", autoShare: 0.25 },
-      passCriteria: "It happened",
-      manualInstructions: "Verify externally",
-    }],
+    scenarios: [
+      {
+        id: "S1",
+        name: "Blocked",
+        instructions: "Try",
+        successSignals: [],
+        dependsOn: [],
+        requiresAuth: false,
+      },
+    ],
+    rubric: [
+      {
+        id: "H1",
+        criterion: "Side effect happened",
+        weight: 4,
+        tags: ["side-effect"],
+        scenarios: ["S1"],
+        grader: { type: "hybrid", autoShare: 0.25 },
+        passCriteria: "It happened",
+        manualInstructions: "Verify externally",
+      },
+    ],
   };
   const blocked: ScenarioEvidence = {
     scenarioId: "S1",
@@ -85,14 +110,23 @@ test("finalizing an unproven hybrid result scores only its manual share", () => 
     source: "llm",
   };
   const area = scoreArea({ spec, judgements: [automatic], evidence: [blocked], config });
-  const report = buildReport({ runId: "run", startedAt: blocked.startedAt, config, areas: [area], receipt });
+  const report = buildReport({
+    runId: "run",
+    startedAt: blocked.startedAt,
+    config,
+    areas: [area],
+    receipt,
+  });
   for (const items of [
     [],
     [{ ...area.items[0], components: undefined }],
     [{ ...area.items[0], components: { automatic: "invalid" as "pass" } }],
   ]) {
     const malformed = { ...report, areas: [{ ...area, items }] };
-    assert.throws(() => finalizeReport({ runDir, report: malformed, specs: [spec], config, reviewer: "alice" }), /missing a valid automatic component/);
+    assert.throws(
+      () => finalizeReport({ runDir, report: malformed, specs: [spec], config, reviewer: "alice" }),
+      /missing a valid automatic component/,
+    );
     assert.equal(fs.existsSync(path.join(runDir, "manual-revisions.ndjson")), false);
   }
   const retainedEvidence = path.join(runDir, "retained-evidence.txt");
@@ -102,21 +136,33 @@ test("finalizing an unproven hybrid result scores only its manual share", () => 
     ...spec,
     rubric: [{ ...spec.rubric[0], id: "__proto__", grader: { type: "manual" } }],
   };
-  writeManualFiles(runDir, {
-    ...report,
-    areas: [{ ...area, items: [], pendingManual: ["__proto__"] }],
-  }, [prototypeSpec]);
-  const prototypeManual = JSON.parse(fs.readFileSync(path.join(runDir, "manual-results.json"), "utf8"));
+  writeManualFiles(
+    runDir,
+    {
+      ...report,
+      areas: [{ ...area, items: [], pendingManual: ["__proto__"] }],
+    },
+    [prototypeSpec],
+  );
+  const prototypeManual = JSON.parse(
+    fs.readFileSync(path.join(runDir, "manual-results.json"), "utf8"),
+  );
   assert.equal(Object.hasOwn(prototypeManual, "__proto__"), true);
   // biome-ignore lint/suspicious/noProto: Verify an own property named __proto__ survives serialization.
   assert.equal(prototypeManual.__proto__.verdict, "pass | partial | fail | not_found");
 
-  fs.writeFileSync(path.join(runDir, "manual-results.json"), JSON.stringify({ UNKNOWN: { verdict: "pass" } }));
+  fs.writeFileSync(
+    path.join(runDir, "manual-results.json"),
+    JSON.stringify({ UNKNOWN: { verdict: "pass" } }),
+  );
   assert.throws(
     () => finalizeReport({ runDir, report, specs: [spec], config, reviewer: "alice" }),
     /Unknown or non-manual rubric.*UNKNOWN/,
   );
-  fs.writeFileSync(path.join(runDir, "manual-results.json"), JSON.stringify({ H1: { verdict: "approved" } }));
+  fs.writeFileSync(
+    path.join(runDir, "manual-results.json"),
+    JSON.stringify({ H1: { verdict: "approved" } }),
+  );
   assert.throws(
     () => finalizeReport({ runDir, report, specs: [spec], config, reviewer: "alice" }),
     /Invalid manual verdict for H1/,
@@ -125,7 +171,10 @@ test("finalizing an unproven hybrid result scores only its manual share", () => 
   const originalUsername = process.env.USERNAME;
   delete process.env.USER;
   delete process.env.USERNAME;
-  fs.writeFileSync(path.join(runDir, "manual-results.json"), JSON.stringify({ H1: { verdict: "pass" } }));
+  fs.writeFileSync(
+    path.join(runDir, "manual-results.json"),
+    JSON.stringify({ H1: { verdict: "pass" } }),
+  );
   try {
     assert.throws(
       () => finalizeReport({ runDir, report, specs: [spec], config }),
@@ -137,25 +186,39 @@ test("finalizing an unproven hybrid result scores only its manual share", () => 
     if (originalUsername === undefined) delete process.env.USERNAME;
     else process.env.USERNAME = originalUsername;
   }
-  fs.writeFileSync(path.join(runDir, "manual-results.json"), JSON.stringify({ H1: { verdict: "pass", notes: "Verified" } }));
+  fs.writeFileSync(
+    path.join(runDir, "manual-results.json"),
+    JSON.stringify({ H1: { verdict: "pass", notes: "Verified" } }),
+  );
 
   const changedConfig: EvalConfig = {
     ...config,
     project: { ...config.project, name: "Renamed after the run" },
     target: { ...config.target, url: "https://different.example.test" },
   };
-  const finalized = finalizeReport({ runDir, report, specs: [spec], config: changedConfig, reviewer: "alice" });
+  const finalized = finalizeReport({
+    runDir,
+    report,
+    specs: [spec],
+    config: changedConfig,
+    reviewer: "alice",
+  });
   assert.equal(finalized.project, "Finalize");
   assert.deepEqual(finalized.target, report.target);
   assert.deepEqual(finalized.providers, report.providers);
-  assert.deepEqual(finalized.areas[0].items[0].components, { automatic: "cannot_judge", manual: "pass" });
+  assert.deepEqual(finalized.areas[0].items[0].components, {
+    automatic: "cannot_judge",
+    manual: "pass",
+  });
   assert.equal(finalized.areas[0].items[0].verdict, "cannot_judge");
   assert.equal(finalized.areas[0].earned, 3);
   assert.equal(finalized.areas[0].judgeable, 3);
   assert.equal(finalized.areas[0].scorePct, 100);
   assert.equal(finalized.areas[0].coveragePct, 75);
   assert.equal(finalized.areas[0].pendingManual.length, 0);
-  const firstRevision = JSON.parse(fs.readFileSync(path.join(runDir, "manual-revisions.ndjson"), "utf8").trim());
+  const firstRevision = JSON.parse(
+    fs.readFileSync(path.join(runDir, "manual-revisions.ndjson"), "utf8").trim(),
+  );
   assert.equal(firstRevision.reviewer, "alice");
   assert.equal(firstRevision.previousHash, undefined);
   assert.match(firstRevision.revisionHash, /^[a-f0-9]{64}$/);
@@ -164,10 +227,19 @@ test("finalizing an unproven hybrid result scores only its manual share", () => 
   manual.H1.notes = "A second reviewer found no delivery";
   fs.writeFileSync(path.join(runDir, "manual-results.json"), JSON.stringify(manual));
 
-  const revised = finalizeReport({ runDir, report: finalized, specs: [spec], config, reviewer: "bob" });
+  const revised = finalizeReport({
+    runDir,
+    report: finalized,
+    specs: [spec],
+    config,
+    reviewer: "bob",
+  });
   assert.equal(revised.areas[0].items[0].components?.manual, "fail");
-  const revisions = fs.readFileSync(path.join(runDir, "manual-revisions.ndjson"), "utf8")
-    .trim().split(/\r?\n/).map((line) => JSON.parse(line));
+  const revisions = fs
+    .readFileSync(path.join(runDir, "manual-revisions.ndjson"), "utf8")
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => JSON.parse(line));
   assert.equal(revisions.length, 2);
   assert.equal(revisions[1].reviewer, "bob");
   assert.equal(revisions[1].previousHash, revisions[0].revisionHash);
@@ -176,7 +248,10 @@ test("finalizing an unproven hybrid result scores only its manual share", () => 
   manual.H1.notes = "Recovery confirmed delivery";
   fs.writeFileSync(path.join(runDir, "manual-results.json"), JSON.stringify(manual));
   const reportFile = path.join(runDir, "report.json");
-  const reportBackup = path.join(os.tmpdir(), `aek-report-backup-${process.pid}-${Date.now()}.json`);
+  const reportBackup = path.join(
+    os.tmpdir(),
+    `aek-report-backup-${process.pid}-${Date.now()}.json`,
+  );
   fs.renameSync(reportFile, reportBackup);
   fs.mkdirSync(reportFile);
   try {
@@ -188,7 +263,10 @@ test("finalizing an unproven hybrid result scores only its manual share", () => 
     fs.rmdirSync(reportFile);
     fs.renameSync(reportBackup, reportFile);
   }
-  assert.throws(() => assertArtifactIntegrity(runDir, { require: true }), /integrity verification failed/i);
+  assert.throws(
+    () => assertArtifactIntegrity(runDir, { require: true }),
+    /integrity verification failed/i,
+  );
   fs.writeFileSync(retainedEvidence, "tampered evidence");
   assert.throws(() => recoverInterruptedReportUpdate(runDir), /other artifacts changed/i);
   fs.writeFileSync(retainedEvidence, "trusted evidence");
@@ -197,16 +275,23 @@ test("finalizing an unproven hybrid result scores only its manual share", () => 
   const recovered = JSON.parse(fs.readFileSync(path.join(runDir, "report.json"), "utf8"));
   assert.equal(recovered.areas[0].items[0].components.manual, "pass");
   assert.equal(
-    fs.readFileSync(path.join(runDir, "manual-revisions.ndjson"), "utf8").trim().split(/\r?\n/).length,
+    fs.readFileSync(path.join(runDir, "manual-revisions.ndjson"), "utf8").trim().split(/\r?\n/)
+      .length,
     3,
   );
 
   const rescoredLike = {
     ...recovered,
-    areas: recovered.areas.map((candidate: { notes: string }) => ({ ...candidate, notes: "rescored transaction" })),
+    areas: recovered.areas.map((candidate: { notes: string }) => ({
+      ...candidate,
+      notes: "rescored transaction",
+    })),
   };
   const receiptFile = path.join(runDir, "receipt.json");
-  const receiptBackup = path.join(os.tmpdir(), `aek-receipt-backup-${process.pid}-${Date.now()}.json`);
+  const receiptBackup = path.join(
+    os.tmpdir(),
+    `aek-receipt-backup-${process.pid}-${Date.now()}.json`,
+  );
   fs.renameSync(receiptFile, receiptBackup);
   fs.mkdirSync(receiptFile);
   try {
@@ -220,7 +305,10 @@ test("finalizing an unproven hybrid result scores only its manual share", () => 
   }
   assert.equal(recoverInterruptedReportUpdate(runDir), true);
   assert.doesNotThrow(() => assertArtifactIntegrity(runDir, { require: true }));
-  assert.equal(JSON.parse(fs.readFileSync(path.join(runDir, "report.json"), "utf8")).areas[0].notes, "rescored transaction");
+  assert.equal(
+    JSON.parse(fs.readFileSync(path.join(runDir, "report.json"), "utf8")).areas[0].notes,
+    "rescored transaction",
+  );
 });
 
 test("a zero automatic share can fully pass through manual finalization", () => {
@@ -237,12 +325,26 @@ test("a zero automatic share can fully pass through manual finalization", () => 
     variables: {},
   } satisfies EvalConfig;
   const spec: EvalSpec = {
-    id: "area", title: "Area", weight: 100, optional: false, description: "Manual-only hybrid", sourceFile: "spec.yaml",
+    id: "area",
+    title: "Area",
+    weight: 100,
+    optional: false,
+    description: "Manual-only hybrid",
+    sourceFile: "spec.yaml",
     scenarios: [],
-    rubric: [{
-      id: "H0", criterion: "Human check", weight: 1, tags: [], scenarios: [], gate: true,
-      grader: { type: "hybrid", autoShare: 0 }, passCriteria: "A human confirms it", manualInstructions: "Confirm it",
-    }],
+    rubric: [
+      {
+        id: "H0",
+        criterion: "Human check",
+        weight: 1,
+        tags: [],
+        scenarios: [],
+        gate: true,
+        grader: { type: "hybrid", autoShare: 0 },
+        passCriteria: "A human confirms it",
+        manualInstructions: "Confirm it",
+      },
+    ],
   };
   const area = scoreArea({
     spec,
@@ -250,8 +352,17 @@ test("a zero automatic share can fully pass through manual finalization", () => 
     evidence: [],
     config,
   });
-  const report = buildReport({ runId: "run", startedAt: "2026-01-01T00:00:00Z", config, areas: [area], receipt });
-  fs.writeFileSync(path.join(runDir, "manual-results.json"), JSON.stringify({ H0: { verdict: "pass", notes: "Confirmed" } }));
+  const report = buildReport({
+    runId: "run",
+    startedAt: "2026-01-01T00:00:00Z",
+    config,
+    areas: [area],
+    receipt,
+  });
+  fs.writeFileSync(
+    path.join(runDir, "manual-results.json"),
+    JSON.stringify({ H0: { verdict: "pass", notes: "Confirmed" } }),
+  );
   const finalized = finalizeReport({ runDir, report, specs: [spec], config, reviewer: "alice" });
   assert.equal(finalized.areas[0].items[0].verdict, "pass");
   assert.equal(finalized.areas[0].coveragePct, 100);

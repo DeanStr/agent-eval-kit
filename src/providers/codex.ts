@@ -15,7 +15,8 @@ const tomlArray = (values: string[]) => `[${values.map(toml).join(",")}]`;
 export async function runCodex(invocation: ProviderInvocation): Promise<ProviderResult> {
   assertSafeProviderExtraArgs("codex", invocation.extraArgs);
   return withIsolatedProviderDirectory("codex", (workingDirectory) =>
-    runIsolatedCodex(invocation, workingDirectory));
+    runIsolatedCodex(invocation, workingDirectory),
+  );
 }
 
 async function runIsolatedCodex(
@@ -38,9 +39,12 @@ async function runIsolatedCodex(
   if (invocation.model) args.push("--model", invocation.model);
   if (invocation.effort) args.push("--config", `model_reasoning_effort=${toml(invocation.effort)}`);
   args.push(
-    "--cd", workingDirectory,
-    "--output-schema", invocation.outputSchemaFile,
-    "--output-last-message", invocation.outputFile,
+    "--cd",
+    workingDirectory,
+    "--output-schema",
+    invocation.outputSchemaFile,
+    "--output-last-message",
+    invocation.outputFile,
   );
   if (invocation.mcp) {
     // Non-interactive Codex cannot stop for a human MCP approval. Delegate
@@ -104,9 +108,13 @@ async function runIsolatedCodex(
     );
   }
   if (result.exitCode === 0 && !fs.existsSync(invocation.outputFile)) {
-    throw new Error(`Codex completed without writing its required output file: ${invocation.outputFile}`);
+    throw new Error(
+      `Codex completed without writing its required output file: ${invocation.outputFile}`,
+    );
   }
-  const finalText = fs.existsSync(invocation.outputFile) ? fs.readFileSync(invocation.outputFile, "utf8") : "";
+  const finalText = fs.existsSync(invocation.outputFile)
+    ? fs.readFileSync(invocation.outputFile, "utf8")
+    : "";
   return {
     provider: "codex",
     ...result,

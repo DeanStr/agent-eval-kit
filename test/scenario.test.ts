@@ -7,14 +7,26 @@ import { personaAuthPath } from "../src/auth.js";
 import { executeScenario } from "../src/scenario.js";
 import type { EvalConfig, EvalSpec, Scenario, ScenarioEvidence } from "../src/types.js";
 
-async function failedScenario(options: Parameters<typeof executeScenario>[0]): Promise<ScenarioEvidence> {
+async function failedScenario(
+  options: Parameters<typeof executeScenario>[0],
+): Promise<ScenarioEvidence> {
   await assert.rejects(executeScenario(options), /retained scenario diagnostics/);
   return JSON.parse(fs.readFileSync(path.join(options.directory, "evidence.json"), "utf8"));
 }
 
-function workspaceFixture(root: string): { config: EvalConfig; spec: EvalSpec; scenario: Scenario } {
+function workspaceFixture(root: string): {
+  config: EvalConfig;
+  spec: EvalSpec;
+  scenario: Scenario;
+} {
   const scenario: Scenario = {
-    id: "S1", name: "Inspect", kind: "workspace", instructions: "Inspect", successSignals: [], dependsOn: [], requiresAuth: false,
+    id: "S1",
+    name: "Inspect",
+    kind: "workspace",
+    instructions: "Inspect",
+    successSignals: [],
+    dependsOn: [],
+    requiresAuth: false,
   };
   const config: EvalConfig = {
     version: 1,
@@ -28,8 +40,14 @@ function workspaceFixture(root: string): { config: EvalConfig; spec: EvalSpec; s
     variables: {},
   };
   const spec: EvalSpec = {
-    id: "core", title: "Core", weight: 100, optional: false, description: "Provider failure",
-    scenarios: [scenario], rubric: [], sourceFile: path.join(root, "unused.yaml"),
+    id: "core",
+    title: "Core",
+    weight: 100,
+    optional: false,
+    description: "Provider failure",
+    scenarios: [scenario],
+    rubric: [],
+    sourceFile: path.join(root, "unused.yaml"),
   };
   return { config, spec, scenario };
 }
@@ -43,7 +61,13 @@ test("scenario provider launch failures propagate instead of becoming agent_erro
   process.env.PATH = bin;
   try {
     await assert.rejects(
-      executeScenario({ config, spec, scenario, fixtures: {}, directory: path.join(root, "evidence") }),
+      executeScenario({
+        config,
+        spec,
+        scenario,
+        fixtures: {},
+        directory: path.join(root, "evidence"),
+      }),
       /spawn claude ENOENT/,
     );
     assert.equal(fs.existsSync(path.join(root, "evidence", "evidence.json")), false);
@@ -59,7 +83,9 @@ test("malformed scenario transcripts abort evidence ingestion", async () => {
   fs.mkdirSync(bin);
   const fakeClaude = path.join(bin, "claude");
   const structured = { outcome: "completed", summary: "Done", observations: [], evidenceRefs: [] };
-  fs.writeFileSync(fakeClaude, `#!/usr/bin/env node
+  fs.writeFileSync(
+    fakeClaude,
+    `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
@@ -67,14 +93,21 @@ const directory = path.dirname(args[args.lastIndexOf("--mcp-config") + 1]);
 fs.writeFileSync(path.join(directory, "workspace-result.json"), JSON.stringify({outcome:"completed",summary:"Done",observations:[],finishedAt:new Date().toISOString()}));
 fs.writeFileSync(path.join(directory, "workspace-transcript.ndjson"), "not-json\\n");
 console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify(structured))},structured_output:${JSON.stringify(structured)}}));
-`);
+`,
+  );
   fs.chmodSync(fakeClaude, 0o755);
   const { config, spec, scenario } = workspaceFixture(root);
   const originalPath = process.env.PATH;
   process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
   try {
     await assert.rejects(
-      executeScenario({ config, spec, scenario, fixtures: {}, directory: path.join(root, "evidence") }),
+      executeScenario({
+        config,
+        spec,
+        scenario,
+        fixtures: {},
+        directory: path.join(root, "evidence"),
+      }),
       /Invalid NDJSON .*workspace-transcript\.ndjson at line 1/,
     );
   } finally {
@@ -95,9 +128,12 @@ test("real providers cannot claim completion without MCP evidence finalization",
     observations: ["Unverified observation"],
     evidenceRefs: ["invented:reference"],
   };
-  fs.writeFileSync(fakeClaude, `#!/usr/bin/env node
+  fs.writeFileSync(
+    fakeClaude,
+    `#!/usr/bin/env node
 console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify(structured))},structured_output:${JSON.stringify(structured)}}));
-`);
+`,
+  );
   fs.chmodSync(fakeClaude, 0o755);
   const config: EvalConfig = {
     version: 1,
@@ -111,11 +147,23 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
     variables: {},
   };
   const scenario: Scenario = {
-    id: "S1", name: "Inspect", kind: "workspace", instructions: "Inspect", successSignals: [], dependsOn: [], requiresAuth: false,
+    id: "S1",
+    name: "Inspect",
+    kind: "workspace",
+    instructions: "Inspect",
+    successSignals: [],
+    dependsOn: [],
+    requiresAuth: false,
   };
   const spec: EvalSpec = {
-    id: "core", title: "Core", weight: 100, optional: false, description: "Finalization",
-    scenarios: [scenario], rubric: [], sourceFile: path.join(root, "unused.yaml"),
+    id: "core",
+    title: "Core",
+    weight: 100,
+    optional: false,
+    description: "Finalization",
+    scenarios: [scenario],
+    rubric: [],
+    sourceFile: path.join(root, "unused.yaml"),
   };
   const originalPath = process.env.PATH;
   process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
@@ -158,7 +206,9 @@ test("real providers cannot claim completion with only an MCP done call", async 
     input: { outcome: "completed", summary: "No target inspection occurred." },
     result: "Scenario evidence finalized.",
   };
-  fs.writeFileSync(fakeClaude, `#!/usr/bin/env node
+  fs.writeFileSync(
+    fakeClaude,
+    `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
@@ -166,7 +216,8 @@ const directory = path.dirname(args[args.lastIndexOf("--mcp-config") + 1]);
 fs.writeFileSync(path.join(directory, "workspace-result.json"), ${JSON.stringify(JSON.stringify(finalized))});
 fs.writeFileSync(path.join(directory, "workspace-transcript.ndjson"), ${JSON.stringify(`${JSON.stringify(doneEntry)}\n`)});
 console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify(structured))},structured_output:${JSON.stringify(structured)}}));
-`);
+`,
+  );
   fs.chmodSync(fakeClaude, 0o755);
   const config: EvalConfig = {
     version: 1,
@@ -180,11 +231,23 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
     variables: {},
   };
   const scenario: Scenario = {
-    id: "S1", name: "Inspect", kind: "workspace", instructions: "Inspect", successSignals: [], dependsOn: [], requiresAuth: false,
+    id: "S1",
+    name: "Inspect",
+    kind: "workspace",
+    instructions: "Inspect",
+    successSignals: [],
+    dependsOn: [],
+    requiresAuth: false,
   };
   const spec: EvalSpec = {
-    id: "core", title: "Core", weight: 100, optional: false, description: "Activity requirement",
-    scenarios: [scenario], rubric: [], sourceFile: path.join(root, "unused.yaml"),
+    id: "core",
+    title: "Core",
+    weight: 100,
+    optional: false,
+    description: "Activity requirement",
+    scenarios: [scenario],
+    rubric: [],
+    sourceFile: path.join(root, "unused.yaml"),
   };
   const originalPath = process.env.PATH;
   process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
@@ -192,7 +255,10 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
     const result = await failedScenario({ config, spec, scenario, fixtures: {}, directory });
     assert.equal(result.outcome, "agent_error");
     assert.match(result.summary, /without first collecting evidence through the workspace MCP/);
-    assert.match(result.error ?? "", /did not perform a successful workspace evidence-gathering MCP action/);
+    assert.match(
+      result.error ?? "",
+      /did not perform a successful workspace evidence-gathering MCP action/,
+    );
     assert.deepEqual(result.observations, []);
     assert.deepEqual(result.evidenceRefs, []);
   } finally {
@@ -220,7 +286,9 @@ test("failed real providers cannot preserve a completed MCP outcome", async () =
     observations: [],
     finishedAt: "2026-01-01T00:00:00.000Z",
   };
-  fs.writeFileSync(fakeClaude, `#!/usr/bin/env node
+  fs.writeFileSync(
+    fakeClaude,
+    `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
@@ -228,7 +296,8 @@ const directory = path.dirname(args[args.lastIndexOf("--mcp-config") + 1]);
 fs.writeFileSync(path.join(directory, "workspace-result.json"), ${JSON.stringify(JSON.stringify(finalized))});
 console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify(structured))},structured_output:${JSON.stringify(structured)}}));
 process.exit(1);
-`);
+`,
+  );
   fs.chmodSync(fakeClaude, 0o755);
   const config: EvalConfig = {
     version: 1,
@@ -242,11 +311,23 @@ process.exit(1);
     variables: {},
   };
   const scenario: Scenario = {
-    id: "S1", name: "Inspect", kind: "workspace", instructions: "Inspect", successSignals: [], dependsOn: [], requiresAuth: false,
+    id: "S1",
+    name: "Inspect",
+    kind: "workspace",
+    instructions: "Inspect",
+    successSignals: [],
+    dependsOn: [],
+    requiresAuth: false,
   };
   const spec: EvalSpec = {
-    id: "core", title: "Core", weight: 100, optional: false, description: "Failure handling",
-    scenarios: [scenario], rubric: [], sourceFile: path.join(root, "unused.yaml"),
+    id: "core",
+    title: "Core",
+    weight: 100,
+    optional: false,
+    description: "Failure handling",
+    scenarios: [scenario],
+    rubric: [],
+    sourceFile: path.join(root, "unused.yaml"),
   };
   const originalPath = process.env.PATH;
   process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
@@ -289,8 +370,15 @@ test("browser state is promoted only after the provider succeeds", async () => {
     input: { url: "https://app.example.test" },
     result: "Allowed page",
   };
-  const writeProvider = (fail: boolean, providerOutput: unknown = structured, badOutputs = false, badTranscript = false) => {
-    fs.writeFileSync(fakeClaude, `#!/usr/bin/env node
+  const writeProvider = (
+    fail: boolean,
+    providerOutput: unknown = structured,
+    badOutputs = false,
+    badTranscript = false,
+  ) => {
+    fs.writeFileSync(
+      fakeClaude,
+      `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
@@ -302,13 +390,18 @@ ${badOutputs ? 'fs.writeFileSync(path.join(directory, "outputs.json"), JSON.stri
 ${badTranscript ? 'fs.writeFileSync(path.join(directory, "browser-transcript.ndjson"), "not-json");' : ""}
 console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify(providerOutput))},structured_output:${JSON.stringify(providerOutput)}}));
 ${fail ? "process.exit(1);" : ""}
-`);
+`,
+    );
     fs.chmodSync(fakeClaude, 0o755);
   };
   const config: EvalConfig = {
     version: 1,
     project: { name: "State promotion", root },
-    target: { kind: "web", url: "https://app.example.test", allowedOrigins: ["https://app.example.test"] },
+    target: {
+      kind: "web",
+      url: "https://app.example.test",
+      allowedOrigins: ["https://app.example.test"],
+    },
     agent: { provider: "claude", timeoutSeconds: 10, extraArgs: [] },
     judge: { provider: "mock", timeoutSeconds: 10, extraArgs: [] },
     paths: { specs: root, runs: path.join(root, "runs"), auth: path.join(root, "auth") },
@@ -317,15 +410,34 @@ ${fail ? "process.exit(1);" : ""}
     variables: {},
   };
   const scenario: Scenario = {
-    id: "S1", name: "Inspect", kind: "browser", instructions: "Inspect", successSignals: [], dependsOn: [], requiresAuth: false,
+    id: "S1",
+    name: "Inspect",
+    kind: "browser",
+    instructions: "Inspect",
+    successSignals: [],
+    dependsOn: [],
+    requiresAuth: false,
   };
   const spec: EvalSpec = {
-    id: "core", title: "Core", weight: 100, optional: false, description: "State promotion",
+    id: "core",
+    title: "Core",
+    weight: 100,
+    optional: false,
+    description: "State promotion",
     scenarios: [
       scenario,
-      { id: "S2", name: "Continue", kind: "browser", instructions: "Continue", successSignals: [], dependsOn: ["S1"], requiresAuth: false },
+      {
+        id: "S2",
+        name: "Continue",
+        kind: "browser",
+        instructions: "Continue",
+        successSignals: [],
+        dependsOn: ["S1"],
+        requiresAuth: false,
+      },
     ],
-    rubric: [], sourceFile: path.join(root, "unused.yaml"),
+    rubric: [],
+    sourceFile: path.join(root, "unused.yaml"),
   };
   const sharedState = path.join(root, ".state", "core", "S1.json");
   fs.mkdirSync(path.dirname(sharedState), { recursive: true });
@@ -335,39 +447,78 @@ ${fail ? "process.exit(1);" : ""}
   try {
     writeProvider(true);
     const failedDirectory = path.join(root, "failed");
-    const failed = await failedScenario({ config, spec, scenario, fixtures: {}, directory: failedDirectory });
+    const failed = await failedScenario({
+      config,
+      spec,
+      scenario,
+      fixtures: {},
+      directory: failedDirectory,
+    });
     assert.equal(failed.outcome, "agent_error");
     assert.match(fs.readFileSync(sharedState, "utf8"), /trusted/);
     assert.equal(fs.existsSync(path.join(failedDirectory, ".storage-state.candidate.json")), false);
 
     writeProvider(false, { outcome: "completed" });
     const malformedDirectory = path.join(root, "malformed");
-    const malformed = await failedScenario({ config, spec, scenario, fixtures: {}, directory: malformedDirectory });
+    const malformed = await failedScenario({
+      config,
+      spec,
+      scenario,
+      fixtures: {},
+      directory: malformedDirectory,
+    });
     assert.equal(malformed.outcome, "agent_error");
     assert.match(malformed.summary, /invalid structured output/i);
     assert.match(fs.readFileSync(sharedState, "utf8"), /trusted/);
-    assert.equal(fs.existsSync(path.join(malformedDirectory, ".storage-state.candidate.json")), false);
+    assert.equal(
+      fs.existsSync(path.join(malformedDirectory, ".storage-state.candidate.json")),
+      false,
+    );
 
     writeProvider(false, structured, true);
     const badOutputDirectory = path.join(root, "bad-outputs");
-    const badOutputs = await failedScenario({ config, spec, scenario, fixtures: {}, directory: badOutputDirectory });
+    const badOutputs = await failedScenario({
+      config,
+      spec,
+      scenario,
+      fixtures: {},
+      directory: badOutputDirectory,
+    });
     assert.match(badOutputs.summary, /Invalid scenario outputs/);
     assert.match(fs.readFileSync(sharedState, "utf8"), /trusted/);
-    assert.equal(fs.existsSync(path.join(badOutputDirectory, ".storage-state.candidate.json")), false);
+    assert.equal(
+      fs.existsSync(path.join(badOutputDirectory, ".storage-state.candidate.json")),
+      false,
+    );
 
     writeProvider(false, structured, false, true);
     const badTranscriptDirectory = path.join(root, "bad-transcript");
-    await assert.rejects(executeScenario({ config, spec, scenario, fixtures: {}, directory: badTranscriptDirectory }), /Invalid NDJSON/);
+    await assert.rejects(
+      executeScenario({ config, spec, scenario, fixtures: {}, directory: badTranscriptDirectory }),
+      /Invalid NDJSON/,
+    );
     assert.match(fs.readFileSync(sharedState, "utf8"), /trusted/);
-    assert.equal(fs.existsSync(path.join(badTranscriptDirectory, ".storage-state.candidate.json")), false);
+    assert.equal(
+      fs.existsSync(path.join(badTranscriptDirectory, ".storage-state.candidate.json")),
+      false,
+    );
 
     writeProvider(false);
     const succeededDirectory = path.join(root, "succeeded");
-    const succeeded = await executeScenario({ config, spec, scenario, fixtures: {}, directory: succeededDirectory });
+    const succeeded = await executeScenario({
+      config,
+      spec,
+      scenario,
+      fixtures: {},
+      directory: succeededDirectory,
+    });
     assert.equal(succeeded.outcome, "completed");
     assert.match(fs.readFileSync(sharedState, "utf8"), /candidate/);
     if (process.platform !== "win32") assert.equal(fs.statSync(sharedState).mode & 0o777, 0o600);
-    assert.equal(fs.existsSync(path.join(succeededDirectory, ".storage-state.candidate.json")), false);
+    assert.equal(
+      fs.existsSync(path.join(succeededDirectory, ".storage-state.candidate.json")),
+      false,
+    );
   } finally {
     if (originalPath === undefined) delete process.env.PATH;
     else process.env.PATH = originalPath;
@@ -401,7 +552,9 @@ test("an uncaptured persona uses chain-local state without creating trusted auth
     input: { url: "https://app.example.test" },
     result: "Public page",
   };
-  fs.writeFileSync(fakeClaude, `#!/usr/bin/env node
+  fs.writeFileSync(
+    fakeClaude,
+    `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
@@ -411,12 +564,17 @@ fs.writeFileSync(path.join(directory, "browser-result.json"), ${JSON.stringify(J
 fs.writeFileSync(path.join(directory, "browser-transcript.ndjson"), ${JSON.stringify(`${JSON.stringify(navigation)}\n`)});
 if (context.storageStateCandidatePath) fs.writeFileSync(context.storageStateCandidatePath, JSON.stringify({cookies:[{name:"chain"}],origins:[]}));
 console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify(structured))},structured_output:${JSON.stringify(structured)}}));
-`);
+`,
+  );
   fs.chmodSync(fakeClaude, 0o755);
   const config: EvalConfig = {
     version: 1,
     project: { name: "Anonymous persona", root },
-    target: { kind: "web", url: "https://app.example.test", allowedOrigins: ["https://app.example.test"] },
+    target: {
+      kind: "web",
+      url: "https://app.example.test",
+      allowedOrigins: ["https://app.example.test"],
+    },
     agent: { provider: "claude", maxTurns: 1, timeoutSeconds: 10, extraArgs: [] },
     judge: { provider: "mock", timeoutSeconds: 10, extraArgs: [] },
     paths: { specs: root, runs: path.join(root, "runs"), auth: path.join(root, "auth") },
@@ -425,25 +583,43 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
     variables: {},
   };
   const scenario: Scenario = {
-    id: "S1", name: "Public persona view", kind: "browser", persona: "buyer",
-    instructions: "Inspect", successSignals: [], dependsOn: [], requiresAuth: false,
+    id: "S1",
+    name: "Public persona view",
+    kind: "browser",
+    persona: "buyer",
+    instructions: "Inspect",
+    successSignals: [],
+    dependsOn: [],
+    requiresAuth: false,
   };
   const spec: EvalSpec = {
-    id: "core", title: "Core", weight: 100, optional: false, description: "Anonymous persona",
+    id: "core",
+    title: "Core",
+    weight: 100,
+    optional: false,
+    description: "Anonymous persona",
     scenarios: [
       scenario,
       { ...scenario, id: "S2", name: "Continue persona flow", dependsOn: ["S1"] },
-    ], rubric: [], sourceFile: path.join(root, "unused.yaml"),
+    ],
+    rubric: [],
+    sourceFile: path.join(root, "unused.yaml"),
   };
   const originalPath = process.env.PATH;
   process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
   try {
     const result = await executeScenario({ config, spec, scenario, fixtures: {}, directory });
     assert.equal(result.outcome, "completed");
-    const context = JSON.parse(fs.readFileSync(path.join(directory, "browser-context.json"), "utf8"));
+    const context = JSON.parse(
+      fs.readFileSync(path.join(directory, "browser-context.json"), "utf8"),
+    );
     assert.equal(context.storageStatePath, undefined);
     assert.match(context.storageStateCandidatePath, /\.storage-state\.candidate\.json$/);
-    assert.equal(context.maxToolCalls, undefined, "Claude maxTurns must remain a provider-turn limit");
+    assert.equal(
+      context.maxToolCalls,
+      undefined,
+      "Claude maxTurns must remain a provider-turn limit",
+    );
     assert.equal(fs.existsSync(personaAuthPath(config, "buyer")), false);
     const chainState = path.join(root, ".state", "core", "S1.json");
     assert.match(fs.readFileSync(chainState, "utf8"), /chain/);
@@ -457,7 +633,9 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
       directory: dependentDirectory,
     });
     assert.equal(dependent.outcome, "completed");
-    const dependentContext = JSON.parse(fs.readFileSync(path.join(dependentDirectory, "browser-context.json"), "utf8"));
+    const dependentContext = JSON.parse(
+      fs.readFileSync(path.join(dependentDirectory, "browser-context.json"), "utf8"),
+    );
     assert.equal(dependentContext.storageStatePath, chainState);
     assert.equal(fs.existsSync(personaAuthPath(config, "buyer")), false);
   } finally {
@@ -467,24 +645,46 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
   }
 });
 
-
 test("persona-switching scenarios block missing initial authentication even without requiresAuth", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-persona-initial-"));
   try {
     const { config, spec, scenario } = workspaceFixture(root);
-    config.target = { kind: "web", url: "https://app.example.test", allowedOrigins: ["https://app.example.test"] };
+    config.target = {
+      kind: "web",
+      url: "https://app.example.test",
+      allowedOrigins: ["https://app.example.test"],
+    };
     scenario.kind = "browser";
     scenario.persona = "organizer";
     scenario.allowedPersonas = ["organizer", "reviewer"];
     scenario.dependsOn = ["CREATE"];
     scenario.inputs = { record: { from: "CREATE", output: "record" } };
-    const inputs = { record: { value: "record-42", evidenceRefs: ["step:1"], scenarioId: "CREATE", output: "record" } };
+    const inputs = {
+      record: {
+        value: "record-42",
+        evidenceRefs: ["step:1"],
+        scenarioId: "CREATE",
+        output: "record",
+      },
+    };
     const directory = path.join(root, "evidence");
-    const result = await executeScenario({ config, spec, scenario, fixtures: {}, directory, inputs });
+    const result = await executeScenario({
+      config,
+      spec,
+      scenario,
+      fixtures: {},
+      directory,
+      inputs,
+    });
     assert.equal(result.outcome, "blocked");
     assert.deepEqual(result.inputs, inputs);
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory, "evidence.json"), "utf8")).inputs, inputs);
+    assert.deepEqual(
+      JSON.parse(fs.readFileSync(path.join(directory, "evidence.json"), "utf8")).inputs,
+      inputs,
+    );
     assert.match(result.summary, /No saved browser session.*organizer/);
     assert.equal(fs.existsSync(path.join(directory, "provider-run.json")), false);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

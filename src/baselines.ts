@@ -21,7 +21,10 @@ export interface BaselinePromotion {
   reviewer: string;
   promotedAt: string;
   promotionSha256: string;
-  images?: Record<string, { file: string; sha256: string; bytes: number; scenario: string; label: string }>;
+  images?: Record<
+    string,
+    { file: string; sha256: string; bytes: number; scenario: string; label: string }
+  >;
 }
 
 interface BaselinePointer {
@@ -46,7 +49,9 @@ const validName = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const validSnapshot = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
 
 export function baselinesRoot(config: EvalConfig): string {
-  return path.resolve(config.paths.baselines ?? path.join(config.project.root, "evals", "baselines"));
+  return path.resolve(
+    config.paths.baselines ?? path.join(config.project.root, "evals", "baselines"),
+  );
 }
 
 function compactBaselineReport(report: RunReport): RunReport {
@@ -81,7 +86,9 @@ function compactBaselineReport(report: RunReport): RunReport {
 
 function baselineDirectory(config: EvalConfig, name: string): string {
   if (!validName.test(name) || !isPortablePathComponent(name)) {
-    throw new Error("Baseline name must be a portable path component using 1-100 letters, numbers, dots, underscores, or hyphens");
+    throw new Error(
+      "Baseline name must be a portable path component using 1-100 letters, numbers, dots, underscores, or hyphens",
+    );
   }
   return path.join(baselinesRoot(config), name);
 }
@@ -117,12 +124,14 @@ export function promoteBaseline(options: {
   const reviewer = options.reviewer.trim();
   if (!reviewer) throw new Error("Baseline promotion requires a non-empty reviewer");
   const state = loadRunState(runDir);
-  if (state.status !== "complete") throw new Error(`Only complete runs can be promoted; run status is ${state.status}`);
+  if (state.status !== "complete")
+    throw new Error(`Only complete runs can be promoted; run status is ${state.status}`);
   const artifactIndex = assertArtifactIntegrity(runDir, { require: true })!;
   const sourceIndexFile = path.join(runDir, "artifact-index.json");
   const sourceIndexBytes = fs.readFileSync(sourceIndexFile);
   const source = loadComparisonInput(runDir);
-  if (!source.report.receipt) throw new Error("Only reports with evaluation receipts can be promoted");
+  if (!source.report.receipt)
+    throw new Error("Only reports with evaluation receipts can be promoted");
   const sourceReportBytes = fs.readFileSync(source.file);
   const baselineReport = compactBaselineReport(source.report);
   const reportBytes = Buffer.from(`${JSON.stringify(baselineReport, null, 2)}\n`);
@@ -136,17 +145,27 @@ export function promoteBaseline(options: {
   const promotedAt = new Date().toISOString();
   const images: NonNullable<BaselinePromotion["images"]> = {};
   if (options.includeImages) {
-    for (const area of source.report.areas) for (const scenario of area.scenarios) for (const shot of scenario.screenshots) {
-      const key = JSON.stringify([scenario.scenarioId, shot.path]);
-      if (images[key]) throw new Error(`Duplicate screenshot path in ${scenario.scenarioId}: ${shot.path}`);
-      const relative = `${scenario.scenarioId}/${shot.path}`;
-      const entry = artifactIndex.entries.find(entry => entry.path === relative);
-      if (!entry) throw new Error(`Screenshot is not sealed: ${relative}`);
-      const extension = path.extname(shot.path).toLowerCase();
-      if (![".jpg", ".jpeg", ".png"].includes(extension)) throw new Error(`Unsupported baseline image format: ${relative}`);
-      const file = `images/${sha256(key)}${extension}`;
-      images[key] = { file, sha256: entry.sha256, bytes: entry.bytes, scenario: scenario.scenarioId, label: shot.label };
-    }
+    for (const area of source.report.areas)
+      for (const scenario of area.scenarios)
+        for (const shot of scenario.screenshots) {
+          const key = JSON.stringify([scenario.scenarioId, shot.path]);
+          if (images[key])
+            throw new Error(`Duplicate screenshot path in ${scenario.scenarioId}: ${shot.path}`);
+          const relative = `${scenario.scenarioId}/${shot.path}`;
+          const entry = artifactIndex.entries.find((entry) => entry.path === relative);
+          if (!entry) throw new Error(`Screenshot is not sealed: ${relative}`);
+          const extension = path.extname(shot.path).toLowerCase();
+          if (![".jpg", ".jpeg", ".png"].includes(extension))
+            throw new Error(`Unsupported baseline image format: ${relative}`);
+          const file = `images/${sha256(key)}${extension}`;
+          images[key] = {
+            file,
+            sha256: entry.sha256,
+            bytes: entry.bytes,
+            scenario: scenario.scenarioId,
+            label: shot.label,
+          };
+        }
   }
   const promotionPayload: Omit<BaselinePromotion, "promotionSha256"> = {
     schemaVersion: 1,
@@ -178,15 +197,20 @@ export function promoteBaseline(options: {
       fs.mkdirSync(path.join(staged, "images"));
       for (const [key, image] of Object.entries(images)) {
         const [scenarioId, shotPath] = JSON.parse(key) as string[];
-        const scenario = source.report.areas.flatMap(area => area.scenarios).find(s => s.scenarioId === scenarioId)!;
-        const shot = scenario.screenshots.find(s => s.path === shotPath)!;
+        const scenario = source.report.areas
+          .flatMap((area) => area.scenarios)
+          .find((s) => s.scenarioId === scenarioId)!;
+        const shot = scenario.screenshots.find((s) => s.path === shotPath)!;
         const bytes = fs.readFileSync(path.join(runDir, scenarioId, shot.path));
-        if (bytes.length !== image.bytes || sha256(bytes) !== image.sha256) throw new Error("Baseline image changed during promotion");
+        if (bytes.length !== image.bytes || sha256(bytes) !== image.sha256)
+          throw new Error("Baseline image changed during promotion");
         fs.writeFileSync(path.join(staged, image.file), bytes);
       }
     }
     fs.writeFileSync(path.join(staged, "report.json"), reportBytes, { flag: "wx" });
-    fs.writeFileSync(path.join(staged, "source-artifact-index.json"), sourceIndexBytes, { flag: "wx" });
+    fs.writeFileSync(path.join(staged, "source-artifact-index.json"), sourceIndexBytes, {
+      flag: "wx",
+    });
     writeJson(path.join(staged, "promotion.json"), promotion);
     fs.renameSync(staged, snapshotDirectory);
     const pointer: BaselinePointer = {
@@ -200,13 +224,19 @@ export function promoteBaseline(options: {
     fs.rmSync(staged, { recursive: true, force: true });
     throw error;
   }
-  return { directory: snapshotDirectory, file: path.join(snapshotDirectory, "report.json"), report: baselineReport, promotion };
+  return {
+    directory: snapshotDirectory,
+    file: path.join(snapshotDirectory, "report.json"),
+    report: baselineReport,
+    promotion,
+  };
 }
 
 export function loadPromotedBaseline(config: EvalConfig, name: string): PromotedBaseline {
   const directory = baselineDirectory(config, name);
   const pointer = readPointer(directory);
-  if (pointer.baselineName !== name) throw new Error(`Baseline pointer name mismatch: expected ${name}`);
+  if (pointer.baselineName !== name)
+    throw new Error(`Baseline pointer name mismatch: expected ${name}`);
   const snapshotDirectory = path.join(directory, pointer.snapshotId);
   const promotionFile = path.join(snapshotDirectory, "promotion.json");
   const reportFile = path.join(snapshotDirectory, "report.json");
@@ -241,9 +271,11 @@ export function loadPromotedBaseline(config: EvalConfig, name: string): Promoted
     throw new Error(`Promoted baseline artifact root mismatch: ${sourceIndexFile}`);
   }
   for (const image of Object.values(promotion.images ?? {})) {
-    if (!/^images\/[a-f0-9]{64}\.(?:jpg|jpeg|png)$/i.test(image.file)) throw new Error("Invalid baseline image path");
+    if (!/^images\/[a-f0-9]{64}\.(?:jpg|jpeg|png)$/i.test(image.file))
+      throw new Error("Invalid baseline image path");
     const bytes = fs.readFileSync(path.join(snapshotDirectory, image.file));
-    if (bytes.length !== image.bytes || sha256(bytes) !== image.sha256) throw new Error("Baseline image checksum changed");
+    if (bytes.length !== image.bytes || sha256(bytes) !== image.sha256)
+      throw new Error("Baseline image checksum changed");
   }
   const loaded = loadComparisonInput(reportFile);
   if (loaded.report.receipt.evaluationFingerprint !== promotion.evaluationFingerprint) {
@@ -261,7 +293,8 @@ export function listPromotedBaselines(config: EvalConfig): Array<{
 }> {
   const root = baselinesRoot(config);
   if (!fs.existsSync(root)) return [];
-  return fs.readdirSync(root, { withFileTypes: true })
+  return fs
+    .readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && validName.test(entry.name))
     .sort((left, right) => left.name.localeCompare(right.name))
     .map((entry) => {

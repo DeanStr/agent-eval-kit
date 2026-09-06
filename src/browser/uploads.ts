@@ -2,10 +2,25 @@ import type { BrowserInteractionContext } from "./interaction-context.js";
 import path from "node:path";
 import { errors } from "playwright";
 
-type UploadContext = Pick<BrowserInteractionContext, "allowedFrames" | "drainNotes" | "enforceOrigin" | "isAllowedFrame" | "page" | "refFrames" | "refLocator" | "refMissing" | "stale">;
+type UploadContext = Pick<
+  BrowserInteractionContext,
+  | "allowedFrames"
+  | "drainNotes"
+  | "enforceOrigin"
+  | "isAllowedFrame"
+  | "page"
+  | "refFrames"
+  | "refLocator"
+  | "refMissing"
+  | "stale"
+>;
 
 /** Set a file input's files (for headshot/slides/CSV upload flows). */
-export async function upload(context: UploadContext, ref: string, absoluteFilePath: string): Promise<string> {
+export async function upload(
+  context: UploadContext,
+  ref: string,
+  absoluteFilePath: string,
+): Promise<string> {
   const loc = await context.refLocator(ref);
   if (await context.refMissing(loc)) return context.stale(ref);
   const tag = await loc.evaluate((el) => el.tagName.toLowerCase());
@@ -21,17 +36,16 @@ export async function upload(context: UploadContext, ref: string, absoluteFilePa
   // input from an unrelated one already sitting on the page, and picking the
   // wrong one is worse than failing.
   for (const f of await context.allowedFrames()) {
-    await f
-      .evaluate(() => {
-        const els = document.querySelectorAll('input[type="file"]');
-        for (let k = 0; k < els.length; k++) els[k].setAttribute("data-aek-file-before", "1");
-      });
+    await f.evaluate(() => {
+      const els = document.querySelectorAll('input[type="file"]');
+      for (let k = 0; k < els.length; k++) els[k].setAttribute("data-aek-file-before", "1");
+    });
   }
 
   // Only absence of a chooser after a successful click permits another path.
   // Keep the wait's timeout separate from click, origin, and upload failures.
   const [fc] = await Promise.all([
-    context.page.waitForEvent("filechooser", { timeout: 8_000 }).catch(error => {
+    context.page.waitForEvent("filechooser", { timeout: 8_000 }).catch((error) => {
       if (error instanceof errors.TimeoutError) return null;
       throw error;
     }),
@@ -41,7 +55,10 @@ export async function upload(context: UploadContext, ref: string, absoluteFilePa
   if (originBlock) return originBlock;
   if (fc) {
     await fc.setFiles(absoluteFilePath);
-    return context.drainNotes() + `Uploaded ${path.basename(absoluteFilePath)} via file chooser triggered by ${ref}`;
+    return (
+      context.drainNotes() +
+      `Uploaded ${path.basename(absoluteFilePath)} via file chooser triggered by ${ref}`
+    );
   }
 
   // No chooser fired. Re-scan every frame for a file input that appeared (or

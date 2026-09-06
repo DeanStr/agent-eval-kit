@@ -15,37 +15,69 @@ export async function runMock(invocation: ProviderInvocation): Promise<ProviderR
     }
   };
   const rubric = jsonBlock("RUBRIC_JSON", "CASE_REQUESTS_JSON") as Array<{ id?: string }>;
-  const cases = jsonBlock("CASE_REQUESTS_JSON", "EVIDENCE_JSON") as Array<{ rubricId?: string; caseId?: string }>;
-  const structured = invocation.purpose === "scenario"
-    ? {
-        outcome: "completed",
-        summary: `Offline mock completed ${scenarioId}.`,
-        observations: ["Mock provider: no agent actions were executed."],
-        evidenceRefs: [],
-      }
-    : prompt.startsWith("TEXT_PAIRWISE_EVALUATION:") ? { preferred: "abstain", confidence: 0, reasoning: "Offline mock judge does not evaluate writing.", citations: [] }
-    : prompt.startsWith("PAIRWISE_EVALUATION:") ? { preferred: "abstain", confidence: 0, reasoning: "Offline mock judge does not inspect images.", findings: [] } : {
-        items: rubric.flatMap((item) => item.id ? [{
-          id: item.id,
-          verdict: "cannot_judge",
-          confidence: "low",
-          reasoning: "Offline mock judge does not inspect evidence.",
+  const cases = jsonBlock("CASE_REQUESTS_JSON", "EVIDENCE_JSON") as Array<{
+    rubricId?: string;
+    caseId?: string;
+  }>;
+  const structured =
+    invocation.purpose === "scenario"
+      ? {
+          outcome: "completed",
+          summary: `Offline mock completed ${scenarioId}.`,
+          observations: ["Mock provider: no agent actions were executed."],
           evidenceRefs: [],
-        }] : []),
-        cases: cases.flatMap((item) => item.rubricId && item.caseId ? [{
-          rubricId: item.rubricId,
-          caseId: item.caseId,
-          verdict: "cannot_judge",
-          confidence: "low",
-          reasoning: "Offline mock judge does not inspect evidence.",
-          evidenceRefs: [],
-        }] : []),
-        defects: [],
-        notes: "Offline mock judge.",
-      };
+        }
+      : prompt.startsWith("TEXT_PAIRWISE_EVALUATION:")
+        ? {
+            preferred: "abstain",
+            confidence: 0,
+            reasoning: "Offline mock judge does not evaluate writing.",
+            citations: [],
+          }
+        : prompt.startsWith("PAIRWISE_EVALUATION:")
+          ? {
+              preferred: "abstain",
+              confidence: 0,
+              reasoning: "Offline mock judge does not inspect images.",
+              findings: [],
+            }
+          : {
+              items: rubric.flatMap((item) =>
+                item.id
+                  ? [
+                      {
+                        id: item.id,
+                        verdict: "cannot_judge",
+                        confidence: "low",
+                        reasoning: "Offline mock judge does not inspect evidence.",
+                        evidenceRefs: [],
+                      },
+                    ]
+                  : [],
+              ),
+              cases: cases.flatMap((item) =>
+                item.rubricId && item.caseId
+                  ? [
+                      {
+                        rubricId: item.rubricId,
+                        caseId: item.caseId,
+                        verdict: "cannot_judge",
+                        confidence: "low",
+                        reasoning: "Offline mock judge does not inspect evidence.",
+                        evidenceRefs: [],
+                      },
+                    ]
+                  : [],
+              ),
+              defects: [],
+              notes: "Offline mock judge.",
+            };
   const finalText = JSON.stringify(structured);
   fs.writeFileSync(invocation.outputFile, finalText);
-  fs.writeFileSync(invocation.eventLogFile, JSON.stringify({ type: "mock.completed", structured }) + "\n");
+  fs.writeFileSync(
+    invocation.eventLogFile,
+    JSON.stringify({ type: "mock.completed", structured }) + "\n",
+  );
   fs.writeFileSync(invocation.stderrFile, "");
   return {
     provider: "mock",

@@ -34,9 +34,12 @@ async function waitUntilReady(
   if (!ready) {
     if (!processHandle) return;
     await cancellableDelay(1_000);
-    if (processError?.()) throw new Error(`Target start command failed: ${processError()!.message}`);
+    if (processError?.())
+      throw new Error(`Target start command failed: ${processError()!.message}`);
     if (processHandle && !isRunning(processHandle)) {
-      throw new Error(`Target start command exited before evaluation (${exitStatus(processHandle)})`);
+      throw new Error(
+        `Target start command exited before evaluation (${exitStatus(processHandle)})`,
+      );
     }
     return;
   }
@@ -44,16 +47,22 @@ async function waitUntilReady(
   let lastError = "not ready";
   while (Date.now() < deadline) {
     throwIfCancelled();
-    if (processError?.()) throw new Error(`Target start command failed: ${processError()!.message}`);
+    if (processError?.())
+      throw new Error(`Target start command failed: ${processError()!.message}`);
     if (processHandle && !isRunning(processHandle)) {
-      throw new Error(`Target start command exited before becoming ready (${exitStatus(processHandle)})`);
+      throw new Error(
+        `Target start command exited before becoming ready (${exitStatus(processHandle)})`,
+      );
     }
     try {
       if (ready.url) {
         const remainingMs = Math.max(1, deadline - Date.now());
         const timeout = AbortSignal.timeout(Math.min(5_000, remainingMs));
         const signal = cancellationSignal();
-        const response = await fetch(ready.url, { redirect: "manual", signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+        const response = await fetch(ready.url, {
+          redirect: "manual",
+          signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+        });
         const readyStatus = response.status < 500;
         await response.body?.cancel().catch(() => {});
         if (readyStatus) return;
@@ -97,18 +106,29 @@ export async function startLifecycle(
   if (config.target.start && endpoint) {
     const url = new URL(endpoint);
     const occupied = await new Promise<boolean>((resolve, reject) => {
-      const socket = net.connect({ host: url.hostname.replace(/^\[|\]$/g, ""), port: Number(url.port || (url.protocol === "https:" ? 443 : 80)) });
+      const socket = net.connect({
+        host: url.hostname.replace(/^\[|\]$/g, ""),
+        port: Number(url.port || (url.protocol === "https:" ? 443 : 80)),
+      });
       socket.setTimeout(2000);
-      socket.once("connect", () => { socket.destroy(); resolve(true); });
+      socket.once("connect", () => {
+        socket.destroy();
+        resolve(true);
+      });
       socket.once("error", (error: NodeJS.ErrnoException) => {
         socket.destroy();
         if (error.code === "ECONNREFUSED") resolve(false);
         else reject(new Error(`Cannot verify target endpoint availability: ${error.message}`));
       });
-      socket.once("timeout", () => { socket.destroy(); reject(new Error("Target endpoint availability probe timed out")); });
+      socket.once("timeout", () => {
+        socket.destroy();
+        reject(new Error("Target endpoint availability probe timed out"));
+      });
     });
     if (occupied && config.target.allowExternalServer !== true) {
-      throw new Error(`Target endpoint ${url.origin} is already in use. Stop the existing server or explicitly set target.allowExternalServer: true to reuse it.`);
+      throw new Error(
+        `Target endpoint ${url.origin} is already in use. Stop the existing server or explicitly set target.allowExternalServer: true to reuse it.`,
+      );
     }
     reuseExternal = occupied;
   }
@@ -126,7 +146,8 @@ export async function startLifecycle(
       stderrFile: path.join(runDir, "lifecycle", "setup.stderr.log"),
     });
     if (result.timedOut) throw new Error(`Target setup command timed out after ${timeoutSeconds}s`);
-    if (result.exitCode !== 0) throw new Error(`Target setup command failed with exit ${result.exitCode}`);
+    if (result.exitCode !== 0)
+      throw new Error(`Target setup command failed with exit ${result.exitCode}`);
     options.onSetupComplete?.();
   }
 
@@ -148,17 +169,22 @@ export async function startLifecycle(
     detached: true,
   });
   let startError: Error | undefined;
-  child.once("error", (error) => { startError = error; });
+  child.once("error", (error) => {
+    startError = error;
+  });
 
   const signal = cancellationSignal();
   let stopping: Promise<void> | undefined;
-  const stop = () => stopping ??= terminateProcessTree(child).finally(() => {
-    signal?.removeEventListener("abort", onAbort);
-    fs.closeSync(stdout);
-    fs.closeSync(stderr);
-  });
+  const stop = () =>
+    (stopping ??= terminateProcessTree(child).finally(() => {
+      signal?.removeEventListener("abort", onAbort);
+      fs.closeSync(stdout);
+      fs.closeSync(stderr);
+    }));
   // The runner also awaits stop(), so cleanup errors remain observable.
-  const onAbort = () => { void stop().catch(() => {}); };
+  const onAbort = () => {
+    void stop().catch(() => {});
+  };
   signal?.addEventListener("abort", onAbort, { once: true });
 
   try {
@@ -166,7 +192,8 @@ export async function startLifecycle(
     options.onReady?.();
     const assertRunning = () => {
       throwIfCancelled();
-      if (startError) throw new Error(`Target start command failed during evaluation: ${startError.message}`);
+      if (startError)
+        throw new Error(`Target start command failed during evaluation: ${startError.message}`);
       if (!isRunning(child)) {
         throw new Error(`Target start command exited during evaluation (${exitStatus(child)})`);
       }

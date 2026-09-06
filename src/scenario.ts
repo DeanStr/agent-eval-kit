@@ -47,7 +47,8 @@ function chainStorageStatePath(
   directory: string,
 ): string | undefined {
   const participatesInChain =
-    scenario.dependsOn.length > 0 || spec.scenarios.some((candidate) => candidate.dependsOn.includes(scenario.id));
+    scenario.dependsOn.length > 0 ||
+    spec.scenarios.some((candidate) => candidate.dependsOn.includes(scenario.id));
   if (!participatesInChain) return undefined;
 
   const component = new Set([scenario.id]);
@@ -55,7 +56,8 @@ function chainStorageStatePath(
   while (changed) {
     changed = false;
     for (const candidate of spec.scenarios) {
-      const connected = component.has(candidate.id) || candidate.dependsOn.some((id) => component.has(id));
+      const connected =
+        component.has(candidate.id) || candidate.dependsOn.some((id) => component.has(id));
       if (!connected) continue;
       for (const id of [candidate.id, ...candidate.dependsOn]) {
         if (!component.has(id)) {
@@ -69,7 +71,10 @@ function chainStorageStatePath(
   return path.join(path.dirname(directory), ".state", safeName(spec.id), `${safeName(chain)}.json`);
 }
 
-function readToolArtifacts(directory: string, kind: "browser" | "workspace"): {
+function readToolArtifacts(
+  directory: string,
+  kind: "browser" | "workspace",
+): {
   result?: BrowserResultState | WorkspaceResultState;
   observations: string[];
   screenshots: ScreenshotRef[];
@@ -114,7 +119,10 @@ export async function executeScenario(options: {
   const schemaFile = path.join(directory, "scenario-output.schema.json");
   const eventLogFile = path.join(directory, "provider-events.ndjson");
   const stderrFile = path.join(directory, "provider-stderr.log");
-  fs.writeFileSync(promptFile, scenarioPrompt({ config, spec, scenario, kind, fixtures, inputs: options.inputs }));
+  fs.writeFileSync(
+    promptFile,
+    scenarioPrompt({ config, spec, scenario, kind, fixtures, inputs: options.inputs }),
+  );
   writeJson(schemaFile, scenarioOutputSchema);
 
   let mcp: ProviderInvocation["mcp"];
@@ -122,12 +130,25 @@ export async function executeScenario(options: {
   let storageStateCandidatePath: string | undefined;
   const personaPromotions: Array<{ candidate: string; destination: string }> = [];
   if (kind === "browser") {
-    const personaState = scenario.persona && scenario.persona !== "anonymous" ? personaAuthPath(config, scenario.persona) : undefined;
-    const existingPersonaState = personaState && fs.existsSync(personaState) ? personaState : undefined;
-    const chainState = scenario.persona === "anonymous" || scenario.allowedPersonas ? undefined : chainStorageStatePath(spec, scenario, directory);
-    const stateDestination = existingPersonaState ?? (scenario.requiresAuth ? undefined : chainState);
-    const existingState = stateDestination && fs.existsSync(stateDestination) ? stateDestination : undefined;
-    if ((scenario.requiresAuth || (scenario.allowedPersonas && scenario.persona && scenario.persona !== "anonymous")) && (!existingPersonaState || !scenario.persona)) {
+    const personaState =
+      scenario.persona && scenario.persona !== "anonymous"
+        ? personaAuthPath(config, scenario.persona)
+        : undefined;
+    const existingPersonaState =
+      personaState && fs.existsSync(personaState) ? personaState : undefined;
+    const chainState =
+      scenario.persona === "anonymous" || scenario.allowedPersonas
+        ? undefined
+        : chainStorageStatePath(spec, scenario, directory);
+    const stateDestination =
+      existingPersonaState ?? (scenario.requiresAuth ? undefined : chainState);
+    const existingState =
+      stateDestination && fs.existsSync(stateDestination) ? stateDestination : undefined;
+    if (
+      (scenario.requiresAuth ||
+        (scenario.allowedPersonas && scenario.persona && scenario.persona !== "anonymous")) &&
+      (!existingPersonaState || !scenario.persona)
+    ) {
       const blocked: ScenarioEvidence = {
         scenarioId: scenario.id,
         scenarioName: scenario.name,
@@ -154,7 +175,8 @@ export async function executeScenario(options: {
       writeJson(path.join(directory, "evidence.json"), blocked);
       return blocked;
     }
-    if (scenario.capture) return controlledCapture(config, scenario, directory, existingPersonaState);
+    if (scenario.capture)
+      return controlledCapture(config, scenario, directory, existingPersonaState);
     // A persona path is permanent authentication state and may only be updated
     // when it was already established by `aek auth`. If an uncaptured persona
     // participates in a dependency chain, use the run-local chain state instead.
@@ -162,13 +184,17 @@ export async function executeScenario(options: {
     storageStateCandidatePath = trustedStorageStatePath
       ? path.join(directory, ".storage-state.candidate.json")
       : undefined;
-    const personas = scenario.allowedPersonas ? Object.fromEntries(scenario.allowedPersonas.map((persona, index) => {
-      if (persona === "anonymous") return [persona, {}];
-      const destination = personaAuthPath(config, persona);
-      const candidate = path.join(directory, `.persona-${index}.candidate.json`);
-      personaPromotions.push({ candidate, destination });
-      return [persona, { storageStatePath: destination, candidatePath: candidate }];
-    })) : undefined;
+    const personas = scenario.allowedPersonas
+      ? Object.fromEntries(
+          scenario.allowedPersonas.map((persona, index) => {
+            if (persona === "anonymous") return [persona, {}];
+            const destination = personaAuthPath(config, persona);
+            const candidate = path.join(directory, `.persona-${index}.candidate.json`);
+            personaPromotions.push({ candidate, destination });
+            return [persona, { storageStatePath: destination, candidatePath: candidate }];
+          }),
+        )
+      : undefined;
     const context: BrowserMcpContext = {
       persona: scenario.persona,
       personas,
@@ -178,7 +204,10 @@ export async function executeScenario(options: {
       evidenceDir: directory,
       storageStatePath: existingState,
       storageStateCandidatePath,
-      expectAuthenticated: Boolean(scenario.requiresAuth || (scenario.allowedPersonas && scenario.persona && scenario.persona !== "anonymous")),
+      expectAuthenticated: Boolean(
+        scenario.requiresAuth ||
+          (scenario.allowedPersonas && scenario.persona && scenario.persona !== "anonymous"),
+      ),
       fixtureFiles: fixtureFiles(fixtures, config.paths.fixtures, config.project.root),
       headless: config.browser.headless,
       viewport: config.browser.viewport,
@@ -186,7 +215,7 @@ export async function executeScenario(options: {
       screenshotFormat: config.browser.screenshotFormat,
       // Claude and Grok enforce maxTurns in their provider CLIs. Codex has no
       // equivalent flag, so only Codex maps the option to MCP interactions.
-      maxToolCalls: config.agent.provider === "codex" ? config.agent.maxTurns ?? 50 : undefined,
+      maxToolCalls: config.agent.provider === "codex" ? (config.agent.maxTurns ?? 50) : undefined,
     };
     const contextFile = path.join(directory, "browser-context.json");
     writeJson(contextFile, context);
@@ -204,7 +233,7 @@ export async function executeScenario(options: {
       outputs: scenario.outputs,
       projectRoot: config.project.root,
       evidenceDir: directory,
-      maxToolCalls: config.agent.provider === "codex" ? config.agent.maxTurns ?? 50 : undefined,
+      maxToolCalls: config.agent.provider === "codex" ? (config.agent.maxTurns ?? 50) : undefined,
       evaluatorOnlyPaths: [
         ...(options.evaluatorOnlyPaths ?? []),
         ...Object.values(fixtureFiles(fixtures, config.paths.fixtures, config.project.root)),
@@ -223,9 +252,15 @@ export async function executeScenario(options: {
     };
   }
 
-  options.onProgress?.(`starting ${config.agent.provider}${config.agent.model ? `/${config.agent.model}` : ""}`);
-  const stateCandidates = [...personaPromotions, ...(storageStateCandidatePath && trustedStorageStatePath
-    ? [{ candidate: storageStateCandidatePath, destination: trustedStorageStatePath }] : [])];
+  options.onProgress?.(
+    `starting ${config.agent.provider}${config.agent.model ? `/${config.agent.model}` : ""}`,
+  );
+  const stateCandidates = [
+    ...personaPromotions,
+    ...(storageStateCandidatePath && trustedStorageStatePath
+      ? [{ candidate: storageStateCandidatePath, destination: trustedStorageStatePath }]
+      : []),
+  ];
   try {
     const providerResult = await runProvider(config.agent.provider, {
       purpose: "scenario",
@@ -267,18 +302,27 @@ export async function executeScenario(options: {
     // into evidence that scoring treats as a reached scenario.
     const missingFinalization = config.agent.provider !== "mock" && !toolArtifacts.result;
     const terminalOutcome = toolArtifacts.result?.outcome;
-    const evidenceTools = kind === "browser"
-      ? new Set(["navigate"])
-      : new Set(["list_files", "read_file", "search"]);
-    const requiresEvidenceActivity = terminalOutcome === "completed" || terminalOutcome === "feature_not_found";
-    const hasEvidenceActivity = toolArtifacts.transcript.some((entry) => !entry.isError && evidenceTools.has(entry.tool));
+    const evidenceTools =
+      kind === "browser" ? new Set(["navigate"]) : new Set(["list_files", "read_file", "search"]);
+    const requiresEvidenceActivity =
+      terminalOutcome === "completed" || terminalOutcome === "feature_not_found";
+    const hasEvidenceActivity = toolArtifacts.transcript.some(
+      (entry) => !entry.isError && evidenceTools.has(entry.tool),
+    );
     const missingEvidenceActivity =
-      config.agent.provider !== "mock" && !missingFinalization && requiresEvidenceActivity && !hasEvidenceActivity;
+      config.agent.provider !== "mock" &&
+      !missingFinalization &&
+      requiresEvidenceActivity &&
+      !hasEvidenceActivity;
     let outputs: Record<string, import("./types.js").ScenarioOutput> = {};
     let outputError: string | undefined;
     try {
       const outputsFile = path.join(directory, "outputs.json");
-      outputs = validateOutputs(scenario, fs.existsSync(outputsFile) ? readJson(outputsFile) : {}, toolArtifacts.transcript);
+      outputs = validateOutputs(
+        scenario,
+        fs.existsSync(outputsFile) ? readJson(outputsFile) : {},
+        toolArtifacts.transcript,
+      );
     } catch (error) {
       outputError = `Invalid scenario outputs: ${error instanceof Error ? error.message : String(error)}`;
     }
@@ -289,46 +333,52 @@ export async function executeScenario(options: {
       policyFailed ||
       missingFinalization ||
       missingEvidenceActivity ||
-      invalidStructuredOutput || Boolean(outputError);
+      invalidStructuredOutput ||
+      Boolean(outputError);
     const outcome = providerFailed
       ? "agent_error"
-      : toolArtifacts.result?.outcome ?? (parsed.success ? parsed.data.outcome : "agent_error");
-    const summary = outputError ?? (
-      policyFailed
+      : (toolArtifacts.result?.outcome ?? (parsed.success ? parsed.data.outcome : "agent_error"));
+    const summary =
+      outputError ??
+      (policyFailed
         ? `Evidence-boundary violation: ${providerResult.policyViolations!.join("; ")}`
         : providerResult.timedOut
           ? `Scenario provider timed out after ${config.agent.timeoutSeconds}s.`
           : providerResult.exitCode !== 0
-              ? `Scenario provider exited ${providerResult.exitCode}; see provider-stderr.log.`
-              : missingFinalization
-                ? `Scenario provider did not finalize evidence through the ${kind} MCP done tool.`
-                : missingEvidenceActivity
-                  ? `Scenario provider finalized ${terminalOutcome} without first collecting evidence through the ${kind} MCP.`
-                  : invalidStructuredOutput
-                    ? "Provider returned invalid structured output."
-                    : toolArtifacts.result?.summary ?? parsed.data.summary);
-    const error = outputError ?? (
-      outcome === "agent_error"
+            ? `Scenario provider exited ${providerResult.exitCode}; see provider-stderr.log.`
+            : missingFinalization
+              ? `Scenario provider did not finalize evidence through the ${kind} MCP done tool.`
+              : missingEvidenceActivity
+                ? `Scenario provider finalized ${terminalOutcome} without first collecting evidence through the ${kind} MCP.`
+                : invalidStructuredOutput
+                  ? "Provider returned invalid structured output."
+                  : (toolArtifacts.result?.summary ?? parsed.data.summary));
+    const error =
+      outputError ??
+      (outcome === "agent_error"
         ? providerResult.timedOut
           ? `Provider timed out after ${config.agent.timeoutSeconds}s`
           : policyFailed
             ? `Provider used forbidden built-in tools: ${providerResult.policyViolations!.join(", ")}`
             : providerResult.exitCode !== 0
-                ? `Provider exited ${providerResult.exitCode}`
-                : missingFinalization
-                  ? `Provider did not call the ${kind} MCP done tool`
-                  : missingEvidenceActivity
-                    ? `Provider did not perform a successful ${kind} evidence-gathering MCP action before finalizing ${terminalOutcome}`
-                    : invalidStructuredOutput
-                      ? z.prettifyError(parsed.error)
-                      : undefined
+              ? `Provider exited ${providerResult.exitCode}`
+              : missingFinalization
+                ? `Provider did not call the ${kind} MCP done tool`
+                : missingEvidenceActivity
+                  ? `Provider did not perform a successful ${kind} evidence-gathering MCP action before finalizing ${terminalOutcome}`
+                  : invalidStructuredOutput
+                    ? z.prettifyError(parsed.error)
+                    : undefined
         : undefined);
     const structuredTrusted = parsed.success && !providerFailed;
     const structuredObservations = structuredTrusted ? parsed.data.observations : [];
     const evidenceRefs = structuredTrusted ? parsed.data.evidenceRefs : [];
 
-    const missingOutputs = Object.keys(scenario.outputs ?? {}).filter(name => !Object.hasOwn(outputs, name));
-    const diagnostics = kind === "browser" ? readDiagnostics(directory, config.browser.diagnostics) : undefined;
+    const missingOutputs = Object.keys(scenario.outputs ?? {}).filter(
+      (name) => !Object.hasOwn(outputs, name),
+    );
+    const diagnostics =
+      kind === "browser" ? readDiagnostics(directory, config.browser.diagnostics) : undefined;
     const evidence: ScenarioEvidence = {
       scenarioId: scenario.id,
       scenarioName: scenario.name,
@@ -339,12 +389,22 @@ export async function executeScenario(options: {
       strata: scenario.strata,
       split: scenario.split,
       outcome: outcome === "completed" && missingOutputs.length ? "blocked" : outcome,
-      summary: outcome === "completed" && missingOutputs.length ? `Required outputs unavailable: ${missingOutputs.join(", ")}. ${summary}` : summary,
+      summary:
+        outcome === "completed" && missingOutputs.length
+          ? `Required outputs unavailable: ${missingOutputs.join(", ")}. ${summary}`
+          : summary,
       outputs,
       inputs: options.inputs,
       diagnostics: diagnostics?.diagnostics,
       captureChecks: diagnostics?.checks,
-      observations: [...new Set([...toolArtifacts.observations, ...structuredObservations, ...(diagnostics?.diagnostics.map(entry => `Browser ${entry.kind}: ${entry.message}`) ?? [])])],
+      observations: [
+        ...new Set([
+          ...toolArtifacts.observations,
+          ...structuredObservations,
+          ...(diagnostics?.diagnostics.map((entry) => `Browser ${entry.kind}: ${entry.message}`) ??
+            []),
+        ]),
+      ],
       evidenceRefs: [...new Set(evidenceRefs)],
       transcript: toolArtifacts.transcript,
       screenshots: toolArtifacts.screenshots,
@@ -362,17 +422,23 @@ export async function executeScenario(options: {
       startedAt,
       finishedAt: new Date().toISOString(),
       durationMs: Date.now() - start,
-      finalUrl: "finalUrl" in (toolArtifacts.result ?? {}) ? (toolArtifacts.result as BrowserResultState).finalUrl : undefined,
+      finalUrl:
+        "finalUrl" in (toolArtifacts.result ?? {})
+          ? (toolArtifacts.result as BrowserResultState).finalUrl
+          : undefined,
       error,
     };
     writeJson(path.join(directory, "evidence.json"), evidence);
     if (!providerFailed && toolArtifacts.result?.outcome !== "blocked") {
       // Validate every candidate before updating any saved identity.
-      const updates = stateCandidates.filter(({ candidate }) => fs.existsSync(candidate)).map(({ candidate, destination }) => {
-        const stat = fs.lstatSync(candidate);
-        if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Browser storage-state candidate must be a regular file");
-        return { destination, value: readJson(candidate) };
-      });
+      const updates = stateCandidates
+        .filter(({ candidate }) => fs.existsSync(candidate))
+        .map(({ candidate, destination }) => {
+          const stat = fs.lstatSync(candidate);
+          if (!stat.isFile() || stat.isSymbolicLink())
+            throw new Error("Browser storage-state candidate must be a regular file");
+          return { destination, value: readJson(candidate) };
+        });
       for (const { destination, value } of updates) writeJson(destination, value, { mode: 0o600 });
     }
     if (providerFailed) {

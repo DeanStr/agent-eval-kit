@@ -8,7 +8,12 @@ import { snapshotVisualInputs, visualInputs, validateVisualInputs } from "../vis
 import { graderMethodInputs, snapshotGraderMethods } from "../judging/command-inputs.js";
 import type { EvalConfig, EvalSpec, EvalSplit, RunReceipt } from "../types.js";
 
-function snapshotInputs(runDir: string, config: EvalConfig, specs: EvalSpec[], fixturesFile?: string): void {
+function snapshotInputs(
+  runDir: string,
+  config: EvalConfig,
+  specs: EvalSpec[],
+  fixturesFile?: string,
+): void {
   const inputDir = path.join(runDir, "inputs");
   fs.mkdirSync(path.join(inputDir, "specs"), { recursive: true });
   const safeConfig = redactConfig(config);
@@ -17,17 +22,32 @@ function snapshotInputs(runDir: string, config: EvalConfig, specs: EvalSpec[], f
     fs.copyFileSync(spec.sourceFile, path.join(inputDir, "specs", path.basename(spec.sourceFile)));
   }
   if (fixturesFile) {
-    fs.copyFileSync(fixturesFile, path.join(inputDir, `fixtures${path.extname(fixturesFile) || ".json"}`));
+    fs.copyFileSync(
+      fixturesFile,
+      path.join(inputDir, `fixtures${path.extname(fixturesFile) || ".json"}`),
+    );
   }
 }
 
-export async function validateEvaluationInputs(config: EvalConfig, specs: EvalSpec[], split: EvalSplit | "all" = "all", scenarioIds?: string[]): Promise<void> {
+export async function validateEvaluationInputs(
+  config: EvalConfig,
+  specs: EvalSpec[],
+  split: EvalSplit | "all" = "all",
+  scenarioIds?: string[],
+): Promise<void> {
   graderMethodInputs(config, specs, split);
   validateTextInputs(config, specs, split);
   await validateVisualInputs(config, specs, split, scenarioIds);
 }
 
-export function snapshotEvaluationInputs(config: EvalConfig, specs: EvalSpec[], runDir: string, split: EvalSplit | "all", receipt: RunReceipt, scenarioIds?: string[]): void {
+export function snapshotEvaluationInputs(
+  config: EvalConfig,
+  specs: EvalSpec[],
+  runDir: string,
+  split: EvalSplit | "all",
+  receipt: RunReceipt,
+  scenarioIds?: string[],
+): void {
   snapshotInputs(runDir, config, specs, config.paths.fixtures);
   snapshotVisualInputs(config, specs, runDir, split, receipt.inputs.visual!);
   snapshotTextInputs(config, specs, runDir, split, receipt.inputs);
@@ -35,10 +55,14 @@ export function snapshotEvaluationInputs(config: EvalConfig, specs: EvalSpec[], 
   snapshotGraderMethods(config, specs, runDir, split, receipt.inputs.graderMethods!);
 }
 
-export function evaluatorInputPaths(config: EvalConfig, specs: EvalSpec[], split: EvalSplit | "all"): string[] {
+export function evaluatorInputPaths(
+  config: EvalConfig,
+  specs: EvalSpec[],
+  split: EvalSplit | "all",
+): string[] {
   return [
     ...Object.values(graderMethodInputs(config, specs, split)),
     ...Object.values(visualInputs(config, specs, split)),
     ...Object.values(textInputs(config, specs, split)),
-  ].map(input => input.file);
+  ].map((input) => input.file);
 }

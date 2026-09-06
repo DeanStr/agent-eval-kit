@@ -1,7 +1,10 @@
 import type { BrowserInteractionContext } from "./interaction-context.js";
 import type { Locator } from "playwright";
 
-type PointerContext = Pick<BrowserInteractionContext, "drainNotes" | "enforceOrigin" | "page" | "refLocator" | "refMissing" | "snapshot" | "stale">;
+type PointerContext = Pick<
+  BrowserInteractionContext,
+  "drainNotes" | "enforceOrigin" | "page" | "refLocator" | "refMissing" | "snapshot" | "stale"
+>;
 
 export class BrowserPointer {
   constructor(private readonly context: PointerContext) {}
@@ -64,8 +67,12 @@ export class BrowserPointer {
       } catch (err) {
         blocker = await this.describeClickBlocker(loc);
         if (!blocker) {
-          const message = err !== null && (typeof err === "object" || typeof err === "function") && "message" in err
-            ? err.message ?? err : err;
+          const message =
+            err !== null &&
+            (typeof err === "object" || typeof err === "function") &&
+            "message" in err
+              ? (err.message ?? err)
+              : err;
           return `ERROR: click on ${ref} failed: ${String(message).split("\n")[0].slice(0, 200)}`;
         }
       }
@@ -86,8 +93,10 @@ export class BrowserPointer {
   async drag(fromRef: string, toRef: string): Promise<string> {
     const from = await this.context.refLocator(fromRef);
     const to = await this.context.refLocator(toRef);
-    if (await this.context.refMissing(from)) return `ERROR: source ref ${fromRef} not found. Take a new snapshot.`;
-    if (await this.context.refMissing(to)) return `ERROR: target ref ${toRef} not found. Take a new snapshot.`;
+    if (await this.context.refMissing(from))
+      return `ERROR: source ref ${fromRef} not found. Take a new snapshot.`;
+    if (await this.context.refMissing(to))
+      return `ERROR: target ref ${toRef} not found. Take a new snapshot.`;
 
     await from.scrollIntoViewIfNeeded().catch(() => {});
     try {
@@ -140,25 +149,29 @@ export class BrowserPointer {
     if (ref) {
       const loc = await this.context.refLocator(ref);
       if (await this.context.refMissing(loc)) return this.context.stale(ref);
-      const res = await loc
-        .evaluate((el, d) => {
-          let node: HTMLElement | null = el as HTMLElement;
-          let hops = 0;
-          while (node && hops < 20) {
-            const st = window.getComputedStyle(node);
-            const scrollable =
-              (st.overflowY === "auto" || st.overflowY === "scroll") &&
-              node.scrollHeight - node.clientHeight > 4;
-            if (scrollable) {
-              const before = node.scrollTop;
-              node.scrollTop = before + d;
-              return { found: true, moved: node.scrollTop !== before, at: node.scrollTop, max: node.scrollHeight - node.clientHeight };
-            }
-            node = node.parentElement;
-            hops += 1;
+      const res = await loc.evaluate((el, d) => {
+        let node: HTMLElement | null = el as HTMLElement;
+        let hops = 0;
+        while (node && hops < 20) {
+          const st = window.getComputedStyle(node);
+          const scrollable =
+            (st.overflowY === "auto" || st.overflowY === "scroll") &&
+            node.scrollHeight - node.clientHeight > 4;
+          if (scrollable) {
+            const before = node.scrollTop;
+            node.scrollTop = before + d;
+            return {
+              found: true,
+              moved: node.scrollTop !== before,
+              at: node.scrollTop,
+              max: node.scrollHeight - node.clientHeight,
+            };
           }
-          return { found: false, moved: false, at: 0, max: 0 };
-        }, dy);
+          node = node.parentElement;
+          hops += 1;
+        }
+        return { found: false, moved: false, at: 0, max: 0 };
+      }, dy);
       await this.context.page.waitForTimeout(400); // let lazy loaders fire
       if (!res.found) {
         return (
@@ -181,34 +194,36 @@ export class BrowserPointer {
     await this.context.page.waitForTimeout(400);
     const after = await this.context.page.evaluate(() => window.scrollY);
     if (after !== before) {
-      return this.context.drainNotes() + `Scrolled ${direction} (page is now at y=${Math.round(after)}). Take a snapshot or screenshot to see the result.`;
+      return (
+        this.context.drainNotes() +
+        `Scrolled ${direction} (page is now at y=${Math.round(after)}). Take a snapshot or screenshot to see the result.`
+      );
     }
 
     // The window did not move: the real scrollbar probably belongs to an inner
     // pane (app shells with a fixed chrome do this). Drive the biggest one.
-    const inner = await this.context.page
-      .evaluate((d) => {
-        const els = document.querySelectorAll<HTMLElement>("*");
-        let best: HTMLElement | null = null;
-        let bestArea = 0;
-        for (let k = 0; k < els.length && k < 20000; k++) {
-          const el = els[k];
-          if (el.scrollHeight - el.clientHeight <= 24) continue;
-          const st = window.getComputedStyle(el);
-          if (st.overflowY !== "auto" && st.overflowY !== "scroll") continue;
-          const r = el.getBoundingClientRect();
-          const area = r.width * r.height;
-          if (area > bestArea) {
-            bestArea = area;
-            best = el;
-          }
+    const inner = await this.context.page.evaluate((d) => {
+      const els = document.querySelectorAll<HTMLElement>("*");
+      let best: HTMLElement | null = null;
+      let bestArea = 0;
+      for (let k = 0; k < els.length && k < 20000; k++) {
+        const el = els[k];
+        if (el.scrollHeight - el.clientHeight <= 24) continue;
+        const st = window.getComputedStyle(el);
+        if (st.overflowY !== "auto" && st.overflowY !== "scroll") continue;
+        const r = el.getBoundingClientRect();
+        const area = r.width * r.height;
+        if (area > bestArea) {
+          bestArea = area;
+          best = el;
         }
-        if (!best) return null;
-        const from = best.scrollTop;
-        best.scrollTop = from + d;
-        const name = best.id ? `#${best.id}` : best.tagName.toLowerCase();
-        return { name, moved: best.scrollTop !== from, at: best.scrollTop };
-      }, dy);
+      }
+      if (!best) return null;
+      const from = best.scrollTop;
+      best.scrollTop = from + d;
+      const name = best.id ? `#${best.id}` : best.tagName.toLowerCase();
+      return { name, moved: best.scrollTop !== from, at: best.scrollTop };
+    }, dy);
     await this.context.page.waitForTimeout(400);
     if (inner?.moved) {
       return (

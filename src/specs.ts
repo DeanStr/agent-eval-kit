@@ -1,5 +1,10 @@
 import { textPairwiseSchema } from "./text/contracts.js";
-import { pairwiseSchema, captureSchema, distinctnessSchema, imageRegressionSchema } from "./visual/contracts.js";
+import {
+  pairwiseSchema,
+  captureSchema,
+  distinctnessSchema,
+  imageRegressionSchema,
+} from "./visual/contracts.js";
 import { collectorSchema } from "./collectors/contracts.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -15,19 +20,26 @@ const graderSchema = z.discriminatedUnion("type", [
   imageRegressionSchema,
   z.object({ type: z.literal("capture") }).strict(),
   z.object({ type: z.literal("llm") }).strict(),
-  z.object({
-    type: z.literal("command"),
-    methodFiles: z.array(z.string().min(1)).max(500).refine(files => new Set(files).size === files.length, "methodFiles must be unique"),
-    output: z.enum(["json", "exit-code"]),
-    command: z.string().min(1),
-    cwd: z.union([z.literal("project"), z.literal("run"), z.string().min(1)]).optional(),
-    timeoutSeconds: z.number().positive().optional(),
-  }).strict(),
+  z
+    .object({
+      type: z.literal("command"),
+      methodFiles: z
+        .array(z.string().min(1))
+        .max(500)
+        .refine((files) => new Set(files).size === files.length, "methodFiles must be unique"),
+      output: z.enum(["json", "exit-code"]),
+      command: z.string().min(1),
+      cwd: z.union([z.literal("project"), z.literal("run"), z.string().min(1)]).optional(),
+      timeoutSeconds: z.number().positive().optional(),
+    })
+    .strict(),
   z.object({ type: z.literal("manual") }).strict(),
-  z.object({
-    type: z.literal("hybrid"),
-    autoShare: z.number().min(0).max(1).default(0.5),
-  }).strict(),
+  z
+    .object({
+      type: z.literal("hybrid"),
+      autoShare: z.number().min(0).max(1).default(0.5),
+    })
+    .strict(),
 ]);
 
 const splitSchema = z.enum(["development", "evaluation"]);
@@ -39,37 +51,55 @@ const artifactIdSchema = z
   .max(100, "must be at most 100 characters")
   .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/)
   .refine(isPortablePathComponent, "must not be a Windows reserved device name or end in a dot");
-const strataSchema = z.union([
-  z.array(z.string().min(1)).transform((value) => [...new Set(value)].sort()),
-  z.record(z.string().min(1), z.union([z.string(), z.number(), z.boolean()])).transform((value) =>
-    Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => `${key}=${String(item)}`),
-  ),
-]).default([]);
-const scenarioCaseSchema = z.object({
-  id: artifactIdSchema,
-  name: z.string().min(1).optional(),
-  variables: z.record(z.string(), z.unknown()).default({}),
-  strata: strataSchema,
-  split: splitSchema.optional(),
-}).strict();
+const strataSchema = z
+  .union([
+    z.array(z.string().min(1)).transform((value) => [...new Set(value)].sort()),
+    z.record(z.string().min(1), z.union([z.string(), z.number(), z.boolean()])).transform((value) =>
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => `${key}=${String(item)}`),
+    ),
+  ])
+  .default([]);
+const scenarioCaseSchema = z
+  .object({
+    id: artifactIdSchema,
+    name: z.string().min(1).optional(),
+    variables: z.record(z.string(), z.unknown()).default({}),
+    strata: strataSchema,
+    split: splitSchema.optional(),
+  })
+  .strict();
 
-const scenarioSchema = z.object({
-  id: artifactIdSchema,
-  name: z.string().min(1),
-  kind: z.enum(["browser", "workspace", "command"]).optional(),
-  persona: z.string().min(1).optional(),
-  allowedPersonas: z.array(artifactIdSchema).min(1).max(8).optional(),
-  outputs: z.record(artifactIdSchema, z.object({ type: z.enum(["string", "number", "boolean", "url"]) }).strict()).optional(),
-  inputs: z.record(artifactIdSchema, z.object({ from: artifactIdSchema, output: artifactIdSchema }).strict()).optional(),
-  instructions: z.string().min(1),
-  successSignals: z.array(z.string().min(1)).default([]),
-  dependsOn: z.array(z.string().min(1)).default([]),
-  requiresAuth: z.boolean().default(false),
-  split: splitSchema.optional(),
-  cases: z.array(scenarioCaseSchema).min(1).optional(),
-  capture: captureSchema.optional(),
-  collect: collectorSchema.optional(),
-}).strict();
+const scenarioSchema = z
+  .object({
+    id: artifactIdSchema,
+    name: z.string().min(1),
+    kind: z.enum(["browser", "workspace", "command"]).optional(),
+    persona: z.string().min(1).optional(),
+    allowedPersonas: z.array(artifactIdSchema).min(1).max(8).optional(),
+    outputs: z
+      .record(
+        artifactIdSchema,
+        z.object({ type: z.enum(["string", "number", "boolean", "url"]) }).strict(),
+      )
+      .optional(),
+    inputs: z
+      .record(
+        artifactIdSchema,
+        z.object({ from: artifactIdSchema, output: artifactIdSchema }).strict(),
+      )
+      .optional(),
+    instructions: z.string().min(1),
+    successSignals: z.array(z.string().min(1)).default([]),
+    dependsOn: z.array(z.string().min(1)).default([]),
+    requiresAuth: z.boolean().default(false),
+    split: splitSchema.optional(),
+    cases: z.array(scenarioCaseSchema).min(1).optional(),
+    capture: captureSchema.optional(),
+    collect: collectorSchema.optional(),
+  })
+  .strict();
 
 const rubricSchema = z
   .object({
@@ -84,12 +114,20 @@ const rubricSchema = z
     evidence: z.string().optional(),
     manualInstructions: z.string().optional(),
     gate: z.boolean().default(false),
-  }).strict()
+  })
+  .strict()
   .superRefine((item, context) => {
     if (item.grader.type === "text-pairwise" && item.scenarios.length) {
-      context.addIssue({ code: "custom", path: ["scenarios"], message: "text-pairwise reads candidate files directly; scenarios must be empty" });
+      context.addIssue({
+        code: "custom",
+        path: ["scenarios"],
+        message: "text-pairwise reads candidate files directly; scenarios must be empty",
+      });
     }
-    if ((item.grader.type === "manual" || item.grader.type === "hybrid") && !item.manualInstructions) {
+    if (
+      (item.grader.type === "manual" || item.grader.type === "hybrid") &&
+      !item.manualInstructions
+    ) {
       context.addIssue({
         code: "custom",
         path: ["manualInstructions"],
@@ -98,36 +136,48 @@ const rubricSchema = z
     }
   });
 
-const specSchema = z.object({
-  id: artifactIdSchema,
-  title: z.string().min(1),
-  weight: z.number().positive(),
-  optional: z.boolean().default(false),
-  description: z.string().min(1),
-  scenarios: z.array(scenarioSchema).default([]),
-  rubric: z.array(rubricSchema).min(1),
-}).strict().superRefine((spec, context) => {
-  if (!spec.scenarios.length && spec.rubric.some(item => !["command", "manual", "text-pairwise"].includes(item.grader.type))) {
-    context.addIssue({ code: "custom", path: ["scenarios"], message: "This area requires scenarios for its evidence-based graders" });
-  }
-});
+const specSchema = z
+  .object({
+    id: artifactIdSchema,
+    title: z.string().min(1),
+    weight: z.number().positive(),
+    optional: z.boolean().default(false),
+    description: z.string().min(1),
+    scenarios: z.array(scenarioSchema).default([]),
+    rubric: z.array(rubricSchema).min(1),
+  })
+  .strict()
+  .superRefine((spec, context) => {
+    if (
+      !spec.scenarios.length &&
+      spec.rubric.some((item) => !["command", "manual", "text-pairwise"].includes(item.grader.type))
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["scenarios"],
+        message: "This area requires scenarios for its evidence-based graders",
+      });
+    }
+  });
 
 const filesystemKey = (value: string) => value.toLowerCase();
-const reservedScenarioArtifactIds = new Set([
-  "areas",
-  "artifact-index.json",
-  "comparisons",
-  "inputs",
-  "lifecycle",
-  "manual-checklist.md",
-  "manual-results.json",
-  "manual-revisions.ndjson",
-  "receipt.json",
-  "report.html",
-  "report.json",
-  "run-state.json",
-  "run.log",
-].map(filesystemKey));
+const reservedScenarioArtifactIds = new Set(
+  [
+    "areas",
+    "artifact-index.json",
+    "comparisons",
+    "inputs",
+    "lifecycle",
+    "manual-checklist.md",
+    "manual-results.json",
+    "manual-revisions.ndjson",
+    "receipt.json",
+    "report.html",
+    "report.json",
+    "run-state.json",
+    "run.log",
+  ].map(filesystemKey),
+);
 
 export function loadSpecFile(file: string): EvalSpec {
   const raw = YAML.parse(fs.readFileSync(file, "utf8"));
@@ -165,7 +215,9 @@ export function loadSpecs(specsPath: string): EvalSpec[] {
   // IDs must be unique across the complete spec set rather than only within an
   // area. Seed this with every source ID first so the result is independent of
   // spec file ordering.
-  const sourceExecutableIds = specs.flatMap((spec) => spec.scenarios.map((scenario) => scenario.id));
+  const sourceExecutableIds = specs.flatMap((spec) =>
+    spec.scenarios.map((scenario) => scenario.id),
+  );
   const executableIds = new Set(sourceExecutableIds);
   const foldedExecutableIds = new Map<string, string>();
   for (const id of sourceExecutableIds) {
@@ -174,11 +226,16 @@ export function loadSpecs(specsPath: string): EvalSpec[] {
   const rubricIds = new Set<string>();
   const foldedRubricIds = new Map<string, string>();
   const problems: string[] = [];
-  const allScenarios = new Map(specs.flatMap(spec => spec.scenarios.map(scenario => [scenario.id, scenario] as const)));
+  const allScenarios = new Map(
+    specs.flatMap((spec) => spec.scenarios.map((scenario) => [scenario.id, scenario] as const)),
+  );
   for (const spec of specs) {
     const foldedArea = foldedAreaIds.get(filesystemKey(spec.id));
     if (areaIds.has(spec.id)) problems.push(`duplicate area id ${spec.id}`);
-    else if (foldedArea) problems.push(`area ids ${foldedArea} and ${spec.id} collide on case-insensitive filesystems`);
+    else if (foldedArea)
+      problems.push(
+        `area ids ${foldedArea} and ${spec.id} collide on case-insensitive filesystems`,
+      );
     areaIds.add(spec.id);
     if (!foldedArea) foldedAreaIds.set(filesystemKey(spec.id), spec.id);
     const localScenarios = new Set(spec.scenarios.map((scenario) => scenario.id));
@@ -186,7 +243,10 @@ export function loadSpecs(specsPath: string): EvalSpec[] {
       const scenarioKey = filesystemKey(scenario.id);
       const foldedScenario = foldedScenarioIds.get(scenarioKey);
       if (scenarioIds.has(scenario.id)) problems.push(`duplicate scenario id ${scenario.id}`);
-      else if (foldedScenario) problems.push(`scenario ids ${foldedScenario} and ${scenario.id} collide on case-insensitive filesystems`);
+      else if (foldedScenario)
+        problems.push(
+          `scenario ids ${foldedScenario} and ${scenario.id} collide on case-insensitive filesystems`,
+        );
       if (reservedScenarioArtifactIds.has(scenarioKey)) {
         problems.push(`scenario id ${scenario.id} is reserved by the run artifact layout`);
       }
@@ -197,23 +257,32 @@ export function loadSpecs(specsPath: string): EvalSpec[] {
       for (const scenarioCase of scenario.cases ?? []) {
         const caseKey = filesystemKey(scenarioCase.id);
         const foldedCase = foldedLocalCases.get(caseKey);
-        if (localCases.has(scenarioCase.id)) problems.push(`duplicate case id ${scenarioCase.id} in scenario ${scenario.id}`);
-        else if (foldedCase) problems.push(`case ids ${foldedCase} and ${scenarioCase.id} in scenario ${scenario.id} collide on case-insensitive filesystems`);
+        if (localCases.has(scenarioCase.id))
+          problems.push(`duplicate case id ${scenarioCase.id} in scenario ${scenario.id}`);
+        else if (foldedCase)
+          problems.push(
+            `case ids ${foldedCase} and ${scenarioCase.id} in scenario ${scenario.id} collide on case-insensitive filesystems`,
+          );
         localCases.add(scenarioCase.id);
         if (!foldedCase) foldedLocalCases.set(caseKey, scenarioCase.id);
         const expandedId = executionId(scenario.id, scenarioCase.id);
         const expandedKey = filesystemKey(expandedId);
         if (executableIds.has(expandedId) || foldedExecutableIds.has(expandedKey)) {
-          problems.push(`expanded scenario id ${expandedId} collides with another scenario or case across the spec set (found in area ${spec.id})`);
+          problems.push(
+            `expanded scenario id ${expandedId} collides with another scenario or case across the spec set (found in area ${spec.id})`,
+          );
         }
         if (reservedScenarioArtifactIds.has(expandedKey)) {
-          problems.push(`expanded scenario id ${expandedId} is reserved by the run artifact layout`);
+          problems.push(
+            `expanded scenario id ${expandedId} is reserved by the run artifact layout`,
+          );
         }
         executableIds.add(expandedId);
         if (!foldedExecutableIds.has(expandedKey)) foldedExecutableIds.set(expandedKey, expandedId);
       }
       for (const dependency of scenario.dependsOn) {
-        if (!allScenarios.has(dependency)) problems.push(`${scenario.id} depends on unknown scenario ${dependency}`);
+        if (!allScenarios.has(dependency))
+          problems.push(`${scenario.id} depends on unknown scenario ${dependency}`);
       }
     }
     for (const scenario of spec.scenarios) {
@@ -225,35 +294,47 @@ export function loadSpecs(specsPath: string): EvalSpec[] {
           for (const scenarioCase of scenario.cases) {
             const dependencyCase = dependencyCases.get(scenarioCase.id);
             if (!dependencyCase) {
-              problems.push(`${scenario.id}/${scenarioCase.id} has no matching dependency case ${dependency}/${scenarioCase.id}`);
+              problems.push(
+                `${scenario.id}/${scenarioCase.id} has no matching dependency case ${dependency}/${scenarioCase.id}`,
+              );
               continue;
             }
             if (stableJson(scenarioCase.strata) !== stableJson(dependencyCase.strata)) {
-              problems.push(`${scenario.id}/${scenarioCase.id} has different strata from dependency ${dependency}/${scenarioCase.id}`);
+              problems.push(
+                `${scenario.id}/${scenarioCase.id} has different strata from dependency ${dependency}/${scenarioCase.id}`,
+              );
             }
             const scenarioSplit = scenarioCase.split ?? scenario.split;
             const dependencySplit = dependencyCase.split ?? dependencyScenario.split;
             if (dependencySplit && scenarioSplit !== dependencySplit) {
-              problems.push(scenarioSplit
-                ? `${scenario.id}/${scenarioCase.id} has split ${scenarioSplit} but dependency ${dependency}/${scenarioCase.id} has split ${dependencySplit}`
-                : `${scenario.id}/${scenarioCase.id} runs in every split but dependency ${dependency}/${scenarioCase.id} has split ${dependencySplit}`);
+              problems.push(
+                scenarioSplit
+                  ? `${scenario.id}/${scenarioCase.id} has split ${scenarioSplit} but dependency ${dependency}/${scenarioCase.id} has split ${dependencySplit}`
+                  : `${scenario.id}/${scenarioCase.id} runs in every split but dependency ${dependency}/${scenarioCase.id} has split ${dependencySplit}`,
+              );
             }
           }
         } else if (!scenario.cases?.length && dependencyScenario.cases?.length) {
-          problems.push(`${scenario.id} cannot depend on matrix scenario ${dependency} without defining matching cases`);
+          problems.push(
+            `${scenario.id} cannot depend on matrix scenario ${dependency} without defining matching cases`,
+          );
         } else if (scenario.cases?.length) {
           for (const scenarioCase of scenario.cases) {
             const scenarioSplit = scenarioCase.split ?? scenario.split;
             if (dependencyScenario.split && scenarioSplit !== dependencyScenario.split) {
-              problems.push(scenarioSplit
-                ? `${scenario.id}/${scenarioCase.id} has split ${scenarioSplit} but dependency ${dependency} has split ${dependencyScenario.split}`
-                : `${scenario.id}/${scenarioCase.id} runs in every split but dependency ${dependency} has split ${dependencyScenario.split}`);
+              problems.push(
+                scenarioSplit
+                  ? `${scenario.id}/${scenarioCase.id} has split ${scenarioSplit} but dependency ${dependency} has split ${dependencyScenario.split}`
+                  : `${scenario.id}/${scenarioCase.id} runs in every split but dependency ${dependency} has split ${dependencyScenario.split}`,
+              );
             }
           }
         } else if (dependencyScenario.split && scenario.split !== dependencyScenario.split) {
-          problems.push(scenario.split
-            ? `${scenario.id} has split ${scenario.split} but dependency ${dependency} has split ${dependencyScenario.split}`
-            : `${scenario.id} runs in every split but dependency ${dependency} has split ${dependencyScenario.split}`);
+          problems.push(
+            scenario.split
+              ? `${scenario.id} has split ${scenario.split} but dependency ${dependency} has split ${dependencyScenario.split}`
+              : `${scenario.id} runs in every split but dependency ${dependency} has split ${dependencyScenario.split}`,
+          );
         }
       }
     }
@@ -261,14 +342,28 @@ export function loadSpecs(specsPath: string): EvalSpec[] {
       const rubricKey = filesystemKey(item.id);
       const foldedRubric = foldedRubricIds.get(rubricKey);
       if (rubricIds.has(item.id)) problems.push(`duplicate rubric id ${item.id}`);
-      else if (foldedRubric) problems.push(`rubric ids ${foldedRubric} and ${item.id} collide on case-insensitive filesystems`);
+      else if (foldedRubric)
+        problems.push(
+          `rubric ids ${foldedRubric} and ${item.id} collide on case-insensitive filesystems`,
+        );
       rubricIds.add(item.id);
       if (!foldedRubric) foldedRubricIds.set(rubricKey, item.id);
-      if (["pairwise", "capture", "image-distinctness", "image-regression"].includes(item.grader.type) && !item.scenarios.length) problems.push(`${item.id} requires scenarios`);
-      if (new Set(item.scenarios).size !== item.scenarios.length) problems.push(`${item.id} repeats scenario references`);
+      if (
+        ["pairwise", "capture", "image-distinctness", "image-regression"].includes(
+          item.grader.type,
+        ) &&
+        !item.scenarios.length
+      )
+        problems.push(`${item.id} requires scenarios`);
+      if (new Set(item.scenarios).size !== item.scenarios.length)
+        problems.push(`${item.id} repeats scenario references`);
       if (item.grader.type === "image-distinctness") {
-        const count = item.scenarios.reduce((n, id) => n + (spec.scenarios.find(s => s.id === id)?.cases?.length ?? 1), 0);
-        if (count < 2 || count > 100) problems.push(`${item.id}: image-distinctness requires 2–100 materialized scenarios`);
+        const count = item.scenarios.reduce(
+          (n, id) => n + (spec.scenarios.find((s) => s.id === id)?.cases?.length ?? 1),
+          0,
+        );
+        if (count < 2 || count > 100)
+          problems.push(`${item.id}: image-distinctness requires 2–100 materialized scenarios`);
       }
 
       for (const scenarioId of item.scenarios) {
@@ -281,7 +376,10 @@ export function loadSpecs(specsPath: string): EvalSpec[] {
   const visiting = new Set<string>();
   const visited = new Set<string>();
   function visit(id: string): void {
-    if (visiting.has(id)) { problems.push(`Scenario dependency cycle includes ${id}`); return; }
+    if (visiting.has(id)) {
+      problems.push(`Scenario dependency cycle includes ${id}`);
+      return;
+    }
     if (visited.has(id)) return;
     visiting.add(id);
     for (const dependency of allScenarios.get(id)?.dependsOn ?? []) visit(dependency);
@@ -291,15 +389,27 @@ export function loadSpecs(specsPath: string): EvalSpec[] {
   for (const scenario of allScenarios.values()) {
     visit(scenario.id);
     for (const [name, binding] of Object.entries(scenario.inputs ?? {})) {
-      if (!scenario.dependsOn.includes(binding.from)) problems.push(`${scenario.id}.inputs.${name}: ${binding.from} must be declared in dependsOn`);
-      if (!Object.hasOwn(allScenarios.get(binding.from)?.outputs ?? {}, binding.output)) problems.push(`${scenario.id}.inputs.${name}: unknown output ${binding.from}.${binding.output}`);
+      if (!scenario.dependsOn.includes(binding.from))
+        problems.push(
+          `${scenario.id}.inputs.${name}: ${binding.from} must be declared in dependsOn`,
+        );
+      if (!Object.hasOwn(allScenarios.get(binding.from)?.outputs ?? {}, binding.output))
+        problems.push(
+          `${scenario.id}.inputs.${name}: unknown output ${binding.from}.${binding.output}`,
+        );
     }
     if (scenario.allowedPersonas) {
-      if (new Set(scenario.allowedPersonas).size !== scenario.allowedPersonas.length) problems.push(`${scenario.id}: allowedPersonas must be unique`);
-      if (!scenario.allowedPersonas.includes(scenario.persona ?? "anonymous")) problems.push(`${scenario.id}: allowedPersonas must include the starting persona (or anonymous)`);
+      if (new Set(scenario.allowedPersonas).size !== scenario.allowedPersonas.length)
+        problems.push(`${scenario.id}: allowedPersonas must be unique`);
+      if (!scenario.allowedPersonas.includes(scenario.persona ?? "anonymous"))
+        problems.push(
+          `${scenario.id}: allowedPersonas must include the starting persona (or anonymous)`,
+        );
     }
   }
-  const requiredWeight = specs.filter((spec) => !spec.optional).reduce((sum, spec) => sum + spec.weight, 0);
+  const requiredWeight = specs
+    .filter((spec) => !spec.optional)
+    .reduce((sum, spec) => sum + spec.weight, 0);
   if (Math.abs(requiredWeight - 100) > 0.0001) {
     problems.push(`required area weights must sum to 100; got ${requiredWeight}`);
   }
@@ -315,22 +425,36 @@ export function assertScenarioTargetCompatibility(
   for (const spec of specs) {
     for (const scenario of spec.scenarios) {
       const kind = scenario.kind ?? (target.kind === "web" ? "browser" : "workspace");
-      if ((kind === "command") !== Boolean(scenario.collect)) problems.push(`${scenario.id}: command mode requires collect, and collect requires command mode`);
-      if ((scenario.collect || scenario.capture) && (scenario.outputs || scenario.inputs)) problems.push(`${scenario.id}: input/output bindings currently require agent collection`);
-      if (scenario.allowedPersonas && (kind !== "browser" || scenario.capture)) problems.push(`${scenario.id}: allowedPersonas requires agent-driven browser collection`);
-      if (scenario.collect && scenario.persona) problems.push(`${scenario.id}: command collectors cannot use browser personas`);
-      if (scenario.capture && kind !== "browser") problems.push(`${scenario.id}: capture requires browser mode`);
-      if (scenario.capture && scenario.dependsOn.length) problems.push(`${scenario.id}: controlled captures must reset independently and cannot depend on scenarios`);
+      if ((kind === "command") !== Boolean(scenario.collect))
+        problems.push(
+          `${scenario.id}: command mode requires collect, and collect requires command mode`,
+        );
+      if ((scenario.collect || scenario.capture) && (scenario.outputs || scenario.inputs))
+        problems.push(`${scenario.id}: input/output bindings currently require agent collection`);
+      if (scenario.allowedPersonas && (kind !== "browser" || scenario.capture))
+        problems.push(`${scenario.id}: allowedPersonas requires agent-driven browser collection`);
+      if (scenario.collect && scenario.persona)
+        problems.push(`${scenario.id}: command collectors cannot use browser personas`);
+      if (scenario.capture && kind !== "browser")
+        problems.push(`${scenario.id}: capture requires browser mode`);
+      if (scenario.capture && scenario.dependsOn.length)
+        problems.push(
+          `${scenario.id}: controlled captures must reset independently and cannot depend on scenarios`,
+        );
       if (kind === "browser" && !target.url) {
         problems.push(`${scenario.id} uses browser mode but target.url is not configured`);
       }
       if (!scenario.requiresAuth) continue;
-      if (scenario.persona === "anonymous") problems.push(`${scenario.id}: anonymous cannot require authentication`);
-      if (!scenario.persona) problems.push(`${scenario.id} requires authentication but has no persona`);
-      if (kind !== "browser") problems.push(`${scenario.id} requires authentication but resolves to workspace mode`);
+      if (scenario.persona === "anonymous")
+        problems.push(`${scenario.id}: anonymous cannot require authentication`);
+      if (!scenario.persona)
+        problems.push(`${scenario.id} requires authentication but has no persona`);
+      if (kind !== "browser")
+        problems.push(`${scenario.id} requires authentication but resolves to workspace mode`);
     }
   }
-  if (problems.length) throw new Error(`Scenario target validation failed:\n  - ${problems.join("\n  - ")}`);
+  if (problems.length)
+    throw new Error(`Scenario target validation failed:\n  - ${problems.join("\n  - ")}`);
 }
 
 const executionId = (scenarioId: string, caseId: string) => `${scenarioId}--${caseId}`;
@@ -340,11 +464,20 @@ function splitMatches(value: EvalSplit | undefined, selected: EvalSplit | "all")
 }
 
 /** Expand parameterized cases into stable executable scenarios and rubric references. */
-export function materializeSpec(spec: EvalSpec, selectedSplit: EvalSplit | "all" = "all", suite: EvalSpec[] = [spec]): EvalSpec {
-  const sourceById = new Map(suite.flatMap(area => area.scenarios.map((scenario) => [scenario.id, scenario] as const)));
+export function materializeSpec(
+  spec: EvalSpec,
+  selectedSplit: EvalSplit | "all" = "all",
+  suite: EvalSpec[] = [spec],
+): EvalSpec {
+  const sourceById = new Map(
+    suite.flatMap((area) => area.scenarios.map((scenario) => [scenario.id, scenario] as const)),
+  );
   const dependencyInstance = (id: string, caseId: string): string => {
     const dependency = sourceById.get(id);
-    if (!dependency) throw new Error(`Cannot expand dependency ${id}: its scenario is outside the supplied suite. Include the prerequisite area.`);
+    if (!dependency)
+      throw new Error(
+        `Cannot expand dependency ${id}: its scenario is outside the supplied suite. Include the prerequisite area.`,
+      );
     return dependency.cases?.length ? executionId(id, caseId) : id;
   };
   const expandedBySource = new Map<string, Scenario[]>();
@@ -356,17 +489,29 @@ export function materializeSpec(spec: EvalSpec, selectedSplit: EvalSplit | "all"
           .map((scenarioCase) => ({
             ...source,
             id: executionId(source.id, scenarioCase.id),
-            name: scenarioCase.name ? `${source.name} — ${scenarioCase.name}` : `${source.name} — ${scenarioCase.id}`,
+            name: scenarioCase.name
+              ? `${source.name} — ${scenarioCase.name}`
+              : `${source.name} — ${scenarioCase.id}`,
             sourceScenarioId: source.id,
             caseId: scenarioCase.id,
             caseVariables: scenarioCase.variables,
             strata: scenarioCase.strata,
             split: scenarioCase.split ?? source.split,
             cases: undefined,
-            inputs: source.inputs ? Object.fromEntries(Object.entries(source.inputs).map(([name, binding]) => [name, {
-              ...binding, from: dependencyInstance(binding.from, scenarioCase.id),
-            }])) : undefined,
-            dependsOn: source.dependsOn.map(dependency => dependencyInstance(dependency, scenarioCase.id)),
+            inputs: source.inputs
+              ? Object.fromEntries(
+                  Object.entries(source.inputs).map(([name, binding]) => [
+                    name,
+                    {
+                      ...binding,
+                      from: dependencyInstance(binding.from, scenarioCase.id),
+                    },
+                  ]),
+                )
+              : undefined,
+            dependsOn: source.dependsOn.map((dependency) =>
+              dependencyInstance(dependency, scenarioCase.id),
+            ),
           }))
       : splitMatches(source.split, selectedSplit)
         ? [{ ...source, sourceScenarioId: source.id, cases: undefined }]
@@ -376,50 +521,94 @@ export function materializeSpec(spec: EvalSpec, selectedSplit: EvalSplit | "all"
   }
   const rubric: RubricItem[] = spec.rubric.flatMap((item) => {
     if (!item.scenarios.length) return [{ ...item }];
-    const references = item.scenarios.flatMap((id) => expandedBySource.get(id)?.map((scenario) => scenario.id) ?? []);
+    const references = item.scenarios.flatMap(
+      (id) => expandedBySource.get(id)?.map((scenario) => scenario.id) ?? [],
+    );
     return references.length ? [{ ...item, scenarios: references }] : [];
   });
   return { ...spec, scenarios, rubric };
 }
 
-export function materializeSpecs(specs: EvalSpec[], selectedSplit: EvalSplit | "all" = "all"): EvalSpec[] {
+export function materializeSpecs(
+  specs: EvalSpec[],
+  selectedSplit: EvalSplit | "all" = "all",
+): EvalSpec[] {
   // Plan with source IDs first: resolving dependencies of an unused matrix can
   // otherwise demand an area that the executable workflow does not need.
-  const active = specs.map(spec => ({ ...spec, scenarios: spec.scenarios.filter(scenario => scenario.cases?.length
-    ? scenario.cases.some(item => splitMatches(item.split ?? scenario.split, selectedSplit))
-    : splitMatches(scenario.split, selectedSplit)) }));
-  const scored = new Set(active.filter(spec => spec.rubric.some(item => !item.scenarios.length ||
-    item.scenarios.some(id => spec.scenarios.some(scenario => scenario.id === id)))).map(spec => spec.id));
-  const byId = new Map(active.flatMap(spec => spec.scenarios.map(scenario => [scenario.id, scenario] as const)));
+  const active = specs.map((spec) => ({
+    ...spec,
+    scenarios: spec.scenarios.filter((scenario) =>
+      scenario.cases?.length
+        ? scenario.cases.some((item) => splitMatches(item.split ?? scenario.split, selectedSplit))
+        : splitMatches(scenario.split, selectedSplit),
+    ),
+  }));
+  const scored = new Set(
+    active
+      .filter((spec) =>
+        spec.rubric.some(
+          (item) =>
+            !item.scenarios.length ||
+            item.scenarios.some((id) => spec.scenarios.some((scenario) => scenario.id === id)),
+        ),
+      )
+      .map((spec) => spec.id),
+  );
+  const byId = new Map(
+    active.flatMap((spec) => spec.scenarios.map((scenario) => [scenario.id, scenario] as const)),
+  );
   const required = new Set<string>();
   function include(id: string): void {
     if (required.has(id)) return;
     const scenario = byId.get(id);
-    if (!scenario) throw new Error(`Required scenario ${id} is outside the selected areas/split. Include its prerequisite area and matching split.`);
+    if (!scenario)
+      throw new Error(
+        `Required scenario ${id} is outside the selected areas/split. Include its prerequisite area and matching split.`,
+      );
     required.add(id);
     scenario.dependsOn.forEach(include);
   }
-  for (const spec of active) if (scored.has(spec.id)) spec.scenarios.forEach(scenario => { include(scenario.id); });
+  for (const spec of active)
+    if (scored.has(spec.id))
+      spec.scenarios.forEach((scenario) => {
+        include(scenario.id);
+      });
   // Areas without scoring items contribute only prerequisites, never score weight.
-  return active.flatMap(spec => {
+  return active.flatMap((spec) => {
     if (scored.has(spec.id)) return [materializeSpec(spec, selectedSplit, specs)];
-    const scenarios = spec.scenarios.filter(scenario => required.has(scenario.id));
-    return scenarios.length ? [materializeSpec({ ...spec, scenarios, rubric: [] }, selectedSplit, specs)] : [];
+    const scenarios = spec.scenarios.filter((scenario) => required.has(scenario.id));
+    return scenarios.length
+      ? [materializeSpec({ ...spec, scenarios, rubric: [] }, selectedSplit, specs)]
+      : [];
   });
 }
 
-export function assertScenarioSelectors(specs: EvalSpec[], ids: string[] | undefined, split: EvalSplit | "all"): void {
+export function assertScenarioSelectors(
+  specs: EvalSpec[],
+  ids: string[] | undefined,
+  split: EvalSplit | "all",
+): void {
   if (!ids?.length) return;
-  const knownSelectors = new Set(specs.flatMap((spec) => spec.scenarios.flatMap((scenario) =>
-    [scenario.id, scenario.sourceScenarioId].filter((value): value is string => Boolean(value)),
-  )));
+  const knownSelectors = new Set(
+    specs.flatMap((spec) =>
+      spec.scenarios.flatMap((scenario) =>
+        [scenario.id, scenario.sourceScenarioId].filter((value): value is string => Boolean(value)),
+      ),
+    ),
+  );
   const unknown = [...new Set(ids)].filter((id) => !knownSelectors.has(id));
   if (unknown.length) {
-    throw new Error(`Unknown scenario selector${unknown.length === 1 ? "" : "s"} for split ${split}: ${unknown.join(", ")}. Known selectors: ${[...knownSelectors].sort().join(", ") || "none"}`);
+    throw new Error(
+      `Unknown scenario selector${unknown.length === 1 ? "" : "s"} for split ${split}: ${unknown.join(", ")}. Known selectors: ${[...knownSelectors].sort().join(", ") || "none"}`,
+    );
   }
 }
 
-export function selectSpecs(specs: EvalSpec[], ids?: string[], includeOptional = false): EvalSpec[] {
+export function selectSpecs(
+  specs: EvalSpec[],
+  ids?: string[],
+  includeOptional = false,
+): EvalSpec[] {
   if (!ids?.length) return specs.filter((spec) => !spec.optional || includeOptional);
   const byId = new Map(specs.map((spec) => [spec.id, spec]));
   return [...new Set(ids)].map((id) => {
@@ -459,6 +648,7 @@ export function loadFixtures(file?: string): unknown {
       problems.push(`files.${name} is not a regular file: ${resolved}`);
     }
   }
-  if (problems.length) throw new Error(`Fixture validation failed:\n  - ${problems.join("\n  - ")}`);
+  if (problems.length)
+    throw new Error(`Fixture validation failed:\n  - ${problems.join("\n  - ")}`);
   return fixtures;
 }

@@ -50,7 +50,9 @@ test("readiness polling does not sleep past its configured deadline", async () =
   assert.ok(Date.now() - started < 1_000, "readiness failure slept beyond its deadline");
 });
 
-test("a readiness command cannot become successful by exiting zero after its timeout", { skip: process.platform === "win32" }, async () => {
+test("a readiness command cannot become successful by exiting zero after its timeout", {
+  skip: process.platform === "win32",
+}, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-ready-timeout-"));
   const config: EvalConfig = {
     version: 1,
@@ -74,7 +76,9 @@ test("a readiness command cannot become successful by exiting zero after its tim
   await assert.rejects(() => startLifecycle(config, root), /readiness command timed out/);
 });
 
-test("a setup command cannot become successful by exiting zero after its timeout", { skip: process.platform === "win32" }, async () => {
+test("a setup command cannot become successful by exiting zero after its timeout", {
+  skip: process.platform === "win32",
+}, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-setup-timeout-"));
   const config: EvalConfig = {
     version: 1,
@@ -97,7 +101,9 @@ test("a setup command cannot become successful by exiting zero after its timeout
   await assert.rejects(() => startLifecycle(config, root), /setup command timed out after 0\.05s/);
 });
 
-test("a signal-terminated start command is rejected with and without a readiness probe", { skip: process.platform === "win32" }, async () => {
+test("a signal-terminated start command is rejected with and without a readiness probe", {
+  skip: process.platform === "win32",
+}, async () => {
   for (const ready of [undefined, { command: "exit 1", timeoutSeconds: 2, intervalMs: 10 }]) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-signaled-start-"));
     const config: EvalConfig = {
@@ -120,7 +126,9 @@ test("a signal-terminated start command is rejected with and without a readiness
   }
 });
 
-test("stopping a managed target kills descendants that outlive the start shell", { skip: process.platform === "win32" }, async () => {
+test("stopping a managed target kills descendants that outlive the start shell", {
+  skip: process.platform === "win32",
+}, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-start-descendant-"));
   const pidFile = path.join(root, "descendant.pid");
   const command = `sh -c 'trap "" TERM; echo $$ > ${JSON.stringify(pidFile)}; while :; do sleep 1; done' & wait`;
@@ -149,7 +157,11 @@ test("stopping a managed target kills descendants that outlive the start shell",
     assert.throws(() => process.kill(descendantPid, 0), /ESRCH/);
   } finally {
     if (descendantPid > 0) {
-      try { process.kill(descendantPid, "SIGKILL"); } catch { /* Already stopped. */ }
+      try {
+        process.kill(descendantPid, "SIGKILL");
+      } catch {
+        /* Already stopped. */
+      }
     }
     fs.rmSync(root, { recursive: true, force: true });
   }

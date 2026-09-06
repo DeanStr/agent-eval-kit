@@ -25,7 +25,9 @@ export async function runClaude(invocation: ProviderInvocation): Promise<Provide
     // Safe mode also disables an explicitly supplied evidence MCP. Isolate the
     // configuration home instead, copying only subscription credentials and
     // leaving user memories, settings, plugins, hooks, and sessions behind.
-    const sourceConfig = path.resolve(process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude"));
+    const sourceConfig = path.resolve(
+      process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude"),
+    );
     const credentials = path.join(sourceConfig, ".credentials.json");
     let persistCredentials: (() => void) | undefined;
     if (fs.existsSync(credentials) && fs.statSync(credentials).isFile()) {
@@ -115,8 +117,8 @@ async function runIsolatedClaude(
               // every structured result, so it is part of the output channel,
               // not a breach of the evidence boundary.
               const structuredOutput = block.name === "StructuredOutput";
-              const allowedMcpTool = invocation.mcp &&
-                String(block.name).startsWith(`mcp__${invocation.mcp.name}__`);
+              const allowedMcpTool =
+                invocation.mcp && String(block.name).startsWith(`mcp__${invocation.mcp.name}__`);
               if (!invocation.allowWorkspaceTools && !structuredOutput && !allowedMcpTool) {
                 policyViolations.add(String(block.name));
               }
@@ -125,7 +127,8 @@ async function runIsolatedClaude(
           }
         }
         if (event.type === "result") {
-          finalText = typeof event.result === "string" ? event.result : JSON.stringify(event.result ?? "");
+          finalText =
+            typeof event.result === "string" ? event.result : JSON.stringify(event.result ?? "");
           structured = event.structured_output ?? parseJsonText(finalText);
           usage = event.usage ?? usage;
         }

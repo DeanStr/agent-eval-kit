@@ -12,7 +12,9 @@ if (!contextFile) {
   process.exit(2);
 }
 
-const context = JSON.parse(fs.readFileSync(path.resolve(contextFile), "utf8")) as EvidenceMcpContext;
+const context = JSON.parse(
+  fs.readFileSync(path.resolve(contextFile), "utf8"),
+) as EvidenceMcpContext;
 const root = fs.realpathSync(context.attachmentRoot);
 let calls = 0;
 
@@ -29,20 +31,24 @@ function attachment(reference: string): string {
 }
 
 function record(reference: string, result: string, isError = false): void {
-  fs.appendFileSync(context.transcriptFile, `${JSON.stringify({
-    at: new Date().toISOString(),
-    tool: "view_screenshot",
-    reference,
-    result,
-    ...(isError ? { isError: true } : {}),
-  })}\n`);
+  fs.appendFileSync(
+    context.transcriptFile,
+    `${JSON.stringify({
+      at: new Date().toISOString(),
+      tool: "view_screenshot",
+      reference,
+      result,
+      ...(isError ? { isError: true } : {}),
+    })}\n`,
+  );
 }
 
 const server = new McpServer({ name: "agent-eval-evidence", version: "0.1.0" });
 server.registerTool(
   "view_screenshot",
   {
-    description: "View one screenshot selected for this judgement, using its exact canonical evidence ref.",
+    description:
+      "View one screenshot selected for this judgement, using its exact canonical evidence ref.",
     inputSchema: { ref: z.string().min(1) },
   },
   ({ ref }) => {

@@ -3,11 +3,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { shellInvocation, spawnCaptured, subscriptionEnvironment } from "../src/providers/process.js";
+import {
+  shellInvocation,
+  spawnCaptured,
+  subscriptionEnvironment,
+} from "../src/providers/process.js";
 import { withCancellation } from "../src/cancellation.js";
 
 for (const reason of ["timeout", "cancellation"] as const) {
-  test(`${reason} waits for descendants after the captured leader exits`, { skip: process.platform === "win32", timeout: 15_000 }, async () => {
+  test(`${reason} waits for descendants after the captured leader exits`, {
+    skip: process.platform === "win32",
+    timeout: 15_000,
+  }, async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-process-descendant-"));
     const controller = new AbortController();
     let descendantPid = 0;
@@ -16,30 +23,47 @@ for (const reason of ["timeout", "cancellation"] as const) {
     const descendant = `process.on('SIGTERM',()=>{}); process.send(process.pid); setInterval(()=>{},1000);`;
     const parent = `const {spawn}=require('node:child_process'); const child=spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:['ignore','ignore','ignore','ipc']}); child.once('message',pid=>console.log(pid)); setInterval(()=>{},1000);`;
     try {
-      const invocation = withCancellation(controller.signal, () => spawnCaptured({
-        command: process.execPath, args: ["-e", parent], cwd: root,
-        timeoutSeconds: reason === "timeout" ? 1 : 30,
-        stdoutFile: path.join(root, "stdout.log"), stderrFile: path.join(root, "stderr.log"),
-        onLine: (stream, line) => {
-          if (stream !== "stdout") return;
-          descendantPid = Number(line);
-          if (reason === "cancellation") controller.abort(new Error("test interruption"));
-        },
-      }));
+      const invocation = withCancellation(controller.signal, () =>
+        spawnCaptured({
+          command: process.execPath,
+          args: ["-e", parent],
+          cwd: root,
+          timeoutSeconds: reason === "timeout" ? 1 : 30,
+          stdoutFile: path.join(root, "stdout.log"),
+          stderrFile: path.join(root, "stderr.log"),
+          onLine: (stream, line) => {
+            if (stream !== "stdout") return;
+            descendantPid = Number(line);
+            if (reason === "cancellation") controller.abort(new Error("test interruption"));
+          },
+        }),
+      );
       if (reason === "timeout") assert.equal((await invocation).timedOut, true);
       else await assert.rejects(invocation, /test interruption/);
       assert.ok(descendantPid > 0, "descendant started before termination");
       assert.throws(() => process.kill(descendantPid, 0), /ESRCH/);
     } finally {
-      if (descendantPid) { try { process.kill(descendantPid, "SIGKILL"); } catch { /* already gone */ } }
+      if (descendantPid) {
+        try {
+          process.kill(descendantPid, "SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      }
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 }
 
 test("shell execution rejects native Windows instead of guessing at process cleanup", () => {
-  assert.throws(() => shellInvocation("pnpm test", "win32"), /Native Windows evaluation is not supported/);
-  assert.deepEqual(shellInvocation("pnpm test", "linux"), { command: "bash", args: ["--noprofile", "--norc", "-c", "pnpm test"] });
+  assert.throws(
+    () => shellInvocation("pnpm test", "win32"),
+    /Native Windows evaluation is not supported/,
+  );
+  assert.deepEqual(shellInvocation("pnpm test", "linux"), {
+    command: "bash",
+    args: ["--noprofile", "--norc", "-c", "pnpm test"],
+  });
 });
 
 test("subscription provider environments expose only required runtime settings", () => {

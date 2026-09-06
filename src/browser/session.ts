@@ -62,25 +62,36 @@ export class BrowserSession {
     private readonly viewport: { width: number; height: number } = { width: 1280, height: 800 },
     private readonly actionTimeoutMs = 10_000,
     private readonly popupPolicy: "same-origin" | "authentication" = "same-origin",
-    private readonly captureOptions?: { lossless?: boolean; software?: boolean; disableAnimations?: boolean; namespace?: number },
+    private readonly captureOptions?: {
+      lossless?: boolean;
+      software?: boolean;
+      disableAnimations?: boolean;
+      namespace?: number;
+    },
   ) {
     this.refCounter = (captureOptions?.namespace ?? 0) * 1_000_000;
     const session = this;
     this.interaction = {
-      get page() { return session.page; },
-      get frameEditors() { return session.frameEditors; },
-      get refFrames() { return session.refFrames; },
+      get page() {
+        return session.page;
+      },
+      get frameEditors() {
+        return session.frameEditors;
+      },
+      get refFrames() {
+        return session.refFrames;
+      },
       actionTimeoutMs,
-      refLocator: ref => this.refLocator(ref),
-      refMissing: locator => this.refMissing(locator),
-      stale: ref => this.stale(ref),
-      isAllowedFrame: frame => this.isAllowedFrame(frame),
+      refLocator: (ref) => this.refLocator(ref),
+      refMissing: (locator) => this.refMissing(locator),
+      stale: (ref) => this.stale(ref),
+      isAllowedFrame: (frame) => this.isAllowedFrame(frame),
       allowedFrames: () => this.allowedFrames(),
       enforceOrigin: () => this.enforceOrigin(),
       postflightOrigin: () => this.postflightOrigin(),
       drainNotes: () => this.drainNotes(),
       snapshot: () => this.snapshot(),
-      click: ref => this.click(ref),
+      click: (ref) => this.click(ref),
     };
     this.forms = new BrowserForms(this.interaction);
     this.pointer = new BrowserPointer(this.interaction);
@@ -88,7 +99,12 @@ export class BrowserSession {
 
   async start(): Promise<void> {
     assertEvaluationPlatform();
-    this.browser = await chromium.launch({ headless: this.headless, args: this.captureOptions?.software ? ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] : [] });
+    this.browser = await chromium.launch({
+      headless: this.headless,
+      args: this.captureOptions?.software
+        ? ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"]
+        : [],
+    });
     try {
       this.context = await this.browser.newContext({
         viewport: this.viewport,
@@ -98,7 +114,12 @@ export class BrowserSession {
         ...(this.storageStatePath ? { storageState: this.storageStatePath } : {}),
       });
       fs.mkdirSync(this.evidenceDir, { recursive: true });
-      writeJson(path.join(this.evidenceDir, "browser-provenance.json"), { chromium: this.browser.version(), viewport: this.viewport, deviceScaleFactor: 1, software: this.captureOptions?.software ?? false });
+      writeJson(path.join(this.evidenceDir, "browser-provenance.json"), {
+        chromium: this.browser.version(),
+        viewport: this.viewport,
+        deviceScaleFactor: 1,
+        software: this.captureOptions?.software ?? false,
+      });
       this.page = await this.context.newPage();
       this.initialBlankAllowed = true;
       this.page.setDefaultTimeout(this.actionTimeoutMs);
@@ -112,14 +133,22 @@ export class BrowserSession {
         this.attachPageHandlers(newPage);
         if (this.popupPolicy === "authentication") {
           newPage.on("framenavigated", (frame) => {
-            if (frame === newPage.mainFrame() && !newPage.isClosed() && newPage.url() !== "about:blank" && this.isOnTarget(newPage.url())) {
+            if (
+              frame === newPage.mainFrame() &&
+              !newPage.isClosed() &&
+              newPage.url() !== "about:blank" &&
+              this.isOnTarget(newPage.url())
+            ) {
               this.page = newPage;
               this.page.setDefaultTimeout(this.actionTimeoutMs);
             }
           });
           newPage.on("close", () => {
             if (this.page !== newPage) return;
-            const fallback = this.context.pages().filter((page) => !page.isClosed() && this.isOnTarget(page.url())).at(-1);
+            const fallback = this.context
+              .pages()
+              .filter((page) => !page.isClosed() && this.isOnTarget(page.url()))
+              .at(-1);
             if (fallback) this.page = fallback;
           });
         }
@@ -131,7 +160,9 @@ export class BrowserSession {
             this.page = newPage;
             this.page.setDefaultTimeout(this.actionTimeoutMs);
           } else if (this.popupPolicy === "authentication") {
-            this.pendingNotes.push(`An external authentication popup opened at ${url}; it must return to an allowed origin or close before credentials are saved.`);
+            this.pendingNotes.push(
+              `An external authentication popup opened at ${url}; it must return to an allowed origin or close before credentials are saved.`,
+            );
           } else {
             this.pendingNotes.push(`A new tab opened at off-target URL ${url} and was closed.`);
             await newPage.close().catch(() => {});
@@ -226,7 +257,9 @@ export class BrowserSession {
           .then((element) =>
             element.evaluate((node) => {
               const iframe = node as HTMLIFrameElement;
-              return !iframe.hasAttribute("sandbox") || iframe.sandbox.contains("allow-same-origin");
+              return (
+                !iframe.hasAttribute("sandbox") || iframe.sandbox.contains("allow-same-origin")
+              );
             }),
           )
           .catch(() => false);
@@ -254,9 +287,7 @@ export class BrowserSession {
     if (url === "about:blank" && this.initialBlankAllowed) return null;
     if (this.isOnTarget(url)) return null;
     const blocked = `BLOCKED: the page navigated off-target to ${url}. Allowed origins: ${this.allowedOrigins.join(", ")}.`;
-    await this.page
-      .goBack({ waitUntil: "domcontentloaded", timeout: 8_000 })
-      .catch(() => null);
+    await this.page.goBack({ waitUntil: "domcontentloaded", timeout: 8_000 }).catch(() => null);
     let recoveredUrl = this.page.url();
     if (this.isOnTarget(recoveredUrl)) {
       return `${blocked} The browser was returned to ${recoveredUrl}.`;
@@ -272,7 +303,9 @@ export class BrowserSession {
 
     // Do not let callers continue into title/DOM/screenshot reads while the
     // page is still external. The MCP boundary converts this into an error.
-    throw new OriginBoundaryError(`${blocked} Origin recovery failed; no off-target page content was inspected.`);
+    throw new OriginBoundaryError(
+      `${blocked} Origin recovery failed; no off-target page content was inspected.`,
+    );
   }
 
   /**
@@ -298,9 +331,13 @@ export class BrowserSession {
   /** Complete the temporary OAuth exception without weakening evaluation containment. */
   async finalizeAuthenticationCapture(): Promise<void> {
     if (this.popupPolicy !== "authentication") {
-      throw new Error("Authentication finalization is available only for authentication capture sessions");
+      throw new Error(
+        "Authentication finalization is available only for authentication capture sessions",
+      );
     }
-    const pages = this.context.pages().filter((page) => !page.isClosed() && page.url() !== "about:blank");
+    const pages = this.context
+      .pages()
+      .filter((page) => !page.isClosed() && page.url() !== "about:blank");
     const external = pages.filter((page) => !this.isOnTarget(page.url()));
     if (external.length) {
       throw new OriginBoundaryError(
@@ -308,7 +345,10 @@ export class BrowserSession {
       );
     }
     const allowed = pages.filter((page) => this.isOnTarget(page.url()));
-    if (!allowed.length) throw new OriginBoundaryError("Auth capture has no open page on an allowed application origin");
+    if (!allowed.length)
+      throw new OriginBoundaryError(
+        "Auth capture has no open page on an allowed application origin",
+      );
     this.page = allowed.at(-1)!;
     this.page.setDefaultTimeout(this.actionTimeoutMs);
   }
@@ -399,20 +439,21 @@ export class BrowserSession {
     }
 
     const lines = entries.map((el) => {
-      const attrs = (el.type ? ` type=${el.type}` : "") + (el.flags.length ? ` ${el.flags.join(" ")}` : "");
+      const attrs =
+        (el.type ? ` type=${el.type}` : "") + (el.flags.length ? ` ${el.flags.join(" ")}` : "");
       return `[${el.ref}] <${el.tag}${attrs}> ${el.label}${el.frameLabel ? ` — ${el.frameLabel}` : ""}`;
     });
     let elementList = lines.join("\n");
     const MAX_ELEMS = 10_000;
-    if (elementList.length > MAX_ELEMS) elementList = elementList.slice(0, MAX_ELEMS) + "\n... (truncated)";
+    if (elementList.length > MAX_ELEMS)
+      elementList = elementList.slice(0, MAX_ELEMS) + "\n... (truncated)";
     // Sidebar chrome routinely accounts for ~40% of a snapshot's refs (every
     // nav item repeats as link + duplicate <span> + a per-item "Pin to top"),
     // which is how a screen hits the ref cap and loses MAIN CONTENT. Those
     // repeats are collapsed; say so, so the model does not read the shorter
     // list as a missing menu.
     if (hidden > 0) {
-      elementList +=
-        `\n(+${hidden} redundant refs hidden: repeated sidebar/nav chrome and <span> wrappers of controls already listed above. Every navigation destination is still listed exactly once.)`;
+      elementList += `\n(+${hidden} redundant refs hidden: repeated sidebar/nav chrome and <span> wrappers of controls already listed above. Every navigation destination is still listed exactly once.)`;
     }
 
     const editorLines = await this.tagFrameEditors();
@@ -535,9 +576,14 @@ export class BrowserSession {
           .evaluate(() => {
             const b = document.body;
             if (!b) return null;
-            const ce = b.getAttribute("contenteditable") === "true" ? b : b.querySelector('[contenteditable="true"]');
+            const ce =
+              b.getAttribute("contenteditable") === "true"
+                ? b
+                : b.querySelector('[contenteditable="true"]');
             if (!ce) return null;
-            return { label: (document.title || b.id || b.className || "rich text editor").slice(0, 60) };
+            return {
+              label: (document.title || b.id || b.className || "rich text editor").slice(0, 60),
+            };
           })
           .catch(() => null);
         if (!editable) continue;
@@ -560,7 +606,9 @@ export class BrowserSession {
    */
   private async refLocator(ref: string): Promise<Locator> {
     if (!/^e[1-9]\d*$/.test(ref)) {
-      throw new Error("Invalid element ref; take a fresh snapshot and use a generated ref such as e1");
+      throw new Error(
+        "Invalid element ref; take a fresh snapshot and use a generated ref such as e1",
+      );
     }
     const frame = this.refFrames.get(ref);
     // A previously allowed frame can navigate between snapshot and action.

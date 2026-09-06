@@ -61,8 +61,12 @@ export async function spawnCaptured(options: {
   const stdoutStream = fs.createWriteStream(options.stdoutFile, { flags: "w" });
   const stderrStream = fs.createWriteStream(options.stderrFile, { flags: "w" });
   let outputError: Error | undefined;
-  stdoutStream.on("error", (error) => { outputError ??= error; });
-  stderrStream.on("error", (error) => { outputError ??= error; });
+  stdoutStream.on("error", (error) => {
+    outputError ??= error;
+  });
+  stderrStream.on("error", (error) => {
+    outputError ??= error;
+  });
 
   return await new Promise((resolve, reject) => {
     const child = spawn(options.command, options.args, {
@@ -171,23 +175,32 @@ export async function spawnCaptured(options: {
     const stop = () => {
       if (termination) return;
       termination = terminateProcessTree(child);
-      void termination.then(() => {
-        // A detached descendant outside our process group may have inherited
-        // pipes. Once the owned tree has exited, those pipes cannot hold the
-        // invocation open indefinitely.
-        if (!settled) {
+      void termination.then(
+        () => {
+          // A detached descendant outside our process group may have inherited
+          // pipes. Once the owned tree has exited, those pipes cannot hold the
+          // invocation open indefinitely.
+          if (!settled) {
+            child.stdout.destroy();
+            child.stderr.destroy();
+            child.stdin.destroy();
+            void finish({
+              exitCode: child.exitCode,
+              signal: child.signalCode,
+              timedOut,
+              stdout,
+              stderr,
+            });
+          }
+        },
+        (error: Error) => {
           child.stdout.destroy();
           child.stderr.destroy();
           child.stdin.destroy();
-          void finish({ exitCode: child.exitCode, signal: child.signalCode, timedOut, stdout, stderr });
-        }
-      }, (error: Error) => {
-        child.stdout.destroy();
-        child.stderr.destroy();
-        child.stdin.destroy();
-        child.unref();
-        void finish(undefined, error);
-      });
+          child.unref();
+          void finish(undefined, error);
+        },
+      );
     };
     const onAbort = () => stop();
 
@@ -221,15 +234,38 @@ export function subscriptionEnvironment(): NodeJS.ProcessEnv {
   // with isolated directories containing only copied credentials.
   const env: NodeJS.ProcessEnv = {};
   for (const name of [
-    "PATH", "Path", "PATHEXT", "SystemRoot", "SYSTEMROOT", "WINDIR", "ComSpec", "COMSPEC",
-    "HOME", "USERPROFILE", "TMPDIR", "TMP", "TEMP",
-    "LANG", "LC_ALL", "LC_CTYPE",
-    "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
-    "NO_PROXY", "no_proxy",
+    "PATH",
+    "Path",
+    "PATHEXT",
+    "SystemRoot",
+    "SYSTEMROOT",
+    "WINDIR",
+    "ComSpec",
+    "COMSPEC",
+    "HOME",
+    "USERPROFILE",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "NODE_EXTRA_CA_CERTS",
+    "NO_PROXY",
+    "no_proxy",
   ]) {
     if (process.env[name] !== undefined) env[name] = process.env[name];
   }
-  for (const name of ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]) {
+  for (const name of [
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+  ]) {
     const value = process.env[name];
     if (value === undefined) continue;
     let parsed: URL;
@@ -292,29 +328,102 @@ export function stringifyCommand(command: string, args: string[]): string[] {
 
 const boundaryFlags: Record<"codex" | "claude" | "grok", Set<string>> = {
   codex: new Set([
-    "--add-dir", "--approve-for-me", "--ask-for-approval", "--cd", "--config",
-    "--dangerously-bypass-approvals-and-sandbox", "--full-auto", "--image",
-    "--output-last-message", "--output-schema", "--profile", "--sandbox", "--search",
-    "fork", "resume", "-a", "-c", "-C", "-i", "-p", "-s",
+    "--add-dir",
+    "--approve-for-me",
+    "--ask-for-approval",
+    "--cd",
+    "--config",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--full-auto",
+    "--image",
+    "--output-last-message",
+    "--output-schema",
+    "--profile",
+    "--sandbox",
+    "--search",
+    "fork",
+    "resume",
+    "-a",
+    "-c",
+    "-C",
+    "-i",
+    "-p",
+    "-s",
   ]),
   claude: new Set([
-    "--add-dir", "--agent", "--agents", "--allowed-tools", "--allowedTools",
-    "--append-system-prompt", "--append-system-prompt-file", "--bare", "--chrome",
-    "--cloud", "--continue", "--dangerously-skip-permissions", "--disallowed-tools",
-    "--disallowedTools", "--environment", "--file", "--fork-session", "--from-pr",
-    "--mcp-config", "--permission-mode", "--permission-prompt-tool", "--plugin-dir",
-    "--plugin-url", "--restore-code", "--resume", "--safe-mode", "--session-id",
-    "--settings", "--setting-sources", "--strict-mcp-config", "--system-prompt",
-    "--system-prompt-file", "--teleport", "--tools", "--worktree", "--worktree-ref",
-    "-c", "-r", "-s", "-w",
+    "--add-dir",
+    "--agent",
+    "--agents",
+    "--allowed-tools",
+    "--allowedTools",
+    "--append-system-prompt",
+    "--append-system-prompt-file",
+    "--bare",
+    "--chrome",
+    "--cloud",
+    "--continue",
+    "--dangerously-skip-permissions",
+    "--disallowed-tools",
+    "--disallowedTools",
+    "--environment",
+    "--file",
+    "--fork-session",
+    "--from-pr",
+    "--mcp-config",
+    "--permission-mode",
+    "--permission-prompt-tool",
+    "--plugin-dir",
+    "--plugin-url",
+    "--restore-code",
+    "--resume",
+    "--safe-mode",
+    "--session-id",
+    "--settings",
+    "--setting-sources",
+    "--strict-mcp-config",
+    "--system-prompt",
+    "--system-prompt-file",
+    "--teleport",
+    "--tools",
+    "--worktree",
+    "--worktree-ref",
+    "-c",
+    "-r",
+    "-s",
+    "-w",
   ]),
   grok: new Set([
-    "--agent", "--agents", "--allow", "--allowedTools", "--always-approve", "--continue",
-    "--cwd", "--disable-web-search", "--disallowed-tools", "--disallowedTools",
-    "--fork-session", "--json-schema", "--leader-socket", "--mcp-config",
-    "--permission-mode", "--prompt-file", "--prompt-json", "--restore-code", "--resume",
-    "--rules", "--session-id", "--system-prompt", "--system-prompt-override", "--tools",
-    "--worktree", "--worktree-ref", "--ref", "-c", "-r", "-s", "-w",
+    "--agent",
+    "--agents",
+    "--allow",
+    "--allowedTools",
+    "--always-approve",
+    "--continue",
+    "--cwd",
+    "--disable-web-search",
+    "--disallowed-tools",
+    "--disallowedTools",
+    "--fork-session",
+    "--json-schema",
+    "--leader-socket",
+    "--mcp-config",
+    "--permission-mode",
+    "--prompt-file",
+    "--prompt-json",
+    "--restore-code",
+    "--resume",
+    "--rules",
+    "--session-id",
+    "--system-prompt",
+    "--system-prompt-override",
+    "--tools",
+    "--worktree",
+    "--worktree-ref",
+    "--ref",
+    "-c",
+    "-r",
+    "-s",
+    "-w",
   ]),
 };
 
@@ -326,8 +435,8 @@ export function assertSafeProviderExtraArgs(
   const blocked = boundaryFlags[provider];
   for (const argument of args) {
     const flag = argument.startsWith("--") ? argument.split("=", 1)[0] : argument;
-    const blockedShort = [...blocked].find((candidate) =>
-      candidate.length === 2 && argument.startsWith(candidate),
+    const blockedShort = [...blocked].find(
+      (candidate) => candidate.length === 2 && argument.startsWith(candidate),
     );
     if (argument === "-" || argument === "--" || blocked.has(flag) || blockedShort) {
       throw new Error(

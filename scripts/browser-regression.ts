@@ -54,18 +54,26 @@ try {
   // Rich text: inline editable child under a labelled wrapper.
   const snap2 = await b.snapshot();
   const wrapRef = snap2.match(/\[(e\d+)\][^\n]*placeholder abstract/)?.[1];
-  if (!wrapRef) { console.error(snap2); throw new Error("inline editor ref not found"); }
+  if (!wrapRef) {
+    console.error(snap2);
+    throw new Error("inline editor ref not found");
+  }
   console.log(await b.fill(wrapRef, "Inline abstract text"));
   const afterInline = await b.snapshot();
-  if (!afterInline.includes("INLINE:Inline abstract text")) throw new Error("inline rich-text fill failed");
+  if (!afterInline.includes("INLINE:Inline abstract text"))
+    throw new Error("inline rich-text fill failed");
   console.log("inline rich-text: OK");
 
   // Rich text: TinyMCE-style editable body inside an iframe.
   const frameRef = afterInline.match(/\[(e\d+)\] <richtext>/)?.[1];
-  if (!frameRef) { console.error(afterInline.slice(-1500)); throw new Error("editor iframe not surfaced in snapshot"); }
+  if (!frameRef) {
+    console.error(afterInline.slice(-1500));
+    throw new Error("editor iframe not surfaced in snapshot");
+  }
   console.log(await b.fill(frameRef, "Iframe abstract text"));
   const afterFrame = await b.snapshot();
-  if (!afterFrame.includes("IFRAME:Iframe abstract text")) throw new Error("iframe rich-text fill failed");
+  if (!afterFrame.includes("IFRAME:Iframe abstract text"))
+    throw new Error("iframe rich-text fill failed");
   console.log("iframe rich-text: OK");
 
   // ---------------------------------------------------------------------
@@ -75,7 +83,10 @@ try {
   // ---------------------------------------------------------------------
   let snap = await b.snapshot();
   const comboRef = snap.match(/\[(e\d+)\][^\n]*Select a track/)?.[1];
-  if (!comboRef) { console.error(snap); throw new Error("custom combobox not surfaced in snapshot"); }
+  if (!comboRef) {
+    console.error(snap);
+    throw new Error("custom combobox not surfaced in snapshot");
+  }
   if (!/\[e\d+\] <div dropdown> Select a track/.test(snap)) {
     throw new Error("custom combobox not flagged as a dropdown in the element list");
   }
@@ -101,7 +112,10 @@ try {
   snap = await b.snapshot();
   const dateRef = snap.match(/\[(e\d+)\] <input type=date>/)?.[1];
   const timeRef = snap.match(/\[(e\d+)\] <input type=time>/)?.[1];
-  if (!dateRef || !timeRef) { console.error(snap); throw new Error("date/time inputs not found"); }
+  if (!dateRef || !timeRef) {
+    console.error(snap);
+    throw new Error("date/time inputs not found");
+  }
   console.log(await b.fill(dateRef, "March 5, 2026"));
   console.log(await b.fill(timeRef, "9:30 AM"));
   const afterDates = await b.snapshot();
@@ -109,13 +123,19 @@ try {
     throw new Error("date/time normalization failed — expected DT:2026-03-05 09:30");
   }
   const roRef = afterDates.match(/\[(e\d+)\] <input[^>]*\breadonly\b[^>]*> Select deadline/)?.[1];
-  if (!roRef) { console.error(afterDates); throw new Error("read-only field not flagged 'readonly' in the element list"); }
+  if (!roRef) {
+    console.error(afterDates);
+    throw new Error("read-only field not flagged 'readonly' in the element list");
+  }
   const afterRo = await b.fill(roRef, "2026-04-02");
   if (!/NOTE: .*read-only/.test(afterRo)) {
     throw new Error(`read-only fill should explain itself, got: ${afterRo.slice(0, 300)}`);
   }
   const dayRef = afterRo.match(/\[(e\d+)\] <button[^>]*> 2026-04-02/)?.[1];
-  if (!dayRef) { console.error(afterRo); throw new Error("picker did not open on read-only fill"); }
+  if (!dayRef) {
+    console.error(afterRo);
+    throw new Error("picker did not open on read-only fill");
+  }
   if (!(await b.click(dayRef)).includes("DEADLINE:2026-04-02")) {
     throw new Error("picker day click did not set the deadline");
   }
@@ -128,7 +148,10 @@ try {
   snap = await b.snapshot();
   const favRef = snap.match(/\[(e\d+)\][^\n]*Add to my schedule — in iframe #embed/)?.[1];
   const qRef = snap.match(/\[(e\d+)\][^\n]*Search sessions — in iframe #embed/)?.[1];
-  if (!favRef || !qRef) { console.error(snap); throw new Error("iframe embed controls not surfaced"); }
+  if (!favRef || !qRef) {
+    console.error(snap);
+    throw new Error("iframe embed controls not surfaced");
+  }
   if (!snap.includes("--- content of iframe #embed ---")) {
     throw new Error("iframe content missing from the page outline");
   }
@@ -147,7 +170,10 @@ try {
   snap = await b.snapshot();
   const noteRef = snap.match(/\[(e\d+)\][^\n]*Reviewer note/)?.[1];
   const approveRef = snap.match(/\[(e\d+)\][^\n]*Approve speaker/)?.[1];
-  if (!noteRef || !approveRef) { console.error(snap); throw new Error("shadow-DOM controls have no refs"); }
+  if (!noteRef || !approveRef) {
+    console.error(snap);
+    throw new Error("shadow-DOM controls have no refs");
+  }
   console.log(await b.fill(noteRef, "strong track record"));
   if (!(await b.click(approveRef)).includes("SHADOW:approved strong track record")) {
     throw new Error("shadow-DOM fill/click did not take effect");
@@ -163,13 +189,20 @@ try {
   // ---------------------------------------------------------------------
   snap = await b.snapshot();
   const elemsOf = (s: string) => s.slice(s.indexOf("INTERACTIVE ELEMENTS"));
-  const groupLines = elemsOf(snap).split("\n").filter((l) => /Review Group/.test(l));
+  const groupLines = elemsOf(snap)
+    .split("\n")
+    .filter((l) => /Review Group/.test(l));
   if (groupLines.length !== 3) {
     console.error(groupLines.join("\n"));
-    throw new Error(`expected exactly 3 refs for 3 group cards, got ${groupLines.length} (the list container is still being listed as a clickable)`);
+    throw new Error(
+      `expected exactly 3 refs for 3 group cards, got ${groupLines.length} (the list container is still being listed as a clickable)`,
+    );
   }
   const engRef = snap.match(/\[(e\d+)\] <div[^>]*> Engineering Review Group/)?.[1];
-  if (!engRef) { console.error(snap); throw new Error("Engineering card has no ref"); }
+  if (!engRef) {
+    console.error(snap);
+    throw new Error("Engineering card has no ref");
+  }
   const afterGroup = await b.click(engRef);
   if (!afterGroup.includes("GROUP:Engineering")) {
     throw new Error(
@@ -184,20 +217,50 @@ try {
   // ---------------------------------------------------------------------
   snap = await b.snapshot();
   const wants: [RegExp, string][] = [
-    [/\[e\d+\] <button[^>]*> \(row "Track"\) grip-vertical icon/, 'drag handle -> (row "Track") grip-vertical icon'],
-    [/\[e\d+\] <button[^>]*\bchecked\b[^>]*> \(row "Track"\) switch/, 'switch -> (row "Track") switch [checked]'],
+    [
+      /\[e\d+\] <button[^>]*> \(row "Track"\) grip-vertical icon/,
+      'drag handle -> (row "Track") grip-vertical icon',
+    ],
+    [
+      /\[e\d+\] <button[^>]*\bchecked\b[^>]*> \(row "Track"\) switch/,
+      'switch -> (row "Track") switch [checked]',
+    ],
     [/\[e\d+\] <button[^>]*> \(row "Level"\) menu/, 'kebab -> (row "Level") menu'],
-    [/\[e\d+\] <button[^>]*\bunchecked\b[^>]*> \(row "Level"\) switch/, 'switch -> (row "Level") switch [unchecked]'],
-    [/\[e\d+\] <button[^>]*> Publish immediately switch/, "sibling text node -> Publish immediately switch"],
-    [/\[e\d+\] <button[^>]*> Notify evaluators switch/, "sibling text node -> Notify evaluators switch"],
+    [
+      /\[e\d+\] <button[^>]*\bunchecked\b[^>]*> \(row "Level"\) switch/,
+      'switch -> (row "Level") switch [unchecked]',
+    ],
+    [
+      /\[e\d+\] <button[^>]*> Publish immediately switch/,
+      "sibling text node -> Publish immediately switch",
+    ],
+    [
+      /\[e\d+\] <button[^>]*> Notify evaluators switch/,
+      "sibling text node -> Notify evaluators switch",
+    ],
     [/\[e\d+\] <button[^>]*> Session actions menu/, "radix-:r7: id -> labelled ancestor"],
-    [/\[e\d+\] <button[^>]*> Edit \(row "Ada Testerman"\)/, 'table row -> Edit (row "Ada Testerman")'],
-    [/\[e\d+\] <button[^>]*> Edit \(row "Grace Hopper"\)/, 'table row -> Edit (row "Grace Hopper")'],
-    [/\[e\d+\] <button[^>]*> Actions \(row "Grace Hopper"\)/, 'table row -> Actions (row "Grace Hopper")'],
-    [/\[e\d+\] <input type=checkbox[^>]*\bunchecked\b[^>]*> Select Ada Testerman/, "row checkbox -> unchecked flag"],
+    [
+      /\[e\d+\] <button[^>]*> Edit \(row "Ada Testerman"\)/,
+      'table row -> Edit (row "Ada Testerman")',
+    ],
+    [
+      /\[e\d+\] <button[^>]*> Edit \(row "Grace Hopper"\)/,
+      'table row -> Edit (row "Grace Hopper")',
+    ],
+    [
+      /\[e\d+\] <button[^>]*> Actions \(row "Grace Hopper"\)/,
+      'table row -> Actions (row "Grace Hopper")',
+    ],
+    [
+      /\[e\d+\] <input type=checkbox[^>]*\bunchecked\b[^>]*> Select Ada Testerman/,
+      "row checkbox -> unchecked flag",
+    ],
   ];
   for (const [re, what] of wants) {
-    if (!re.test(snap)) { console.error(elemsOf(snap)); throw new Error(`nameless-control fix missing: ${what}`); }
+    if (!re.test(snap)) {
+      console.error(elemsOf(snap));
+      throw new Error(`nameless-control fix missing: ${what}`);
+    }
   }
   if (/\[e\d+\] <button[^>]*>\s*$/m.test(snap)) {
     console.error(elemsOf(snap));
@@ -211,15 +274,26 @@ try {
   // aria-label.
   // ---------------------------------------------------------------------
   snap = await b.snapshot();
-  const dpRef = snap.match(/\[(e\d+)\] <button[^>]*\bdropdown\b[^>]*> August 9th, 2026 at 8:00 PM/)?.[1];
-  if (!dpRef) { console.error(elemsOf(snap)); throw new Error("date-picker trigger not flagged as a dropdown"); }
+  const dpRef = snap.match(
+    /\[(e\d+)\] <button[^>]*\bdropdown\b[^>]*> August 9th, 2026 at 8:00 PM/,
+  )?.[1];
+  if (!dpRef) {
+    console.error(elemsOf(snap));
+    throw new Error("date-picker trigger not flagged as a dropdown");
+  }
   const afterDp = await b.click(dpRef);
-  if (!/\[e\d+\] <button[^>]*> July 31st, 2026/.test(afterDp) || !/\[e\d+\] <button[^>]*> August 31st, 2026/.test(afterDp)) {
+  if (
+    !/\[e\d+\] <button[^>]*> July 31st, 2026/.test(afterDp) ||
+    !/\[e\d+\] <button[^>]*> August 31st, 2026/.test(afterDp)
+  ) {
     console.error(elemsOf(afterDp));
     throw new Error("day cells were not distinguished by aria-label (both read as '31')");
   }
   const dayRef2 = afterDp.match(/\[(e\d+)\] <button[^>]*> August 1st, 2026/)?.[1];
-  if (!dayRef2) { console.error(elemsOf(afterDp)); throw new Error("day cell ref not found"); }
+  if (!dayRef2) {
+    console.error(elemsOf(afterDp));
+    throw new Error("day cell ref not found");
+  }
   if (!(await b.click(dayRef2)).includes("DPDAY:August 1st, 2026")) {
     throw new Error("day click did not register");
   }
@@ -232,9 +306,12 @@ try {
   // ---------------------------------------------------------------------
   snap = await b.snapshot();
   const c2eRef = snap.match(/\[(e\d+)\] <button[^>]*> Chief AI Officer/)?.[1];
-  if (!c2eRef) { console.error(elemsOf(snap)); throw new Error("click-to-edit field not surfaced"); }
+  if (!c2eRef) {
+    console.error(elemsOf(snap));
+    throw new Error("click-to-edit field not surfaced");
+  }
   const c2eRes = await b.fill(c2eRef, "Head of DevRel");
-  if (!c2eRes.startsWith("ERROR") || await b.page.locator('#c2e-host input').count()) {
+  if (!c2eRes.startsWith("ERROR") || (await b.page.locator("#c2e-host input").count())) {
     throw new Error(`fill activated an ambiguous button: ${c2eRes.slice(0, 300)}`);
   }
   const editorSnapshot = await b.click(c2eRef);
@@ -256,7 +333,9 @@ try {
   const countOf = (re: RegExp) => (elems.match(re) ?? []).length;
   if (countOf(/> Pin to top\b/g) !== 1) {
     console.error(elems);
-    throw new Error(`"Pin to top" is listed ${countOf(/> Pin to top\b/g)} times; repeated nav chrome was not collapsed`);
+    throw new Error(
+      `"Pin to top" is listed ${countOf(/> Pin to top\b/g)} times; repeated nav chrome was not collapsed`,
+    );
   }
   for (const dest of ["Speaker CRM", "Agenda builder", "Sponsor portal"]) {
     const n = countOf(new RegExp(`\\[e\\d+\\] <a> ${dest}$`, "gm"));
@@ -271,9 +350,13 @@ try {
   }
   const hiddenNote = elems.match(/\(\+(\d+) redundant refs hidden/);
   if (!hiddenNote || Number(hiddenNote[1]) < 8) {
-    throw new Error(`expected the collapsed-chrome summary to account for the hidden refs, got: ${hiddenNote?.[0] ?? "(no summary)"}`);
+    throw new Error(
+      `expected the collapsed-chrome summary to account for the hidden refs, got: ${hiddenNote?.[0] ?? "(no summary)"}`,
+    );
   }
-  console.log(`nav chrome collapse: OK (${hiddenNote[1]} redundant refs hidden, 3 destinations + 1 Pin-to-top kept)`);
+  console.log(
+    `nav chrome collapse: OK (${hiddenNote[1]} redundant refs hidden, 3 destinations + 1 Pin-to-top kept)`,
+  );
 
   // ---------------------------------------------------------------------
   // NESTED UPLOAD PICKER: no filechooser event fires and the real input is
@@ -283,11 +366,16 @@ try {
   // ---------------------------------------------------------------------
   snap = await b.snapshot();
   const fspRef = snap.match(/\[(e\d+)\] <button[^>]*> Upload Files/)?.[1];
-  if (!fspRef) { console.error(elemsOf(snap)); throw new Error("Upload Files button not surfaced"); }
+  if (!fspRef) {
+    console.error(elemsOf(snap));
+    throw new Error("Upload Files button not surfaced");
+  }
   const fspRes = await b.upload(fspRef, path.resolve(here, "fixtures", "slides.pdf"));
   if (fspRes.startsWith("ERROR")) throw new Error(`nested-picker upload failed: ${fspRes}`);
   if (!(await b.snapshot()).includes("FSP:slides.pdf")) {
-    throw new Error(`file went somewhere else — the nested picker's input never received it (${fspRes.slice(0, 200)})`);
+    throw new Error(
+      `file went somewhere else — the nested picker's input never received it (${fspRes.slice(0, 200)})`,
+    );
   }
   console.log("nested upload picker: OK");
 
@@ -309,11 +397,16 @@ try {
   }
   const nameRef = inSheet.match(/\[(e\d+)\][^\n]*Evaluator name/)?.[1];
   const saveSheet = inSheet.match(/\[(e\d+)\][^\n]*Save evaluators/)?.[1];
-  if (!nameRef || !saveSheet) { console.error(inSheet); throw new Error("Radix sheet contents not listed"); }
+  if (!nameRef || !saveSheet) {
+    console.error(inSheet);
+    throw new Error("Radix sheet contents not listed");
+  }
   console.log(await b.fill(nameRef, "Ada Testerman"));
   const afterSheet = await b.click(saveSheet);
-  if (!afterSheet.includes("RADIX:Ada Testerman")) throw new Error("Radix sheet save did not take effect");
-  if (afterSheet.includes("MODAL OPEN")) throw new Error("Radix modal scoping stuck after the sheet closed");
+  if (!afterSheet.includes("RADIX:Ada Testerman"))
+    throw new Error("Radix sheet save did not take effect");
+  if (afterSheet.includes("MODAL OPEN"))
+    throw new Error("Radix modal scoping stuck after the sheet closed");
   console.log("radix sheet (overlay-only modality): OK");
 
   // A NON-MODAL <dialog> opened with show() must NOT scope the snapshot.
@@ -374,11 +467,15 @@ try {
   }
   const roomRef = inModal.match(/\[(e\d+)\][^\n]*Room name/)?.[1];
   const saveRef = inModal.match(/\[(e\d+)\][^\n]*Save session details/)?.[1];
-  if (!roomRef || !saveRef) { console.error(inModal); throw new Error("modal contents not listed"); }
+  if (!roomRef || !saveRef) {
+    console.error(inModal);
+    throw new Error("modal contents not listed");
+  }
   console.log(await b.fill(roomRef, "Room 5"));
   const afterSave = await b.click(saveRef);
   if (!afterSave.includes("MODAL:Room 5")) throw new Error("modal save did not take effect");
-  if (afterSave.includes("MODAL OPEN")) throw new Error("modal scoping stuck after the dialog closed");
+  if (afterSave.includes("MODAL OPEN"))
+    throw new Error("modal scoping stuck after the dialog closed");
   if (!/\[e\d+\] <button[^>]*> Submit proposal/.test(afterSave)) {
     throw new Error("page controls did not come back after the modal closed");
   }
@@ -390,9 +487,13 @@ try {
   // ~36 rows to every later snapshot.
   // ---------------------------------------------------------------------
   snap = await b.snapshot();
-  if (snap.includes("SESSION-30")) throw new Error("smoke page pre-loaded too many rows to test lazy loading");
+  if (snap.includes("SESSION-30"))
+    throw new Error("smoke page pre-loaded too many rows to test lazy loading");
   const listRef = snap.match(/\[(e\d+)\] <div scrollable>/)?.[1];
-  if (!listRef) { console.error(snap); throw new Error("scroll container not surfaced as a ref"); }
+  if (!listRef) {
+    console.error(snap);
+    throw new Error("scroll container not surfaced as a ref");
+  }
   if (!/\[e\d+\] <div scrollable> \(container\)/.test(snap)) {
     console.error(elemsOf(snap));
     throw new Error("a ref wrapping many other listed refs was not marked '(container)'");

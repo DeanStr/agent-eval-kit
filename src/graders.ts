@@ -1,6 +1,10 @@
 import { assertGraderMethods } from "./judging/command-inputs.js";
 import { judgeTextPairwise } from "./text/pairwise.js";
-import { requiredJudgeResult, assertJudgementIdentities, constrainFullPass } from "./judging/contracts.js";
+import {
+  requiredJudgeResult,
+  assertJudgementIdentities,
+  constrainFullPass,
+} from "./judging/contracts.js";
 import { normalizeRubricJudgement } from "./judging/rubric.js";
 import { judgePairwise } from "./visual/pairwise.js";
 import { judgeVisualChecks } from "./visual/deterministic.js";
@@ -28,12 +32,14 @@ import type {
   Verdict,
 } from "./types.js";
 
-const commandOutputValidator = z.object({
-  verdict: z.enum(["pass", "partial", "fail", "not_found", "cannot_judge"]),
-  reasoning: z.string(),
-  evidenceRefs: z.array(z.string()).default([]),
-  confidence: z.enum(["high", "medium", "low"]).default("high"),
-}).strict();
+const commandOutputValidator = z
+  .object({
+    verdict: z.enum(["pass", "partial", "fail", "not_found", "cannot_judge"]),
+    reasoning: z.string(),
+    evidenceRefs: z.array(z.string()).default([]),
+    confidence: z.enum(["high", "medium", "low"]).default("high"),
+  })
+  .strict();
 
 function commandCwd(item: RubricItem, config: EvalConfig, runDir: string): string {
   if (item.grader.type !== "command") return config.project.root;
@@ -74,10 +80,13 @@ async function runCommandGrader(options: {
   });
   assertGraderMethods(config, item, runDir);
   const diagnostic = `Command grader ${item.id}; see ${stderrFile} and ${stdoutFile}`;
-  if (result.timedOut) throw new Error(`${diagnostic}: timed out after ${item.grader.timeoutSeconds ?? 300}s`);
-  if (result.exitCode === null) throw new Error(`${diagnostic}: terminated by ${result.signal ?? "an unknown signal"}`);
+  if (result.timedOut)
+    throw new Error(`${diagnostic}: timed out after ${item.grader.timeoutSeconds ?? 300}s`);
+  if (result.exitCode === null)
+    throw new Error(`${diagnostic}: terminated by ${result.signal ?? "an unknown signal"}`);
   if (item.grader.output === "json") {
-    if (result.exitCode !== 0) throw new Error(`${diagnostic}: JSON grader exited ${result.exitCode}; expected exit 0`);
+    if (result.exitCode !== 0)
+      throw new Error(`${diagnostic}: JSON grader exited ${result.exitCode}; expected exit 0`);
     let output: unknown;
     try {
       output = JSON.parse(result.stdout);
@@ -103,7 +112,8 @@ async function runCommandGrader(options: {
     4: "not_found",
   };
   const verdict = byExit[result.exitCode];
-  if (!verdict) throw new Error(`${diagnostic}: unexpected exit code ${result.exitCode}; expected 0 through 4`);
+  if (!verdict)
+    throw new Error(`${diagnostic}: unexpected exit code ${result.exitCode}; expected 0 through 4`);
   const output = result.stdout.trim() || result.stderr.trim();
   return {
     id: item.id,
@@ -155,7 +165,9 @@ function pickImages(evidence: ScenarioEvidence[], runDir: string, maximum = 30):
       .filter((image) => {
         if (!fs.existsSync(image.file)) return false;
         const dimensions = jpegSize(image.file);
-        return !dimensions || (dimensions.width <= MAX_IMAGE_EDGE && dimensions.height <= MAX_IMAGE_EDGE);
+        return (
+          !dimensions || (dimensions.width <= MAX_IMAGE_EDGE && dimensions.height <= MAX_IMAGE_EDGE)
+        );
       })
       .reverse(),
   );
@@ -173,7 +185,10 @@ function pickImages(evidence: ScenarioEvidence[], runDir: string, maximum = 30):
   return picked.reverse();
 }
 
-function stageImages(images: JudgeImage[], directory: string): {
+function stageImages(
+  images: JudgeImage[],
+  directory: string,
+): {
   files: string[];
   byRef: Record<string, string>;
 } {
@@ -234,18 +249,25 @@ async function runLlmJudge(options: {
       toolNames: EVIDENCE_TOOL_NAMES,
     };
   }
-  fs.writeFileSync(promptFile, judgePrompt({
-    config,
-    spec,
-    items,
-    evidence,
-    attachments: attachments.byRef,
-    screenshotAccess: attachments.files.length
-      ? config.judge.provider === "codex" ? "attached" : "mcp"
-      : "none",
-  }));
+  fs.writeFileSync(
+    promptFile,
+    judgePrompt({
+      config,
+      spec,
+      items,
+      evidence,
+      attachments: attachments.byRef,
+      screenshotAccess: attachments.files.length
+        ? config.judge.provider === "codex"
+          ? "attached"
+          : "mcp"
+        : "none",
+    }),
+  );
   writeJson(schemaFile, judgementOutputSchema);
-  options.onProgress?.(`judge ${config.judge.provider}${config.judge.model ? `/${config.judge.model}` : ""}`);
+  options.onProgress?.(
+    `judge ${config.judge.provider}${config.judge.model ? `/${config.judge.model}` : ""}`,
+  );
 
   const provider = await runProvider(config.judge.provider, {
     purpose: "judge",
@@ -290,62 +312,162 @@ async function runLlmJudge(options: {
     throw new Error(`${reason} See ${directory} for retained judge diagnostics.`);
   }
 
-  return normalizeRubricJudgement({ judgement: parsed.data, config, spec, items, evidence, directory, attachments: attachments.byRef });
+  return normalizeRubricJudgement({
+    judgement: parsed.data,
+    config,
+    spec,
+    items,
+    evidence,
+    directory,
+    attachments: attachments.byRef,
+  });
 }
 
 const repeatedResultSchema = judgementOutputValidator.extend({
   items: z.array(judgementOutputValidator.shape.items.element.extend({ source: z.literal("llm") })),
-  cases: z.array(judgementOutputValidator.shape.cases.element.extend({
-    areaId: z.string(), scenarioIds: z.array(z.string()), strata: z.array(z.string()), split: z.enum(["development", "evaluation"]).optional(), source: z.literal("llm"),
-  })),
+  cases: z.array(
+    judgementOutputValidator.shape.cases.element.extend({
+      areaId: z.string(),
+      scenarioIds: z.array(z.string()),
+      strata: z.array(z.string()),
+      split: z.enum(["development", "evaluation"]).optional(),
+      source: z.literal("llm"),
+    }),
+  ),
 });
 
-async function repeatedLlmJudge(options: Parameters<typeof runLlmJudge>[0] & { onVoteComplete?: () => void }): Promise<Awaited<ReturnType<typeof runLlmJudge>>> {
+async function repeatedLlmJudge(
+  options: Parameters<typeof runLlmJudge>[0] & { onVoteComplete?: () => void },
+): Promise<Awaited<ReturnType<typeof runLlmJudge>>> {
   const policy = options.config.judge.voting;
   if (!policy) return runLlmJudge(options);
   const receipt = JSON.parse(fs.readFileSync(path.join(options.runDir, "receipt.json"), "utf8"));
-  const images = pickImages(options.evidence, options.runDir).map(image => ({ ref: image.ref, sha256: sha256(fs.readFileSync(image.file)) }));
+  const images = pickImages(options.evidence, options.runDir).map((image) => ({
+    ref: image.ref,
+    sha256: sha256(fs.readFileSync(image.file)),
+  }));
   const votes: Awaited<ReturnType<typeof runLlmJudge>>[] = [];
-  const outcome = (item: { verdict: Verdict; confidence: "high" | "medium" | "low" }) => item.verdict === "cannot_judge" || ({ high: 1, medium: 0.7, low: 0.3 }[item.confidence] < policy.minimumConfidence) ? "abstain" : item.verdict;
+  const outcome = (item: { verdict: Verdict; confidence: "high" | "medium" | "low" }) =>
+    item.verdict === "cannot_judge" ||
+    { high: 1, medium: 0.7, low: 0.3 }[item.confidence] < policy.minimumConfidence
+      ? "abstain"
+      : item.verdict;
   const requests = caseJudgeRequests(options.items, options.evidence);
-  const itemDecision = (id: string) => decideVotes(votes.map(vote => outcome(requiredJudgeResult(
-    vote.items.find(item => item.id === id), `rubric item ${id} in ${options.directory}`,
-  ))), policy, ["pass"]);
-  const caseDecision = (rubricId: string, caseId: string) => decideVotes(votes.map(vote => outcome(requiredJudgeResult(
-    vote.cases.find(item => item.rubricId === rubricId && item.caseId === caseId),
-    `case ${rubricId}/${caseId} in ${options.directory}`,
-  ))), policy, ["pass"]);
+  const itemDecision = (id: string) =>
+    decideVotes(
+      votes.map((vote) =>
+        outcome(
+          requiredJudgeResult(
+            vote.items.find((item) => item.id === id),
+            `rubric item ${id} in ${options.directory}`,
+          ),
+        ),
+      ),
+      policy,
+      ["pass"],
+    );
+  const caseDecision = (rubricId: string, caseId: string) =>
+    decideVotes(
+      votes.map((vote) =>
+        outcome(
+          requiredJudgeResult(
+            vote.cases.find((item) => item.rubricId === rubricId && item.caseId === caseId),
+            `case ${rubricId}/${caseId} in ${options.directory}`,
+          ),
+        ),
+      ),
+      policy,
+      ["pass"],
+    );
   while (votes.length < policy.maximumVotes) {
     const ordinal = votes.length + 1;
     options.onProgress?.(`rubric judge vote ${ordinal}/${policy.maximumVotes}`);
-    votes.push(await journalVote({
-      directory: path.join(options.directory, "votes", `vote-${String(ordinal).padStart(2, "0")}`),
-      identity: { evaluator: receipt.evaluationFingerprint, evidence: sha256(stableJson(options.evidence)), images, ordinal, policy },
-      validate: value => {
-        const result = repeatedResultSchema.parse(value);
-        assertJudgementIdentities(result, { items: options.items, cases: requests }, options.directory);
-        return result;
-      }, seal: options.onVoteComplete,
-      run: directory => runLlmJudge({ ...options, directory }),
-    }));
-    if (options.items.every(item => itemDecision(item.id).decision !== "continue") && requests.every(request => caseDecision(request.rubricId, request.caseId).decision !== "continue")) break;
+    votes.push(
+      await journalVote({
+        directory: path.join(
+          options.directory,
+          "votes",
+          `vote-${String(ordinal).padStart(2, "0")}`,
+        ),
+        identity: {
+          evaluator: receipt.evaluationFingerprint,
+          evidence: sha256(stableJson(options.evidence)),
+          images,
+          ordinal,
+          policy,
+        },
+        validate: (value) => {
+          const result = repeatedResultSchema.parse(value);
+          assertJudgementIdentities(
+            result,
+            { items: options.items, cases: requests },
+            options.directory,
+          );
+          return result;
+        },
+        seal: options.onVoteComplete,
+        run: (directory) => runLlmJudge({ ...options, directory }),
+      }),
+    );
+    if (
+      options.items.every((item) => itemDecision(item.id).decision !== "continue") &&
+      requests.every(
+        (request) => caseDecision(request.rubricId, request.caseId).decision !== "continue",
+      )
+    )
+      break;
   }
   const verdict = rubricVoteVerdict;
-  const cases: JudgedCase[] = requests.map(request => {
+  const cases: JudgedCase[] = requests.map((request) => {
     const decision = caseDecision(request.rubricId, request.caseId);
-    const selected = votes.flatMap(vote => vote.cases.filter(item => item.rubricId === request.rubricId && item.caseId === request.caseId && outcome(item) === decision.decision));
-    return { ...request, areaId: options.spec.id, source: "llm", verdict: verdict(decision.decision), confidence: decision.decision === "inconclusive" ? "low" : "high", reasoning: `Repeated judge: ${decision.decision}; ${decision.judgeable}/${decision.attempted} judgeable votes. ${selected.map(item => item.reasoning).join(" ")}`, evidenceRefs: [...new Set(selected.flatMap(item => item.evidenceRefs))] };
+    const selected = votes.flatMap((vote) =>
+      vote.cases.filter(
+        (item) =>
+          item.rubricId === request.rubricId &&
+          item.caseId === request.caseId &&
+          outcome(item) === decision.decision,
+      ),
+    );
+    return {
+      ...request,
+      areaId: options.spec.id,
+      source: "llm",
+      verdict: verdict(decision.decision),
+      confidence: decision.decision === "inconclusive" ? "low" : "high",
+      reasoning: `Repeated judge: ${decision.decision}; ${decision.judgeable}/${decision.attempted} judgeable votes. ${selected.map((item) => item.reasoning).join(" ")}`,
+      evidenceRefs: [...new Set(selected.flatMap((item) => item.evidenceRefs))],
+    };
   });
-  const items: JudgedItem[] = options.items.map(item => {
+  const items: JudgedItem[] = options.items.map((item) => {
     const decision = itemDecision(item.id);
-    const selected = votes.flatMap(vote => vote.items.filter(candidate => candidate.id === item.id && outcome(candidate) === decision.decision));
+    const selected = votes.flatMap((vote) =>
+      vote.items.filter(
+        (candidate) => candidate.id === item.id && outcome(candidate) === decision.decision,
+      ),
+    );
     let result = verdict(decision.decision);
-    const itemCases = cases.filter(candidate => candidate.rubricId === item.id);
-    result = constrainFullPass(result, itemCases.map(candidate => candidate.verdict));
-    return { id: item.id, source: "llm", verdict: result, confidence: result === "cannot_judge" ? "low" : "high", reasoning: `Repeated judge: ${decision.decision}; ${decision.judgeable}/${decision.attempted} judgeable votes. ${selected.map(item => item.reasoning).join(" ")}`, evidenceRefs: [...new Set(selected.flatMap(item => item.evidenceRefs))], votes: decision };
+    const itemCases = cases.filter((candidate) => candidate.rubricId === item.id);
+    result = constrainFullPass(
+      result,
+      itemCases.map((candidate) => candidate.verdict),
+    );
+    return {
+      id: item.id,
+      source: "llm",
+      verdict: result,
+      confidence: result === "cannot_judge" ? "low" : "high",
+      reasoning: `Repeated judge: ${decision.decision}; ${decision.judgeable}/${decision.attempted} judgeable votes. ${selected.map((item) => item.reasoning).join(" ")}`,
+      evidenceRefs: [...new Set(selected.flatMap((item) => item.evidenceRefs))],
+      votes: decision,
+    };
   });
   writeJson(path.join(options.directory, "vote-summary.json"), { items, cases });
-  return { items, cases, defects: votes.flatMap(vote => vote.defects), notes: `${votes.length} fresh judge contexts evaluated fixed evidence; vote fractions are not calibrated probabilities.` };
+  return {
+    items,
+    cases,
+    defects: votes.flatMap((vote) => vote.defects),
+    notes: `${votes.length} fresh judge contexts evaluated fixed evidence; vote fractions are not calibrated probabilities.`,
+  };
 }
 
 export async function judgeArea(options: {
@@ -360,8 +482,8 @@ export async function judgeArea(options: {
 }): Promise<{ items: JudgedItem[]; cases: JudgedCase[]; defects: Defect[]; notes: string }> {
   const commandItems = options.spec.rubric.filter((item) => item.grader.type === "command");
   const llmItems = options.spec.rubric.filter(
-    (item) => item.grader.type === "llm" ||
-      (item.grader.type === "hybrid" && item.grader.autoShare > 0),
+    (item) =>
+      item.grader.type === "llm" || (item.grader.type === "hybrid" && item.grader.autoShare > 0),
   );
   const commandResults: JudgedItem[] = [];
   for (const item of commandItems) {
@@ -389,13 +511,41 @@ export async function judgeArea(options: {
     : { items: [], cases: [], defects: [], notes: "No LLM-graded rubric items." };
   const pairwise = await judgePairwise(options);
   const textPairwise = await judgeTextPairwise(options);
-  const captureResults: JudgedItem[] = options.spec.rubric.filter(item => item.grader.type === "capture").map(item => {
-    const evidence = item.scenarios.map(id => options.evidence.find(scenario => scenario.scenarioId === id));
-    const checks = evidence.flatMap(scenario => scenario?.captureChecks ?? []);
-    const unavailable = evidence.some(scenario => scenario?.outcome !== "completed" || !scenario.captureChecks?.length);
-    return { id: item.id, source: "capture", verdict: unavailable ? "cannot_judge" : checks.every(check => check.pass) ? "pass" : "fail", confidence: unavailable ? "low" : "high", reasoning: `${checks.length} instrumented/browser checks; ${checks.filter(check => !check.pass).length} failed.${unavailable ? " Some scenarios or checks were unavailable." : ""}`, evidenceRefs: evidence.flatMap(scenario => scenario ? [`${scenario.scenarioId}/evidence.json`] : []) };
-  });
-  const byId = new Map([...commandResults, ...captureResults, ...visualChecks, ...llm.items, ...pairwise.items, ...textPairwise].map((item) => [item.id, item]));
+  const captureResults: JudgedItem[] = options.spec.rubric
+    .filter((item) => item.grader.type === "capture")
+    .map((item) => {
+      const evidence = item.scenarios.map((id) =>
+        options.evidence.find((scenario) => scenario.scenarioId === id),
+      );
+      const checks = evidence.flatMap((scenario) => scenario?.captureChecks ?? []);
+      const unavailable = evidence.some(
+        (scenario) => scenario?.outcome !== "completed" || !scenario.captureChecks?.length,
+      );
+      return {
+        id: item.id,
+        source: "capture",
+        verdict: unavailable
+          ? "cannot_judge"
+          : checks.every((check) => check.pass)
+            ? "pass"
+            : "fail",
+        confidence: unavailable ? "low" : "high",
+        reasoning: `${checks.length} instrumented/browser checks; ${checks.filter((check) => !check.pass).length} failed.${unavailable ? " Some scenarios or checks were unavailable." : ""}`,
+        evidenceRefs: evidence.flatMap((scenario) =>
+          scenario ? [`${scenario.scenarioId}/evidence.json`] : [],
+        ),
+      };
+    });
+  const byId = new Map(
+    [
+      ...commandResults,
+      ...captureResults,
+      ...visualChecks,
+      ...llm.items,
+      ...pairwise.items,
+      ...textPairwise,
+    ].map((item) => [item.id, item]),
+  );
   return {
     items: options.spec.rubric.flatMap((item) => {
       const result = byId.get(item.id);

@@ -3,7 +3,21 @@ import type { Frame, Locator } from "playwright";
 import { normalizeTemporal, TEMPORAL_FORMATS } from "./temporal.js";
 import { OriginBoundaryError } from "./interaction-context.js";
 
-type FormsContext = Pick<BrowserInteractionContext, "actionTimeoutMs" | "click" | "drainNotes" | "enforceOrigin" | "frameEditors" | "isAllowedFrame" | "page" | "postflightOrigin" | "refFrames" | "refLocator" | "refMissing" | "stale">;
+type FormsContext = Pick<
+  BrowserInteractionContext,
+  | "actionTimeoutMs"
+  | "click"
+  | "drainNotes"
+  | "enforceOrigin"
+  | "frameEditors"
+  | "isAllowedFrame"
+  | "page"
+  | "postflightOrigin"
+  | "refFrames"
+  | "refLocator"
+  | "refMissing"
+  | "stale"
+>;
 
 export class BrowserForms {
   constructor(private readonly context: FormsContext) {}
@@ -28,7 +42,9 @@ export class BrowserForms {
       await this.context.page.keyboard.press("ControlOrMeta+a");
       await this.context.page.keyboard.press("Delete");
       await body.pressSequentially(text, { delay: 5 });
-      return this.context.drainNotes() + `Filled rich-text editor ${ref} with: ${text.slice(0, 120)}`;
+      return (
+        this.context.drainNotes() + `Filled rich-text editor ${ref} with: ${text.slice(0, 120)}`
+      );
     }
 
     const loc = await this.context.refLocator(ref);
@@ -40,16 +56,13 @@ export class BrowserForms {
     if (tag === "select") return this.select(ref, text);
 
     if (tag === "input" || tag === "textarea") {
-      const meta = await loc
-        .evaluate((el) => ({
-          type: (el.getAttribute("type") ?? "").toLowerCase(),
-          readOnly:
-            (el as HTMLInputElement).readOnly === true ||
-            el.getAttribute("aria-readonly") === "true",
-          disabled:
-            (el as HTMLInputElement).disabled === true ||
-            el.getAttribute("aria-disabled") === "true",
-        }));
+      const meta = await loc.evaluate((el) => ({
+        type: (el.getAttribute("type") ?? "").toLowerCase(),
+        readOnly:
+          (el as HTMLInputElement).readOnly === true || el.getAttribute("aria-readonly") === "true",
+        disabled:
+          (el as HTMLInputElement).disabled === true || el.getAttribute("aria-disabled") === "true",
+      }));
 
       if (meta.disabled) {
         return `ERROR: ${ref} is disabled, so it cannot be filled. Something earlier in the form probably has to be set first (or the field is genuinely not editable in this state).`;
@@ -103,7 +116,10 @@ export class BrowserForms {
     const nested = loc.locator('[contenteditable="true"]').first();
     if ((await nested.count()) > 0) {
       await typeInto(nested);
-      return this.context.drainNotes() + `Filled nested rich-text area under ${ref} with: ${text.slice(0, 120)}`;
+      return (
+        this.context.drainNotes() +
+        `Filled nested rich-text area under ${ref} with: ${text.slice(0, 120)}`
+      );
     }
 
     // Classic TinyMCE: the editable body lives inside an iframe under the wrapper.
@@ -121,7 +137,9 @@ export class BrowserForms {
       await this.context.page.keyboard.press("ControlOrMeta+a");
       await this.context.page.keyboard.press("Delete");
       await body.pressSequentially(text, { delay: 5 });
-      return this.context.drainNotes() + `Filled editor iframe under ${ref} with: ${text.slice(0, 120)}`;
+      return (
+        this.context.drainNotes() + `Filled editor iframe under ${ref} with: ${text.slice(0, 120)}`
+      );
     }
 
     return `ERROR: ${ref} is not an editable field. For a click-to-edit control, explicitly click it, take a fresh snapshot, then fill the revealed input.`;
@@ -147,12 +165,11 @@ export class BrowserForms {
         try {
           await loc.selectOption(value);
         } catch {
-          const opts = await loc
-            .evaluate((el) =>
-              Array.from((el as HTMLSelectElement).options)
-                .slice(0, 40)
-                .map((o) => (o.label || o.text || o.value).trim()),
-            );
+          const opts = await loc.evaluate((el) =>
+            Array.from((el as HTMLSelectElement).options)
+              .slice(0, 40)
+              .map((o) => (o.label || o.text || o.value).trim()),
+          );
           return `ERROR: no option matching "${value}" in ${ref}. Available options: ${opts.join(" | ") || "(none)"}`;
         }
       }
@@ -169,7 +186,11 @@ export class BrowserForms {
     try {
       await loc.click({ timeout: Math.min(this.context.actionTimeoutMs, 8_000) });
     } catch (error) {
-      return `ERROR: ${ref} could not be opened as a custom dropdown: ${String(error instanceof Error ? error.message : error).split("\n")[0].slice(0, 200)}`;
+      return `ERROR: ${ref} could not be opened as a custom dropdown: ${String(
+        error instanceof Error ? error.message : error,
+      )
+        .split("\n")[0]
+        .slice(0, 200)}`;
     }
     const originBlock = await this.context.enforceOrigin();
     if (originBlock) return originBlock;
@@ -206,10 +227,12 @@ export class BrowserForms {
     }
 
     await this.context.page.waitForTimeout(250);
-    const now = await loc
-      .evaluate((el) =>
-        ((el as HTMLInputElement).value || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80),
-      );
+    const now = await loc.evaluate((el) =>
+      ((el as HTMLInputElement).value || el.textContent || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 80),
+    );
     return (
       this.context.drainNotes() +
       `Selected "${picked.matched}" in ${ref} (custom dropdown: opened it and clicked the matching option).` +
@@ -226,7 +249,13 @@ export class BrowserForms {
   private async clickOptionByText(
     scope: Frame,
     value: string,
-  ): Promise<{ ok: boolean; matched: string; options: string[]; clickError?: string; originBlock?: string }> {
+  ): Promise<{
+    ok: boolean;
+    matched: string;
+    options: string[];
+    clickError?: string;
+    originBlock?: string;
+  }> {
     let found: {
       ok: boolean;
       disabled: boolean;
@@ -234,66 +263,65 @@ export class BrowserForms {
       options: string[];
       clickError?: string;
       originBlock?: string;
-    } = await scope
-      .evaluate((wanted: string) => {
-        const norm = String(wanted).replace(/\s+/g, " ").trim().toLowerCase();
-        const roots: (Document | ShadowRoot)[] = [document];
-        const all: HTMLElement[] = [];
-        let ri = 0;
-        while (ri < roots.length && all.length < 20000) {
-          const list = roots[ri].querySelectorAll<HTMLElement>("*");
-          ri += 1;
-          for (let k = 0; k < list.length; k++) {
-            const el = list[k];
-            all.push(el);
-            if (el.shadowRoot) roots.push(el.shadowRoot);
-            if (all.length >= 20000) break;
-          }
+    } = await scope.evaluate((wanted: string) => {
+      const norm = String(wanted).replace(/\s+/g, " ").trim().toLowerCase();
+      const roots: (Document | ShadowRoot)[] = [document];
+      const all: HTMLElement[] = [];
+      let ri = 0;
+      while (ri < roots.length && all.length < 20000) {
+        const list = roots[ri].querySelectorAll<HTMLElement>("*");
+        ri += 1;
+        for (let k = 0; k < list.length; k++) {
+          const el = list[k];
+          all.push(el);
+          if (el.shadowRoot) roots.push(el.shadowRoot);
+          if (all.length >= 20000) break;
         }
-        const optSel =
-          '[role="option"],[role="menuitem"],[role="menuitemradio"],[role="menuitemcheckbox"],[role="treeitem"],li,[data-value],[class*="option"],[class*="item"]';
-        const texts: string[] = [];
-        let exact: HTMLElement | null = null;
-        let loose: HTMLElement | null = null;
-        for (let k = 0; k < all.length; k++) {
-          const el = all[k];
-          if (!el.matches(optSel)) continue;
-          const st = window.getComputedStyle(el);
-          if (st.display === "none" || st.visibility === "hidden") continue;
-          const r = el.getBoundingClientRect();
-          if (r.width <= 0 || r.height <= 0) continue;
-          // Prefer leaf options over the menu wrapper that contains them.
-          if (el.querySelector(optSel)) continue;
-          // Prefer the accessible name: in a day-picker grid the leading and
-          // trailing grey days DUPLICATE the visible text ("31" appears in
-          // both July and August), and only aria-label ("August 31st, 2026")
-          // tells them apart.
-          const t = (el.getAttribute("aria-label") || el.textContent || "")
-            .replace(/\s+/g, " ")
-            .trim();
-          if (!t || t.length > 120) continue;
-          if (texts.length < 25) texts.push(t);
-          const lt = t.toLowerCase();
-          if (!exact && lt === norm) exact = el;
-          if (!loose && lt.indexOf(norm) >= 0) loose = el;
-        }
-        const target: HTMLElement | null = exact || loose;
-        if (target) target.setAttribute("data-aek-opt", "1");
-        return {
-          ok: !!target,
-          disabled: Boolean(target && (
-            target.hasAttribute("disabled") ||
-            target.getAttribute("aria-disabled") === "true"
-          )),
-          matched: target
-            ? (target.getAttribute("aria-label") || target.textContent || "")
-                .replace(/\s+/g, " ")
-                .trim()
-                .slice(0, 80)
-            : "",
-          options: texts,
-        };
-      }, value);
+      }
+      const optSel =
+        '[role="option"],[role="menuitem"],[role="menuitemradio"],[role="menuitemcheckbox"],[role="treeitem"],li,[data-value],[class*="option"],[class*="item"]';
+      const texts: string[] = [];
+      let exact: HTMLElement | null = null;
+      let loose: HTMLElement | null = null;
+      for (let k = 0; k < all.length; k++) {
+        const el = all[k];
+        if (!el.matches(optSel)) continue;
+        const st = window.getComputedStyle(el);
+        if (st.display === "none" || st.visibility === "hidden") continue;
+        const r = el.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) continue;
+        // Prefer leaf options over the menu wrapper that contains them.
+        if (el.querySelector(optSel)) continue;
+        // Prefer the accessible name: in a day-picker grid the leading and
+        // trailing grey days DUPLICATE the visible text ("31" appears in
+        // both July and August), and only aria-label ("August 31st, 2026")
+        // tells them apart.
+        const t = (el.getAttribute("aria-label") || el.textContent || "")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (!t || t.length > 120) continue;
+        if (texts.length < 25) texts.push(t);
+        const lt = t.toLowerCase();
+        if (!exact && lt === norm) exact = el;
+        if (!loose && lt.indexOf(norm) >= 0) loose = el;
+      }
+      const target: HTMLElement | null = exact || loose;
+      if (target) target.setAttribute("data-aek-opt", "1");
+      return {
+        ok: !!target,
+        disabled: Boolean(
+          target &&
+            (target.hasAttribute("disabled") || target.getAttribute("aria-disabled") === "true"),
+        ),
+        matched: target
+          ? (target.getAttribute("aria-label") || target.textContent || "")
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 80)
+          : "",
+        options: texts,
+      };
+    }, value);
 
     if (found.ok) {
       const opt = scope.locator('[data-aek-opt="1"]').first();
@@ -315,7 +343,11 @@ export class BrowserForms {
       }
       await scope
         .locator('[data-aek-opt="1"]')
-        .evaluateAll((els) => els.forEach((e) => { e.removeAttribute("data-aek-opt"); }))
+        .evaluateAll((els) =>
+          els.forEach((e) => {
+            e.removeAttribute("data-aek-opt");
+          }),
+        )
         .catch(() => {});
     }
     const { disabled: _disabled, ...result } = found;

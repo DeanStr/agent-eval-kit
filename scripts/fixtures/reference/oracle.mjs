@@ -11,8 +11,12 @@ if (typeof total !== "function") {
     const actual = total(items);
     return actual === expected ? [] : [{ items, expected, actual }];
   });
-  console.log(JSON.stringify({
-    verdict: mismatches.length ? "fail" : "pass",
-    reasoning: mismatches.length ? JSON.stringify(mismatches) : "All independently specified example totals matched.",
-  }));
+  console.log(
+    JSON.stringify({
+      verdict: mismatches.length ? "fail" : "pass",
+      reasoning: mismatches.length
+        ? JSON.stringify(mismatches)
+        : "All independently specified example totals matched.",
+    }),
+  );
 }

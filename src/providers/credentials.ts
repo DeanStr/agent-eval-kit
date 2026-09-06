@@ -13,8 +13,12 @@ export function stageCredentials(source: string, destination: string): () => voi
     if (refreshed.equals(original)) return;
     // A concurrent login or another invocation may already have updated the
     // account. Never replace that newer state with our isolated copy.
-    if (!fs.existsSync(source) || fs.realpathSync(source) !== resolvedSource ||
-        !fs.readFileSync(resolvedSource).equals(original)) return;
+    if (
+      !fs.existsSync(source) ||
+      fs.realpathSync(source) !== resolvedSource ||
+      !fs.readFileSync(resolvedSource).equals(original)
+    )
+      return;
     let value: unknown;
     try {
       value = JSON.parse(refreshed.toString("utf8"));

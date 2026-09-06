@@ -4,12 +4,7 @@ import path from "node:path";
 import { verifyArtifactIndex, writeArtifactIndex } from "./integrity.js";
 import { readJson, sha256, stableJson, writeJson } from "./io.js";
 import { buildReport, hybridAggregateVerdict, scoreArea } from "./scoring.js";
-import type {
-  EvalConfig,
-  EvalSpec,
-  RunReport,
-  Verdict,
-} from "./types.js";
+import type { EvalConfig, EvalSpec, RunReport, Verdict } from "./types.js";
 
 const escapeHtml = (value: string) =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -83,18 +78,22 @@ export function writeManualFiles(
   for (const area of report.areas) {
     if (!area.pendingManual.length) continue;
     const spec = specs.find((candidate) => candidate.id === area.id);
-    if (!spec) throw new Error(`Cannot write manual checklist: no spec exists for report area ${area.id}`);
+    if (!spec)
+      throw new Error(`Cannot write manual checklist: no spec exists for report area ${area.id}`);
     lines.push(`## ${area.title}`, "");
     for (const id of area.pendingManual) {
       const rubric = spec.rubric.find((candidate) => candidate.id === id);
-      if (!rubric) throw new Error(`Cannot write manual checklist: no rubric ${id} exists in area ${area.id}`);
+      if (!rubric)
+        throw new Error(`Cannot write manual checklist: no rubric ${id} exists in area ${area.id}`);
       const automatic = area.items.find((item) => item.id === id);
       lines.push(
         `### ${rubric.id} (weight ${rubric.weight}) — ${rubric.criterion}`,
         "",
         `- Pass when: ${rubric.passCriteria}`,
         `- Verify: ${rubric.manualInstructions ?? rubric.evidence ?? rubric.passCriteria}`,
-        automatic ? `- Automatic evidence: ${automatic.components?.automatic ?? "cannot_judge"} — ${automatic.reasoning}` : "",
+        automatic
+          ? `- Automatic evidence: ${automatic.components?.automatic ?? "cannot_judge"} — ${automatic.reasoning}`
+          : "",
         "",
       );
       const prior = Object.hasOwn(existing, id) ? existing[id] : undefined;
@@ -104,7 +103,11 @@ export function writeManualFiles(
     }
   }
   fs.writeFileSync(path.join(runDir, "manual-checklist.md"), `${lines.join("\n")}\n`);
-  const results: Record<string, ManualResultEntry> = Object.assign(Object.create(null), template, existing);
+  const results: Record<string, ManualResultEntry> = Object.assign(
+    Object.create(null),
+    template,
+    existing,
+  );
   writeJson(existingFile, results);
 }
 
@@ -125,7 +128,8 @@ function tagRows(report: RunReport): string {
   return Object.entries(report.byTag)
     .sort((a, b) => (a[1].scorePct ?? -1) - (b[1].scorePct ?? -1))
     .map(
-      ([tag, value]) => `<tr><td><code>${escapeHtml(tag)}</code></td><td>${value.scorePct ?? "—"}${value.scorePct === null ? "" : "%"}</td><td>${value.coveragePct}%</td><td>${value.earned} / ${value.judgeable} of ${value.total}</td></tr>`,
+      ([tag, value]) =>
+        `<tr><td><code>${escapeHtml(tag)}</code></td><td>${value.scorePct ?? "—"}${value.scorePct === null ? "" : "%"}</td><td>${value.coveragePct}%</td><td>${value.earned} / ${value.judgeable} of ${value.total}</td></tr>`,
     )
     .join("");
 }
@@ -133,7 +137,10 @@ function tagRows(report: RunReport): string {
 function stratumRows(report: RunReport): string {
   return Object.entries(report.byStratum)
     .sort((left, right) => left[0].localeCompare(right[0]))
-    .map(([stratum, value]) => `<tr><td><code>${escapeHtml(stratum)}</code></td><td>${value.scorePct ?? "—"}${value.scorePct === null ? "" : "%"}</td><td>${value.coveragePct}%</td><td>${value.cases}</td></tr>`)
+    .map(
+      ([stratum, value]) =>
+        `<tr><td><code>${escapeHtml(stratum)}</code></td><td>${value.scorePct ?? "—"}${value.scorePct === null ? "" : "%"}</td><td>${value.coveragePct}%</td><td>${value.cases}</td></tr>`,
+    )
     .join("");
 }
 
@@ -142,7 +149,22 @@ function areaSections(report: RunReport): string {
     .map((area) => {
       const itemRows = area.items
         .map(
-          (item) => `<tr><td>${escapeHtml(item.id)}</td><td style="color:${verdictColor[item.verdict]};font-weight:650">${escapeHtml(item.verdict)}</td><td>${escapeHtml(item.confidence)}</td><td>${escapeHtml(item.reasoning)}${item.votes ? `<p>${item.votes.judgeable}/${item.votes.attempted} judgeable votes: ${escapeHtml(JSON.stringify(item.votes.counts))}</p>` : ""}${(item.comparisons ?? []).filter(ref => /^areas\/[A-Za-z0-9._/-]+\/comparison\.html$/.test(ref) && !ref.split("/").includes("..")).map((ref, index) => `<a href="${ref.split("/").map(encodeURIComponent).join("/")}">Comparison ${index + 1}</a>`).join(" · ")}<br><small>${item.evidenceRefs.map(escapeHtml).join(", ")}</small></td></tr>`,
+          (item) =>
+            `<tr><td>${escapeHtml(item.id)}</td><td style="color:${verdictColor[item.verdict]};font-weight:650">${escapeHtml(item.verdict)}</td><td>${escapeHtml(item.confidence)}</td><td>${escapeHtml(item.reasoning)}${item.votes ? `<p>${item.votes.judgeable}/${item.votes.attempted} judgeable votes: ${escapeHtml(JSON.stringify(item.votes.counts))}</p>` : ""}${(
+              item.comparisons ?? []
+            )
+              .filter(
+                (ref) =>
+                  /^areas\/[A-Za-z0-9._/-]+\/comparison\.html$/.test(ref) &&
+                  !ref.split("/").includes(".."),
+              )
+              .map(
+                (ref, index) =>
+                  `<a href="${ref.split("/").map(encodeURIComponent).join("/")}">Comparison ${index + 1}</a>`,
+              )
+              .join(
+                " · ",
+              )}<br><small>${item.evidenceRefs.map(escapeHtml).join(", ")}</small></td></tr>`,
         )
         .join("");
       const scenarios = area.scenarios
@@ -153,11 +175,14 @@ function areaSections(report: RunReport): string {
               return `<figure><a href="${href}"><img loading="lazy" src="${href}" width="320"></a><figcaption>${escapeHtml(shot.label)} (step ${shot.step}${shot.persona ? ` · ${escapeHtml(shot.persona)}` : ""})</figcaption></figure>`;
             })
             .join("");
-          return `<details><summary><strong>${escapeHtml(scenario.scenarioId)}</strong> — ${escapeHtml(scenario.outcome)} · ${(scenario.durationMs / 1000).toFixed(1)}s</summary><p>${escapeHtml(scenario.summary)}</p>${Object.keys(scenario.inputs ?? {}).length || Object.keys(scenario.outputs ?? {}).length ? `<details><summary>Workflow inputs and outputs</summary><pre>${escapeHtml(JSON.stringify({ inputs: scenario.inputs, outputs: scenario.outputs }, null, 2))}</pre></details>` : ""}${scenario.captureChecks?.length ? `<ul>${scenario.captureChecks.map(check => `<li>${escapeHtml(check.name)}: ${check.pass ? "pass" : "fail"}${check.actual === undefined ? "" : ` (${check.actual})`}</li>`).join("")}</ul>` : ""}${scenario.error ? `<p class="low">${escapeHtml(scenario.error)}</p>` : ""}<ul>${scenario.observations.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul><div class="shots">${shots}</div></details>`;
+          return `<details><summary><strong>${escapeHtml(scenario.scenarioId)}</strong> — ${escapeHtml(scenario.outcome)} · ${(scenario.durationMs / 1000).toFixed(1)}s</summary><p>${escapeHtml(scenario.summary)}</p>${Object.keys(scenario.inputs ?? {}).length || Object.keys(scenario.outputs ?? {}).length ? `<details><summary>Workflow inputs and outputs</summary><pre>${escapeHtml(JSON.stringify({ inputs: scenario.inputs, outputs: scenario.outputs }, null, 2))}</pre></details>` : ""}${scenario.captureChecks?.length ? `<ul>${scenario.captureChecks.map((check) => `<li>${escapeHtml(check.name)}: ${check.pass ? "pass" : "fail"}${check.actual === undefined ? "" : ` (${check.actual})`}</li>`).join("")}</ul>` : ""}${scenario.error ? `<p class="low">${escapeHtml(scenario.error)}</p>` : ""}<ul>${scenario.observations.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul><div class="shots">${shots}</div></details>`;
         })
         .join("");
       const caseRows = area.caseResults
-        .map((item) => `<tr><td>${escapeHtml(item.rubricId)}</td><td>${escapeHtml(item.caseId)}</td><td>${escapeHtml(item.split ?? "all")}</td><td>${escapeHtml(item.strata.join(", ") || "—")}</td><td style="color:${verdictColor[item.verdict]};font-weight:650">${escapeHtml(item.verdict)}</td><td>${escapeHtml(item.reasoning)}</td></tr>`)
+        .map(
+          (item) =>
+            `<tr><td>${escapeHtml(item.rubricId)}</td><td>${escapeHtml(item.caseId)}</td><td>${escapeHtml(item.split ?? "all")}</td><td>${escapeHtml(item.strata.join(", ") || "—")}</td><td style="color:${verdictColor[item.verdict]};font-weight:650">${escapeHtml(item.verdict)}</td><td>${escapeHtml(item.reasoning)}</td></tr>`,
+        )
         .join("");
       const casesHtml = caseRows
         ? `<h3>Case results</h3><table><thead><tr><th>Rubric</th><th>Case</th><th>Split</th><th>Strata</th><th>Verdict</th><th>Reasoning</th></tr></thead><tbody>${caseRows}</tbody></table>`
@@ -241,24 +266,35 @@ function prepareManualRevisions(options: {
 }): { manual: Record<string, ManualResultEntry>; revisionText?: string } {
   const revisionFile = path.join(options.runDir, "manual-revisions.ndjson");
   const revisions = fs.existsSync(revisionFile)
-    ? fs.readFileSync(revisionFile, "utf8").split(/\r?\n/).filter(Boolean).map((line, index) => {
-        try {
-          return JSON.parse(line) as ManualRevision;
-        } catch {
-          throw new Error(`Invalid manual revision JSON at line ${index + 1}`);
-        }
-      })
+    ? fs
+        .readFileSync(revisionFile, "utf8")
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line, index) => {
+          try {
+            return JSON.parse(line) as ManualRevision;
+          } catch {
+            throw new Error(`Invalid manual revision JSON at line ${index + 1}`);
+          }
+        })
     : [];
   const latest = validateManualRevisions(revisions);
-  const eligible = new Set(options.specs.flatMap((spec) => spec.rubric
-    .filter((item) => item.grader.type === "manual" || item.grader.type === "hybrid")
-    .map((item) => item.id)));
+  const eligible = new Set(
+    options.specs.flatMap((spec) =>
+      spec.rubric
+        .filter((item) => item.grader.type === "manual" || item.grader.type === "hybrid")
+        .map((item) => item.id),
+    ),
+  );
   const normalized = { ...options.manual };
   for (const [itemId, entry] of Object.entries(options.manual)) {
     if (!entry || typeof entry !== "object" || typeof entry.verdict !== "string") {
-      throw new Error(`Invalid manual result for ${itemId}: expected an object with a verdict string`);
+      throw new Error(
+        `Invalid manual result for ${itemId}: expected an object with a verdict string`,
+      );
     }
-    if (!eligible.has(itemId)) throw new Error(`Unknown or non-manual rubric in manual-results.json: ${itemId}`);
+    if (!eligible.has(itemId))
+      throw new Error(`Unknown or non-manual rubric in manual-results.json: ${itemId}`);
     if (entry.notes !== undefined && typeof entry.notes !== "string") {
       throw new Error(`Invalid manual result for ${itemId}: notes must be a string`);
     }
@@ -269,15 +305,28 @@ function prepareManualRevisions(options: {
     if (rawVerdict === MANUAL_PLACEHOLDER) continue;
     const verdict = rawVerdict as Verdict;
     if (!validManual.has(verdict)) {
-      throw new Error(`Invalid manual verdict for ${itemId}: expected pass, partial, fail, or not_found`);
+      throw new Error(
+        `Invalid manual verdict for ${itemId}: expected pass, partial, fail, or not_found`,
+      );
     }
     const prior = latest.get(itemId);
-    const reviewer = options.reviewer?.trim() || entry.reviewer?.trim() || process.env.USER?.trim() || process.env.USERNAME?.trim();
+    const reviewer =
+      options.reviewer?.trim() ||
+      entry.reviewer?.trim() ||
+      process.env.USER?.trim() ||
+      process.env.USERNAME?.trim();
     if (!reviewer) {
-      throw new Error(`Manual result ${itemId} requires --reviewer because no reviewer is recorded or available from the environment`);
+      throw new Error(
+        `Manual result ${itemId} requires --reviewer because no reviewer is recorded or available from the environment`,
+      );
     }
     const notes = entry.notes ?? "";
-    if (prior && prior.verdict === verdict && prior.notes === notes && prior.reviewer === reviewer) {
+    if (
+      prior &&
+      prior.verdict === verdict &&
+      prior.notes === notes &&
+      prior.reviewer === reviewer
+    ) {
       normalized[itemId] = {
         verdict,
         notes,
@@ -311,7 +360,9 @@ function prepareManualRevisions(options: {
   }
   return {
     manual: normalized,
-    revisionText: revisions.length ? `${revisions.map((revision) => JSON.stringify(revision)).join("\n")}\n` : undefined,
+    revisionText: revisions.length
+      ? `${revisions.map((revision) => JSON.stringify(revision)).join("\n")}\n`
+      : undefined,
   };
 }
 
@@ -359,34 +410,52 @@ export function recoverInterruptedReportUpdate(runDir: string): boolean {
     }
     seen.add(entry.path);
     const source = path.join(transactionDir, entry.path);
-    if (!fs.existsSync(source)) throw new Error(`Interrupted report update is missing staged ${entry.path}`);
+    if (!fs.existsSync(source))
+      throw new Error(`Interrupted report update is missing staged ${entry.path}`);
     const stat = fs.lstatSync(source);
-    if (!stat.isFile() || stat.isSymbolicLink() || sha256(fs.readFileSync(source)) !== entry.sha256) {
+    if (
+      !stat.isFile() ||
+      stat.isSymbolicLink() ||
+      sha256(fs.readFileSync(source)) !== entry.sha256
+    ) {
       throw new Error(`Interrupted report update has an invalid staged ${entry.path}`);
     }
   }
-  for (const required of ["manual-checklist.md", "manual-results.json", "receipt.json", "report.html", "report.json"]) {
-    if (!seen.has(required)) throw new Error(`Interrupted report update is missing required ${required}`);
+  for (const required of [
+    "manual-checklist.md",
+    "manual-results.json",
+    "receipt.json",
+    "report.html",
+    "report.json",
+  ]) {
+    if (!seen.has(required))
+      throw new Error(`Interrupted report update is missing required ${required}`);
   }
   const indexFile = path.join(resolved, "artifact-index.json");
   if (manifest.originalIndexRootSha256) {
     if (!fs.existsSync(indexFile)) {
-      throw new Error("Interrupted report update cannot be recovered because its original artifact index is missing");
+      throw new Error(
+        "Interrupted report update cannot be recovered because its original artifact index is missing",
+      );
     }
     const currentIndex = readJson<{ rootSha256?: string }>(indexFile);
     if (currentIndex.rootSha256 !== manifest.originalIndexRootSha256) {
       const installed = manifest.files.every((entry) => {
         const destination = path.join(resolved, entry.path);
-        return fs.existsSync(destination) &&
+        return (
+          fs.existsSync(destination) &&
           fs.lstatSync(destination).isFile() &&
-          sha256(fs.readFileSync(destination)) === entry.sha256;
+          sha256(fs.readFileSync(destination)) === entry.sha256
+        );
       });
       const completed = verifyArtifactIndex(resolved, { require: true });
       if (installed && completed.ok) {
         fs.rmSync(transactionDir, { recursive: true, force: true });
         return true;
       }
-      throw new Error("Interrupted report update cannot be recovered because its original artifact index changed");
+      throw new Error(
+        "Interrupted report update cannot be recovered because its original artifact index changed",
+      );
     }
     const changedPaths = manifest.files.map((entry) => entry.path);
     const verification = verifyArtifactIndex(resolved, {
@@ -419,7 +488,9 @@ function publishReportUpdateTransaction(options: {
   const runDir = path.resolve(options.runDir);
   const transactionDir = reportUpdateTransactionDirectory(runDir);
   if (fs.existsSync(transactionDir)) {
-    throw new Error("An interrupted report update transaction must be recovered before starting another report update");
+    throw new Error(
+      "An interrupted report update transaction must be recovered before starting another report update",
+    );
   }
   const staging = fs.mkdtempSync(path.join(path.dirname(runDir), ".aek-report-update-stage-"));
   try {
@@ -431,7 +502,8 @@ function publishReportUpdateTransaction(options: {
     if (options.revisionText !== undefined) {
       fs.writeFileSync(path.join(staging, "manual-revisions.ndjson"), options.revisionText);
     }
-    const files = fs.readdirSync(staging)
+    const files = fs
+      .readdirSync(staging)
       .filter((name) => REPORT_UPDATE_FILES.has(name))
       .sort()
       .map((name) => ({ path: name, sha256: sha256(fs.readFileSync(path.join(staging, name))) }));
@@ -455,14 +527,20 @@ function publishReportUpdateTransaction(options: {
 }
 
 /** Publish a rescore as one recoverable replacement of all report artifacts. */
-export function writeReportArtifactsRecoverably(runDir: string, report: RunReport, specs: EvalSpec[]): void {
+export function writeReportArtifactsRecoverably(
+  runDir: string,
+  report: RunReport,
+  specs: EvalSpec[],
+): void {
   const manualFile = path.join(runDir, "manual-results.json");
   const revisionFile = path.join(runDir, "manual-revisions.ndjson");
   publishReportUpdateTransaction({
     runDir,
     report,
     specs,
-    manual: fs.existsSync(manualFile) ? readJson<Record<string, ManualResultEntry>>(manualFile) : {},
+    manual: fs.existsSync(manualFile)
+      ? readJson<Record<string, ManualResultEntry>>(manualFile)
+      : {},
     revisionText: fs.existsSync(revisionFile) ? fs.readFileSync(revisionFile, "utf8") : undefined,
   });
 }
@@ -482,9 +560,14 @@ export function finalizeReport(options: {
     for (const rubric of spec.rubric) {
       if (rubric.grader.type !== "hybrid") continue;
       const automatic = area.items.find((item) => item.id === rubric.id)?.components?.automatic;
-      if ((rubric.grader.autoShare > 0 && automatic === undefined) ||
-          (automatic !== undefined && (typeof automatic !== "string" || !Object.hasOwn(verdictColor, automatic)))) {
-        throw new Error(`Cannot finalize report: hybrid ${area.id}/${rubric.id} is missing a valid automatic component; regenerate the report`);
+      if (
+        (rubric.grader.autoShare > 0 && automatic === undefined) ||
+        (automatic !== undefined &&
+          (typeof automatic !== "string" || !Object.hasOwn(verdictColor, automatic)))
+      ) {
+        throw new Error(
+          `Cannot finalize report: hybrid ${area.id}/${rubric.id} is missing a valid automatic component; regenerate the report`,
+        );
       }
     }
   }
@@ -512,12 +595,11 @@ export function finalizeReport(options: {
       }
       const prior = byId.get(rubric.id);
       if (rubric.grader.type === "hybrid") {
-        const automatic: Verdict =
-          area.unproven.includes(rubric.id)
-            ? "cannot_judge"
-            : rubric.grader.autoShare === 0
-              ? prior?.components?.automatic ?? "cannot_judge"
-              : prior!.components!.automatic!;
+        const automatic: Verdict = area.unproven.includes(rubric.id)
+          ? "cannot_judge"
+          : rubric.grader.autoShare === 0
+            ? (prior?.components?.automatic ?? "cannot_judge")
+            : prior!.components!.automatic!;
         const components = { automatic, manual: manualVerdict };
         const verdict = hybridAggregateVerdict(components, rubric.grader.autoShare);
         byId.set(rubric.id, {

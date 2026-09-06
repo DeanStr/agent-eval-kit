@@ -23,7 +23,12 @@ const receipt: RunReceipt = {
     agent: { provider: "mock", cliVersion: "mock" },
     judge: { provider: "mock", cliVersion: "mock" },
   },
-  runtime: { kitVersion: "0.1.0", node: process.version, platform: process.platform, arch: process.arch },
+  runtime: {
+    kitVersion: "0.1.0",
+    node: process.version,
+    platform: process.platform,
+    arch: process.arch,
+  },
 };
 
 test("public export keeps aggregate and case results while excluding raw evidence and paths", () => {
@@ -31,17 +36,70 @@ test("public export keeps aggregate and case results while excluding raw evidenc
   const runDir = path.join(root, "runs", "run-one");
   fs.mkdirSync(runDir, { recursive: true });
   const report: RunReport = {
-    schemaVersion: 1, runId: "run-one", project: "Demo", target: { kind: "repository", root: "/home/private/project" },
-    startedAt: "2026-01-01T00:00:00Z", finishedAt: "2026-01-01T00:01:00Z", kitVersion: "0.1.0",
+    schemaVersion: 1,
+    runId: "run-one",
+    project: "Demo",
+    target: { kind: "repository", root: "/home/private/project" },
+    startedAt: "2026-01-01T00:00:00Z",
+    finishedAt: "2026-01-01T00:01:00Z",
+    kitVersion: "0.1.0",
     providers: { agent: { provider: "mock" }, judge: { provider: "mock" } },
-    areas: [{
-      id: "core", title: "Core", weight: 100, optional: false, earned: 1, judgeable: 1, total: 1, scorePct: 100, coveragePct: 100,
-      items: [{ id: "R1", verdict: "pass", confidence: "high", reasoning: "secret internal reasoning", evidenceRefs: ["private/evidence"], source: "llm", score: { total: 1, earned: 1, judgeable: 1, scorePct: 100, coveragePct: 100 } }],
-      caseResults: [{ areaId: "core", rubricId: "R1", caseId: "annual", scenarioIds: ["S--annual"], strata: ["plan=annual"], split: "evaluation", verdict: "pass", confidence: "high", reasoning: "private case reasoning", evidenceRefs: ["private/evidence"], source: "llm", points: 1 }],
-      defects: [], notes: "private note", scenarios: [], pendingManual: [], unproven: [], byTag: {}, byStratum: {}, gates: [],
-    }],
-    overallScorePct: 100, overallCoveragePct: 100, scoreWithheld: false, byTag: {}, byStratum: {}, manualPending: 0,
-    receipt, gates: { passed: true, blocking: [] },
+    areas: [
+      {
+        id: "core",
+        title: "Core",
+        weight: 100,
+        optional: false,
+        earned: 1,
+        judgeable: 1,
+        total: 1,
+        scorePct: 100,
+        coveragePct: 100,
+        items: [
+          {
+            id: "R1",
+            verdict: "pass",
+            confidence: "high",
+            reasoning: "secret internal reasoning",
+            evidenceRefs: ["private/evidence"],
+            source: "llm",
+            score: { total: 1, earned: 1, judgeable: 1, scorePct: 100, coveragePct: 100 },
+          },
+        ],
+        caseResults: [
+          {
+            areaId: "core",
+            rubricId: "R1",
+            caseId: "annual",
+            scenarioIds: ["S--annual"],
+            strata: ["plan=annual"],
+            split: "evaluation",
+            verdict: "pass",
+            confidence: "high",
+            reasoning: "private case reasoning",
+            evidenceRefs: ["private/evidence"],
+            source: "llm",
+            points: 1,
+          },
+        ],
+        defects: [],
+        notes: "private note",
+        scenarios: [],
+        pendingManual: [],
+        unproven: [],
+        byTag: {},
+        byStratum: {},
+        gates: [],
+      },
+    ],
+    overallScorePct: 100,
+    overallCoveragePct: 100,
+    scoreWithheld: false,
+    byTag: {},
+    byStratum: {},
+    manualPending: 0,
+    receipt,
+    gates: { passed: true, blocking: [] },
   };
   report.areas[0].unproven = ["R1"];
   const runState = {
@@ -92,10 +150,16 @@ test("public export keeps aggregate and case results while excluding raw evidenc
 
 test("privacy lint reports locations without echoing sensitive values", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-privacy-"));
-  fs.writeFileSync(path.join(root, "unsafe.txt"), "contact someone@example.com\n\"password\": \"correct-horse-battery\"\n");
+  fs.writeFileSync(
+    path.join(root, "unsafe.txt"),
+    'contact someone@example.com\n"password": "correct-horse-battery"\n',
+  );
   const lint = privacyLint(root);
   assert.equal(lint.status, "failed");
-  assert.deepEqual(lint.findings.map((item) => item.rule).sort(), ["email-address", "secret-assignment"]);
+  assert.deepEqual(lint.findings.map((item) => item.rule).sort(), [
+    "email-address",
+    "secret-assignment",
+  ]);
   assert.equal(JSON.stringify(lint).includes("correct-horse-battery"), false);
 });
 

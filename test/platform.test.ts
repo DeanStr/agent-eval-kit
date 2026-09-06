@@ -18,11 +18,29 @@ test("native Windows is rejected before run, lifecycle, browser, or subprocess s
     assert.doesNotThrow(() => assertEvaluationPlatform("linux"));
     assert.doesNotThrow(() => assertEvaluationPlatform("darwin"));
     Object.defineProperty(process, "platform", { ...descriptor, value: "win32" });
-    await assert.rejects(runEvaluation({} as Parameters<typeof runEvaluation>[0]), /Native Windows.*WSL\/Linux/);
-    await assert.rejects(startLifecycle({} as Parameters<typeof startLifecycle>[0], root), /Native Windows/);
-    await assert.rejects(new BrowserSession(root, true, "https://example.test").start(), /Native Windows/);
-    await assert.rejects(spawnCaptured({ command: process.execPath, args: [], cwd: root, timeoutSeconds: 1,
-      stdoutFile: path.join(root, "stdout"), stderrFile: path.join(root, "stderr") }), /Native Windows/);
+    await assert.rejects(
+      runEvaluation({} as Parameters<typeof runEvaluation>[0]),
+      /Native Windows.*WSL\/Linux/,
+    );
+    await assert.rejects(
+      startLifecycle({} as Parameters<typeof startLifecycle>[0], root),
+      /Native Windows/,
+    );
+    await assert.rejects(
+      new BrowserSession(root, true, "https://example.test").start(),
+      /Native Windows/,
+    );
+    await assert.rejects(
+      spawnCaptured({
+        command: process.execPath,
+        args: [],
+        cwd: root,
+        timeoutSeconds: 1,
+        stdoutFile: path.join(root, "stdout"),
+        stderrFile: path.join(root, "stderr"),
+      }),
+      /Native Windows/,
+    );
     const checks = doctor();
     assert.equal(checks.length, 1, "doctor must not probe executables on an unsupported platform");
     assert.equal(checks[0].ok, false);
@@ -38,11 +56,21 @@ test("Windows CLI evaluation fails before config loading or campaign directory c
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-cli-platform-"));
   const cli = new URL("../src/cli.ts", import.meta.url).href;
   try {
-    for (const args of [["run"], ["campaign", "--output", path.join(root, "campaign")], ["auth", "--persona", "test"]]) {
+    for (const args of [
+      ["run"],
+      ["campaign", "--output", path.join(root, "campaign")],
+      ["auth", "--persona", "test"],
+    ]) {
       const code = `Object.defineProperty(process, 'platform', {value:'win32'}); process.argv = [process.execPath, 'aek', ...${JSON.stringify(args)}]; await import(${JSON.stringify(cli)});`;
-      const result = spawnSync(process.execPath, ["--import", import.meta.resolve("tsx"), "--input-type=module", "-e", code], {
-        cwd: root, encoding: "utf8", timeout: 10_000,
-      });
+      const result = spawnSync(
+        process.execPath,
+        ["--import", import.meta.resolve("tsx"), "--input-type=module", "-e", code],
+        {
+          cwd: root,
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
       assert.equal(result.status, 1, result.stderr);
       assert.match(result.stderr, /Native Windows evaluation is not supported/);
       assert.doesNotMatch(result.stderr, /No config file/);

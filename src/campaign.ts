@@ -60,17 +60,22 @@ export function assertCampaignRunRecords(value: unknown): asserts value is Campa
   for (const candidate of value) {
     const parsed = campaignRunSchema.safeParse(candidate);
     if (!parsed.success) {
-      throw new Error(`Campaign run is missing required v1 measurements or identity, or has invalid measurements: ${parsed.error.message}`);
+      throw new Error(
+        `Campaign run is missing required v1 measurements or identity, or has invalid measurements: ${parsed.error.message}`,
+      );
     }
     const run = parsed.data;
-    if (ordinals.has(run.ordinal)) throw new Error(`Campaign contains a duplicate run ordinal: ${run.ordinal}`);
+    if (ordinals.has(run.ordinal))
+      throw new Error(`Campaign contains a duplicate run ordinal: ${run.ordinal}`);
     ordinals.add(run.ordinal);
     if (run.status === "failed") continue;
-    const itemKeys = run.items.map(item => JSON.stringify([item.areaId, item.itemId]));
+    const itemKeys = run.items.map((item) => JSON.stringify([item.areaId, item.itemId]));
     if (new Set(itemKeys).size !== itemKeys.length) {
       throw new Error(`Complete campaign run ${run.ordinal} has duplicate item measurements`);
     }
-    const caseKeys = run.cases.map(item => JSON.stringify([item.areaId, item.rubricId, item.caseId]));
+    const caseKeys = run.cases.map((item) =>
+      JSON.stringify([item.areaId, item.rubricId, item.caseId]),
+    );
     if (new Set(caseKeys).size !== caseKeys.length) {
       throw new Error(`Complete campaign run ${run.ordinal} has duplicate case measurements`);
     }
@@ -139,9 +144,9 @@ function randomGenerator(seed: number): () => number {
   return () => {
     state += 0x6d2b79f5;
     let value = state;
-    value = Math.imul(value ^ value >>> 15, value | 1);
-    value ^= value + Math.imul(value ^ value >>> 7, value | 61);
-    return ((value ^ value >>> 14) >>> 0) / 4_294_967_296;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
   };
 }
 
@@ -155,9 +160,10 @@ function percentile(sorted: number[], fraction: number): number {
 function distribution(values: number[], seed: string): Distribution {
   const sorted = [...values].sort((left, right) => left - right);
   const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-  const variance = values.length > 1
-    ? values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (values.length - 1)
-    : 0;
+  const variance =
+    values.length > 1
+      ? values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (values.length - 1)
+      : 0;
   let confidenceInterval95: Distribution["confidenceInterval95"] = null;
   if (values.length > 1) {
     const random = randomGenerator(seedFromText(seed));
@@ -188,28 +194,45 @@ function distribution(values: number[], seed: string): Distribution {
   };
 }
 
-function measuredDistribution(values: number[], totalRuns: number, seed: string, unavailableReason: string): Measurement<Distribution> {
+function measuredDistribution(
+  values: number[],
+  totalRuns: number,
+  seed: string,
+  unavailableReason: string,
+): Measurement<Distribution> {
   return values.length
-    ? { state: "observed", value: distribution(values, seed), evidence: { availableRuns: values.length, totalRuns } }
+    ? {
+        state: "observed",
+        value: distribution(values, seed),
+        evidence: { availableRuns: values.length, totalRuns },
+      }
     : { state: "unavailable", value: null, reason: unavailableReason };
 }
 
-export function campaignRunRecord(ordinal: number, runDir: string, report: RunReport): CompleteCampaignRunRecord {
+export function campaignRunRecord(
+  ordinal: number,
+  runDir: string,
+  report: RunReport,
+): CompleteCampaignRunRecord {
   const areaGates = report.areas.flatMap((area) => area.gates);
-  const cases = report.areas.flatMap((area) => area.caseResults.map((item) => {
-    if (item.points === undefined) {
-      throw new Error(`Scored report case ${area.id}/${item.rubricId}/${item.caseId} is missing points`);
-    }
-    return {
-      areaId: area.id,
-      rubricId: item.rubricId,
-      caseId: item.caseId,
-      strata: item.strata,
-      split: item.split,
-      verdict: area.unproven.includes(item.rubricId) ? "cannot_judge" as const : item.verdict,
-      points: area.unproven.includes(item.rubricId) ? null : item.points,
-    };
-  }));
+  const cases = report.areas.flatMap((area) =>
+    area.caseResults.map((item) => {
+      if (item.points === undefined) {
+        throw new Error(
+          `Scored report case ${area.id}/${item.rubricId}/${item.caseId} is missing points`,
+        );
+      }
+      return {
+        areaId: area.id,
+        rubricId: item.rubricId,
+        caseId: item.caseId,
+        strata: item.strata,
+        split: item.split,
+        verdict: area.unproven.includes(item.rubricId) ? ("cannot_judge" as const) : item.verdict,
+        points: area.unproven.includes(item.rubricId) ? null : item.points,
+      };
+    }),
+  );
   return {
     ordinal,
     status: "complete",
@@ -220,14 +243,14 @@ export function campaignRunRecord(ordinal: number, runDir: string, report: RunRe
     scorePct: report.overallScorePct,
     coveragePct: report.overallCoveragePct,
     scoreWithheld: report.scoreWithheld,
-    gatesPassed: areaGates.length
-      ? report.gates.passed
-      : undefined,
-    items: report.areas.flatMap((area) => area.items.map((item) => ({
-      areaId: area.id,
-      itemId: item.id,
-      verdict: area.unproven.includes(item.id) ? "cannot_judge" : item.verdict,
-    }))),
+    gatesPassed: areaGates.length ? report.gates.passed : undefined,
+    items: report.areas.flatMap((area) =>
+      area.items.map((item) => ({
+        areaId: area.id,
+        itemId: item.id,
+        verdict: area.unproven.includes(item.id) ? "cannot_judge" : item.verdict,
+      })),
+    ),
     cases,
   };
 }
@@ -243,21 +266,29 @@ export function buildCampaignReport(options: {
   const complete = options.runs.filter((run) => run.status === "complete");
   const fingerprints = [...new Set(complete.map((run) => run.evaluationFingerprint))].sort();
   const inputFingerprints = [...new Set(complete.map((run) => run.inputFingerprint))].sort();
-  const compatibility = complete.length === 0
-    ? { status: "unknown" as const, fingerprints, inputFingerprints }
-    : fingerprints.length > 1 || inputFingerprints.length > 1
-      ? { status: "incompatible" as const, fingerprints, inputFingerprints }
-      : {
-          status: "compatible" as const,
-          evaluationFingerprint: fingerprints[0],
-          fingerprints,
-          inputFingerprint: inputFingerprints[0],
-          inputFingerprints,
-        };
-  const scores = complete.flatMap((run) => !run.scoreWithheld && typeof run.scorePct === "number" ? [run.scorePct] : []);
+  const compatibility =
+    complete.length === 0
+      ? { status: "unknown" as const, fingerprints, inputFingerprints }
+      : fingerprints.length > 1 || inputFingerprints.length > 1
+        ? { status: "incompatible" as const, fingerprints, inputFingerprints }
+        : {
+            status: "compatible" as const,
+            evaluationFingerprint: fingerprints[0],
+            fingerprints,
+            inputFingerprint: inputFingerprints[0],
+            inputFingerprints,
+          };
+  const scores = complete.flatMap((run) =>
+    !run.scoreWithheld && typeof run.scorePct === "number" ? [run.scorePct] : [],
+  );
   const coverages = complete.map((run) => run.coveragePct);
-  const gates = complete.flatMap((run) => typeof run.gatesPassed === "boolean" ? [run.gatesPassed] : []);
-  const byItem = new Map<string, { areaId: string; itemId: string; verdicts: Record<Verdict, number>; observedRuns: number }>();
+  const gates = complete.flatMap((run) =>
+    typeof run.gatesPassed === "boolean" ? [run.gatesPassed] : [],
+  );
+  const byItem = new Map<
+    string,
+    { areaId: string; itemId: string; verdicts: Record<Verdict, number>; observedRuns: number }
+  >();
   for (const run of complete) {
     for (const item of run.items) {
       const key = `${item.areaId}\0${item.itemId}`;
@@ -277,13 +308,33 @@ export function buildCampaignReport(options: {
   }
   const itemStability = [...byItem.values()]
     .map((item) => ({ ...item, fullPassRate: round(item.verdicts.pass / item.observedRuns) }))
-    .sort((left, right) => left.areaId.localeCompare(right.areaId) || left.itemId.localeCompare(right.itemId));
-  const emptyVerdicts = (): Record<Verdict, number> => ({ pass: 0, partial: 0, fail: 0, not_found: 0, cannot_judge: 0 });
-  const byCase = new Map<string, {
-    areaId: string; rubricId: string; caseId: string; strata: string[];
-    split?: "development" | "evaluation"; observedRuns: number; verdicts: Record<Verdict, number>;
-  }>();
-  const byStratum = new Map<string, { stratum: string; observations: number; verdicts: Record<Verdict, number> }>();
+    .sort(
+      (left, right) =>
+        left.areaId.localeCompare(right.areaId) || left.itemId.localeCompare(right.itemId),
+    );
+  const emptyVerdicts = (): Record<Verdict, number> => ({
+    pass: 0,
+    partial: 0,
+    fail: 0,
+    not_found: 0,
+    cannot_judge: 0,
+  });
+  const byCase = new Map<
+    string,
+    {
+      areaId: string;
+      rubricId: string;
+      caseId: string;
+      strata: string[];
+      split?: "development" | "evaluation";
+      observedRuns: number;
+      verdicts: Record<Verdict, number>;
+    }
+  >();
+  const byStratum = new Map<
+    string,
+    { stratum: string; observations: number; verdicts: Record<Verdict, number> }
+  >();
   for (const run of complete) {
     for (const item of run.cases) {
       const key = `${item.areaId}\0${item.rubricId}\0${item.caseId}`;
@@ -307,7 +358,12 @@ export function buildCampaignReport(options: {
   }
   const caseStability = [...byCase.values()]
     .map((item) => ({ ...item, fullPassRate: round(item.verdicts.pass / item.observedRuns) }))
-    .sort((left, right) => left.areaId.localeCompare(right.areaId) || left.rubricId.localeCompare(right.rubricId) || left.caseId.localeCompare(right.caseId));
+    .sort(
+      (left, right) =>
+        left.areaId.localeCompare(right.areaId) ||
+        left.rubricId.localeCompare(right.rubricId) ||
+        left.caseId.localeCompare(right.caseId),
+    );
   const stratumStability = [...byStratum.values()]
     .map((item) => ({ ...item, fullPassRate: round(item.verdicts.pass / item.observations) }))
     .sort((left, right) => left.stratum.localeCompare(right.stratum));
@@ -328,16 +384,46 @@ export function buildCampaignReport(options: {
       pendingRuns: Math.max(0, total - options.runs.length),
     },
     scorePct: compatible
-      ? measuredDistribution(scores, total, `${fingerprints[0]}:score`, "No run produced a comparable, non-withheld score")
-      : { state: "unavailable", value: null, reason: `Campaign evaluator compatibility is ${compatibility.status}` },
+      ? measuredDistribution(
+          scores,
+          total,
+          `${fingerprints[0]}:score`,
+          "No run produced a comparable, non-withheld score",
+        )
+      : {
+          state: "unavailable",
+          value: null,
+          reason: `Campaign evaluator compatibility is ${compatibility.status}`,
+        },
     evidenceCoveragePct: compatible
-      ? measuredDistribution(coverages, total, `${fingerprints[0]}:coverage`, "No completed run reported evidence coverage")
-      : { state: "unavailable", value: null, reason: `Campaign evaluator compatibility is ${compatibility.status}` },
+      ? measuredDistribution(
+          coverages,
+          total,
+          `${fingerprints[0]}:coverage`,
+          "No completed run reported evidence coverage",
+        )
+      : {
+          state: "unavailable",
+          value: null,
+          reason: `Campaign evaluator compatibility is ${compatibility.status}`,
+        },
     criticalGatePassRate: !compatible
-      ? { state: "unavailable", value: null, reason: `Campaign evaluator compatibility is ${compatibility.status}` }
+      ? {
+          state: "unavailable",
+          value: null,
+          reason: `Campaign evaluator compatibility is ${compatibility.status}`,
+        }
       : gates.length
-        ? { state: "observed", value: round(gates.filter(Boolean).length / gates.length), evidence: { availableRuns: gates.length, totalRuns: total } }
-        : { state: "unavailable", value: null, reason: "No completed run reported critical-gate status" },
+        ? {
+            state: "observed",
+            value: round(gates.filter(Boolean).length / gates.length),
+            evidence: { availableRuns: gates.length, totalRuns: total },
+          }
+        : {
+            state: "unavailable",
+            value: null,
+            reason: "No completed run reported critical-gate status",
+          },
     itemStability: compatible ? itemStability : [],
     caseStability: compatible ? caseStability : [],
     stratumStability: compatible ? stratumStability : [],
@@ -370,22 +456,52 @@ export function createCampaignDirectory(config: EvalConfig, output?: string): st
   return createTimestampedDirectory(root);
 }
 
-const escapeHtml = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-const metricText = (measurement: Measurement<Distribution>) => measurement.state === "observed"
-  ? `${measurement.value.mean}% mean · ${measurement.value.minimum}–${measurement.value.maximum}% range · σ ${measurement.value.standardDeviation}${measurement.value.confidenceInterval95 ? ` · 95% bootstrap ${measurement.value.confidenceInterval95.lower}–${measurement.value.confidenceInterval95.upper}%` : ""}`
-  : `Unavailable: ${measurement.reason}`;
+const escapeHtml = (value: string) =>
+  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const metricText = (measurement: Measurement<Distribution>) =>
+  measurement.state === "observed"
+    ? `${measurement.value.mean}% mean · ${measurement.value.minimum}–${measurement.value.maximum}% range · σ ${measurement.value.standardDeviation}${measurement.value.confidenceInterval95 ? ` · 95% bootstrap ${measurement.value.confidenceInterval95.lower}–${measurement.value.confidenceInterval95.upper}%` : ""}`
+    : `Unavailable: ${measurement.reason}`;
 
-export function writeCampaignArtifacts(directory: string, report: CampaignReport): { json: string; html: string } {
+export function writeCampaignArtifacts(
+  directory: string,
+  report: CampaignReport,
+): { json: string; html: string } {
   const json = path.join(directory, "campaign.json");
   const html = path.join(directory, "campaign.html");
   writeJson(json, report);
-  const runRows = report.runs.map((run) => run.status === "complete"
-    ? `<tr><td>${run.ordinal}</td><td>complete</td><td>${escapeHtml(run.runId)}</td><td>${run.scoreWithheld ? "withheld" : run.scorePct ?? "—"}</td><td>${run.coveragePct}</td><td>${run.gatesPassed === undefined ? "—" : run.gatesPassed ? "pass" : "fail"}</td><td></td></tr>`
-    : `<tr><td>${run.ordinal}</td><td>failed</td><td>—</td><td>—</td><td>—</td><td>—</td><td>${escapeHtml(run.error)}</td></tr>`,
-  ).join("");
-  const itemRows = report.itemStability.map((item) => `<tr><td>${escapeHtml(item.areaId)}</td><td>${escapeHtml(item.itemId)}</td><td>${item.fullPassRate * 100}%</td><td>${Object.entries(item.verdicts).map(([verdict, count]) => `${escapeHtml(verdict)} ${count}`).join(" · ")}</td></tr>`).join("");
-  const caseRows = report.caseStability.map((item) => `<tr><td>${escapeHtml(item.areaId)}</td><td>${escapeHtml(item.rubricId)}</td><td>${escapeHtml(item.caseId)}</td><td>${escapeHtml(item.strata.join(", ") || "—")}</td><td>${item.fullPassRate * 100}%</td><td>${item.observedRuns}</td></tr>`).join("");
-  const stratumRows = report.stratumStability.map((item) => `<tr><td>${escapeHtml(item.stratum)}</td><td>${item.fullPassRate * 100}%</td><td>${item.observations}</td></tr>`).join("");
-  fs.writeFileSync(html, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(report.project)} campaign</title><style>body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;color:#1f2328;max-width:1100px;margin:2rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #d0d7de;padding:.45rem .65rem;text-align:left}th{background:#f6f8fa}.warn{color:#cf222e;font-weight:650}code{font-size:.9em}</style></head><body><h1>${escapeHtml(report.project)} repeated evaluation campaign</h1><p><code>${escapeHtml(report.campaignId)}</code> · ${report.coverage.completedRuns}/${report.plannedRepetitions} completed · evaluator and target inputs <strong class="${report.compatibility.status === "compatible" ? "" : "warn"}">${report.compatibility.status}</strong></p><h2>Score</h2><p>${escapeHtml(metricText(report.scorePct))}</p><h2>Evidence coverage</h2><p>${escapeHtml(metricText(report.evidenceCoveragePct))}</p><p><strong>Critical-gate pass rate:</strong> ${report.criticalGatePassRate.state === "observed" ? `${report.criticalGatePassRate.value * 100}%` : escapeHtml(report.criticalGatePassRate.reason)}</p><h2>Runs</h2><table><thead><tr><th>#</th><th>Status</th><th>Run</th><th>Score</th><th>Coverage</th><th>Gates</th><th>Error</th></tr></thead><tbody>${runRows}</tbody></table><h2>Case stability</h2>${caseRows ? `<table><thead><tr><th>Area</th><th>Rubric</th><th>Case</th><th>Strata</th><th>Full-pass rate</th><th>Runs</th></tr></thead><tbody>${caseRows}</tbody></table>` : "<p>No case-level judgements were available.</p>"}<h2>Strata</h2>${stratumRows ? `<table><thead><tr><th>Stratum</th><th>Full-pass rate</th><th>Observations</th></tr></thead><tbody>${stratumRows}</tbody></table>` : "<p>No strata were configured.</p>"}<h2>Rubric stability</h2><table><thead><tr><th>Area</th><th>Item</th><th>Full-pass rate</th><th>Verdicts</th></tr></thead><tbody>${itemRows}</tbody></table><h2>Limitations</h2><ul>${report.limitations.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></body></html>`);
+  const runRows = report.runs
+    .map((run) =>
+      run.status === "complete"
+        ? `<tr><td>${run.ordinal}</td><td>complete</td><td>${escapeHtml(run.runId)}</td><td>${run.scoreWithheld ? "withheld" : (run.scorePct ?? "—")}</td><td>${run.coveragePct}</td><td>${run.gatesPassed === undefined ? "—" : run.gatesPassed ? "pass" : "fail"}</td><td></td></tr>`
+        : `<tr><td>${run.ordinal}</td><td>failed</td><td>—</td><td>—</td><td>—</td><td>—</td><td>${escapeHtml(run.error)}</td></tr>`,
+    )
+    .join("");
+  const itemRows = report.itemStability
+    .map(
+      (item) =>
+        `<tr><td>${escapeHtml(item.areaId)}</td><td>${escapeHtml(item.itemId)}</td><td>${item.fullPassRate * 100}%</td><td>${Object.entries(
+          item.verdicts,
+        )
+          .map(([verdict, count]) => `${escapeHtml(verdict)} ${count}`)
+          .join(" · ")}</td></tr>`,
+    )
+    .join("");
+  const caseRows = report.caseStability
+    .map(
+      (item) =>
+        `<tr><td>${escapeHtml(item.areaId)}</td><td>${escapeHtml(item.rubricId)}</td><td>${escapeHtml(item.caseId)}</td><td>${escapeHtml(item.strata.join(", ") || "—")}</td><td>${item.fullPassRate * 100}%</td><td>${item.observedRuns}</td></tr>`,
+    )
+    .join("");
+  const stratumRows = report.stratumStability
+    .map(
+      (item) =>
+        `<tr><td>${escapeHtml(item.stratum)}</td><td>${item.fullPassRate * 100}%</td><td>${item.observations}</td></tr>`,
+    )
+    .join("");
+  fs.writeFileSync(
+    html,
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(report.project)} campaign</title><style>body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;color:#1f2328;max-width:1100px;margin:2rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #d0d7de;padding:.45rem .65rem;text-align:left}th{background:#f6f8fa}.warn{color:#cf222e;font-weight:650}code{font-size:.9em}</style></head><body><h1>${escapeHtml(report.project)} repeated evaluation campaign</h1><p><code>${escapeHtml(report.campaignId)}</code> · ${report.coverage.completedRuns}/${report.plannedRepetitions} completed · evaluator and target inputs <strong class="${report.compatibility.status === "compatible" ? "" : "warn"}">${report.compatibility.status}</strong></p><h2>Score</h2><p>${escapeHtml(metricText(report.scorePct))}</p><h2>Evidence coverage</h2><p>${escapeHtml(metricText(report.evidenceCoveragePct))}</p><p><strong>Critical-gate pass rate:</strong> ${report.criticalGatePassRate.state === "observed" ? `${report.criticalGatePassRate.value * 100}%` : escapeHtml(report.criticalGatePassRate.reason)}</p><h2>Runs</h2><table><thead><tr><th>#</th><th>Status</th><th>Run</th><th>Score</th><th>Coverage</th><th>Gates</th><th>Error</th></tr></thead><tbody>${runRows}</tbody></table><h2>Case stability</h2>${caseRows ? `<table><thead><tr><th>Area</th><th>Rubric</th><th>Case</th><th>Strata</th><th>Full-pass rate</th><th>Runs</th></tr></thead><tbody>${caseRows}</tbody></table>` : "<p>No case-level judgements were available.</p>"}<h2>Strata</h2>${stratumRows ? `<table><thead><tr><th>Stratum</th><th>Full-pass rate</th><th>Observations</th></tr></thead><tbody>${stratumRows}</tbody></table>` : "<p>No strata were configured.</p>"}<h2>Rubric stability</h2><table><thead><tr><th>Area</th><th>Item</th><th>Full-pass rate</th><th>Verdicts</th></tr></thead><tbody>${itemRows}</tbody></table><h2>Limitations</h2><ul>${report.limitations.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></body></html>`,
+  );
   return { json, html };
 }

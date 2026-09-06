@@ -25,20 +25,34 @@ test("evidence MCP exposes only explicitly selected screenshots", async () => {
     maxToolCalls: 2,
   } satisfies EvidenceMcpContext);
   const launch = evidenceMcpLaunch(contextFile);
-  const transport = new StdioClientTransport({ command: launch.command, args: launch.args, cwd: directory, stderr: "pipe" });
+  const transport = new StdioClientTransport({
+    command: launch.command,
+    args: launch.args,
+    cwd: directory,
+    stderr: "pipe",
+  });
   const client = new Client({ name: "aek-evidence-test", version: "1.0.0" });
   try {
     await client.connect(transport);
     const tools = await client.listTools();
-    assert.deepEqual(tools.tools.map((tool) => tool.name), ["view_screenshot"]);
-    const selected = await client.callTool({ name: "view_screenshot", arguments: { ref: "S1/screenshots/selected.jpg" } });
+    assert.deepEqual(
+      tools.tools.map((tool) => tool.name),
+      ["view_screenshot"],
+    );
+    const selected = await client.callTool({
+      name: "view_screenshot",
+      arguments: { ref: "S1/screenshots/selected.jpg" },
+    });
     const content = selected.content as Array<{ type: string; data?: string }>;
     const imageContent = content.find((item) => item.type === "image");
     assert.equal(imageContent?.type, "image");
     if (imageContent?.type === "image" && imageContent.data) {
       assert.equal(Buffer.from(imageContent.data, "base64").toString(), image.toString());
     }
-    const denied = await client.callTool({ name: "view_screenshot", arguments: { ref: "../not-selected.jpg" } });
+    const denied = await client.callTool({
+      name: "view_screenshot",
+      arguments: { ref: "../not-selected.jpg" },
+    });
     assert.equal(denied.isError, true);
     assert.match(JSON.stringify(denied.content), /Unknown screenshot reference/);
     assert.deepEqual([...inspectedScreenshots(directory)], ["S1/screenshots/selected.jpg"]);

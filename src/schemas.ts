@@ -12,12 +12,14 @@ export const scenarioOutputSchema = {
   required: ["outcome", "summary", "observations", "evidenceRefs"],
 } as const;
 
-export const scenarioOutputValidator = z.object({
-  outcome: z.enum(["completed", "blocked", "feature_not_found"]),
-  summary: z.string(),
-  observations: z.array(z.string()),
-  evidenceRefs: z.array(z.string()),
-}).strict();
+export const scenarioOutputValidator = z
+  .object({
+    outcome: z.enum(["completed", "blocked", "feature_not_found"]),
+    summary: z.string(),
+    observations: z.array(z.string()),
+    evidenceRefs: z.array(z.string()),
+  })
+  .strict();
 
 export const judgementOutputSchema = {
   type: "object",
@@ -72,32 +74,40 @@ export const judgementOutputSchema = {
   required: ["items", "cases", "defects", "notes"],
 } as const;
 
-export const judgementOutputValidator = z.object({
-  items: z.array(
-    z.object({
-      id: z.string(),
-      verdict: z.enum(["pass", "partial", "fail", "not_found", "cannot_judge"]),
-      confidence: z.enum(["high", "medium", "low"]),
-      reasoning: z.string(),
-      evidenceRefs: z.array(z.string()),
-    }).strict(),
-  ),
-  cases: z.array(
-    z.object({
-      rubricId: z.string(),
-      caseId: z.string(),
-      verdict: z.enum(["pass", "partial", "fail", "not_found", "cannot_judge"]),
-      confidence: z.enum(["high", "medium", "low"]),
-      reasoning: z.string(),
-      evidenceRefs: z.array(z.string()),
-    }).strict(),
-  ),
-  defects: z.array(
-    z.object({
-      severity: z.enum(["critical", "major", "minor"]),
-      description: z.string(),
-      evidenceRefs: z.array(z.string()),
-    }).strict(),
-  ),
-  notes: z.string(),
-}).strict();
+export const judgementOutputValidator = z
+  .object({
+    items: z.array(
+      z
+        .object({
+          id: z.string(),
+          verdict: z.enum(["pass", "partial", "fail", "not_found", "cannot_judge"]),
+          confidence: z.enum(["high", "medium", "low"]),
+          reasoning: z.string(),
+          evidenceRefs: z.array(z.string()),
+        })
+        .strict(),
+    ),
+    cases: z.array(
+      z
+        .object({
+          rubricId: z.string(),
+          caseId: z.string(),
+          verdict: z.enum(["pass", "partial", "fail", "not_found", "cannot_judge"]),
+          confidence: z.enum(["high", "medium", "low"]),
+          reasoning: z.string(),
+          evidenceRefs: z.array(z.string()),
+        })
+        .strict(),
+    ),
+    defects: z.array(
+      z
+        .object({
+          severity: z.enum(["critical", "major", "minor"]),
+          description: z.string(),
+          evidenceRefs: z.array(z.string()),
+        })
+        .strict(),
+    ),
+    notes: z.string(),
+  })
+  .strict();

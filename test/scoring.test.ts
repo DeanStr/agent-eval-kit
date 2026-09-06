@@ -3,7 +3,16 @@ import test from "node:test";
 import { scoreSliceSchema } from "../src/artifact-schemas.js";
 import { buildReport, scoreArea } from "../src/scoring.js";
 import { campaignRunRecord, buildCampaignReport } from "../src/campaign.js";
-import type { EvalConfig, EvalSpec, JudgedCase, JudgedItem, RunReceipt, RunReport, ScenarioEvidence, Verdict } from "../src/types.js";
+import type {
+  EvalConfig,
+  EvalSpec,
+  JudgedCase,
+  JudgedItem,
+  RunReceipt,
+  RunReport,
+  ScenarioEvidence,
+  Verdict,
+} from "../src/types.js";
 
 const config = {
   scoring: { partialCredit: 0.5, minimumCoverage: 60 },
@@ -33,59 +42,140 @@ const spec: EvalSpec = {
   optional: false,
   description: "",
   sourceFile: "spec.yaml",
-  scenarios: [{ id: "S1", name: "Scenario", instructions: "Do it", successSignals: [], dependsOn: [], requiresAuth: false }],
+  scenarios: [
+    {
+      id: "S1",
+      name: "Scenario",
+      instructions: "Do it",
+      successSignals: [],
+      dependsOn: [],
+      requiresAuth: false,
+    },
+  ],
   rubric: [
-    { id: "R1", criterion: "One", weight: 3, tags: ["flow"], scenarios: ["S1"], grader: { type: "llm" }, passCriteria: "" },
-    { id: "R2", criterion: "Two", weight: 2, tags: ["tests"], scenarios: [], grader: { type: "command", methodFiles: [], output: "exit-code", command: "true" }, passCriteria: "" },
+    {
+      id: "R1",
+      criterion: "One",
+      weight: 3,
+      tags: ["flow"],
+      scenarios: ["S1"],
+      grader: { type: "llm" },
+      passCriteria: "",
+    },
+    {
+      id: "R2",
+      criterion: "Two",
+      weight: 2,
+      tags: ["tests"],
+      scenarios: [],
+      grader: { type: "command", methodFiles: [], output: "exit-code", command: "true" },
+      passCriteria: "",
+    },
   ],
 };
 
 const judgements: JudgedItem[] = [
-  { id: "R1", verdict: "fail", confidence: "high", reasoning: "not reached", evidenceRefs: ["x"], source: "llm" },
-  { id: "R2", verdict: "pass", confidence: "high", reasoning: "ok", evidenceRefs: ["x"], source: "command" },
+  {
+    id: "R1",
+    verdict: "fail",
+    confidence: "high",
+    reasoning: "not reached",
+    evidenceRefs: ["x"],
+    source: "llm",
+  },
+  {
+    id: "R2",
+    verdict: "pass",
+    confidence: "high",
+    reasoning: "ok",
+    evidenceRefs: ["x"],
+    source: "command",
+  },
 ];
 
 test("scoring preserves verifiable weights for small and fractional rubric weights", () => {
   for (const weight of [1e-8, 0.123456789]) {
-    const smallSpec = { ...spec, rubric: spec.rubric.map(item => ({ ...item, weight })) };
+    const smallSpec = { ...spec, rubric: spec.rubric.map((item) => ({ ...item, weight })) };
     const area = scoreArea({
-      spec: smallSpec, evidence: [evidence("completed")],
+      spec: smallSpec,
+      evidence: [evidence("completed")],
       config: { ...config, scoring: { ...config.scoring, partialCredit: 1 / 3 } },
-      judgements: judgements.map(item => ({ ...item, verdict: "partial" })),
+      judgements: judgements.map((item) => ({ ...item, verdict: "partial" })),
     });
     assert.equal(area.total, weight * 2);
     assert.equal(area.scorePct, 33.333);
-    for (const slice of [area, ...area.items.map(item => item.score!), ...Object.values(area.byTag)]) {
+    for (const slice of [
+      area,
+      ...area.items.map((item) => item.score!),
+      ...Object.values(area.byTag),
+    ]) {
       assert.equal(scoreSliceSchema.safeParse(JSON.parse(JSON.stringify(slice))).success, true);
     }
   }
 });
 
 test("pending hybrid reviews preserve automatic credit without claiming a campaign full pass", () => {
-  const hybrid: EvalSpec = { ...spec, rubric: [{ ...spec.rubric[0], grader: { type: "hybrid", autoShare: 0.5 }, gate: true }] };
-  const area = scoreArea({ spec: hybrid, config, evidence: [evidence("completed")], judgements: [{ ...judgements[0], verdict: "pass" }] });
+  const hybrid: EvalSpec = {
+    ...spec,
+    rubric: [{ ...spec.rubric[0], grader: { type: "hybrid", autoShare: 0.5 }, gate: true }],
+  };
+  const area = scoreArea({
+    spec: hybrid,
+    config,
+    evidence: [evidence("completed")],
+    judgements: [{ ...judgements[0], verdict: "pass" }],
+  });
   assert.equal(area.coveragePct, 50);
   assert.equal(area.scorePct, 100);
   assert.equal(area.items[0].components?.automatic, "pass");
   assert.equal(area.items[0].verdict, "cannot_judge");
   assert.equal(area.gates[0].status, "unavailable");
   const report = {
-    schemaVersion: 1, project: "Hybrid", target: { kind: "repository", root: "/project" },
-    startedAt: "now", finishedAt: "now", kitVersion: "0.1.0",
+    schemaVersion: 1,
+    project: "Hybrid",
+    target: { kind: "repository", root: "/project" },
+    startedAt: "now",
+    finishedAt: "now",
+    kitVersion: "0.1.0",
     providers: { agent: { provider: "mock" }, judge: { provider: "mock" } },
-    byTag: {}, byStratum: {}, manualPending: 1,
-    runId: "hybrid", areas: [area], overallScorePct: 100, overallCoveragePct: 50,
-    scoreWithheld: true, gates: { passed: false, blocking: [] },
+    byTag: {},
+    byStratum: {},
+    manualPending: 1,
+    runId: "hybrid",
+    areas: [area],
+    overallScorePct: 100,
+    overallCoveragePct: 50,
+    scoreWithheld: true,
+    gates: { passed: false, blocking: [] },
     receipt: {
-      schemaVersion: 1, evaluationFingerprint: "e", inputFingerprint: "i",
-      inputs: { config: { sha256: "c", bytes: 1 }, methodSha256: "m", specs: {}, selection: { areas: [area.id] } },
+      schemaVersion: 1,
+      evaluationFingerprint: "e",
+      inputFingerprint: "i",
+      inputs: {
+        config: { sha256: "c", bytes: 1 },
+        methodSha256: "m",
+        specs: {},
+        selection: { areas: [area.id] },
+      },
       target: { kind: "repository" },
-      providers: { agent: { provider: "mock", cliVersion: "mock" }, judge: { provider: "mock", cliVersion: "mock" } },
-      runtime: { kitVersion: "0.1.0", node: process.version, platform: process.platform, arch: process.arch },
+      providers: {
+        agent: { provider: "mock", cliVersion: "mock" },
+        judge: { provider: "mock", cliVersion: "mock" },
+      },
+      runtime: {
+        kitVersion: "0.1.0",
+        node: process.version,
+        platform: process.platform,
+        arch: process.arch,
+      },
     },
   } as RunReport;
-  const campaign = buildCampaignReport({ campaignId: "hybrid", project: "Hybrid", startedAt: "now", plannedRepetitions: 2,
-    runs: [1, 2].map(ordinal => campaignRunRecord(ordinal, `/runs/${ordinal}`, report)),
+  const campaign = buildCampaignReport({
+    campaignId: "hybrid",
+    project: "Hybrid",
+    startedAt: "now",
+    plannedRepetitions: 2,
+    runs: [1, 2].map((ordinal) => campaignRunRecord(ordinal, `/runs/${ordinal}`, report)),
   });
   assert.equal(campaign.itemStability[0].fullPassRate, 0);
   assert.equal(campaign.itemStability[0].verdicts.cannot_judge, 2);
@@ -103,8 +193,15 @@ test("negative evidence from an entirely blocked scenario is not scored as produ
 });
 
 test("positive automatic verdicts are not scored when every backing scenario was blocked", () => {
-  const optimistic = judgements.map((item) => item.id === "R1" ? { ...item, verdict: "pass" as const } : item);
-  const score = scoreArea({ spec, judgements: optimistic, evidence: [evidence("blocked")], config });
+  const optimistic = judgements.map((item) =>
+    item.id === "R1" ? { ...item, verdict: "pass" as const } : item,
+  );
+  const score = scoreArea({
+    spec,
+    judgements: optimistic,
+    evidence: [evidence("blocked")],
+    config,
+  });
   assert.deepEqual(score.unproven, ["R1"]);
   assert.equal(score.earned, 2);
   assert.equal(score.judgeable, 2);
@@ -116,20 +213,32 @@ test("unscoped automatic verdicts still require reached scenario evidence", () =
     ...spec,
     rubric: [{ ...spec.rubric[0], scenarios: [] }],
   };
-  const llm = scoreArea({ spec: llmSpec, judgements: [judgements[0]], evidence: [evidence("blocked")], config });
+  const llm = scoreArea({
+    spec: llmSpec,
+    judgements: [judgements[0]],
+    evidence: [evidence("blocked")],
+    config,
+  });
   assert.deepEqual(llm.unproven, ["R1"]);
   assert.equal(llm.judgeable, 0);
 
   const hybridSpec: EvalSpec = {
     ...spec,
-    rubric: [{
-      ...spec.rubric[0],
-      scenarios: [],
-      grader: { type: "hybrid", autoShare: 0.5 },
-      manualInstructions: "Verify it",
-    }],
+    rubric: [
+      {
+        ...spec.rubric[0],
+        scenarios: [],
+        grader: { type: "hybrid", autoShare: 0.5 },
+        manualInstructions: "Verify it",
+      },
+    ],
   };
-  const hybrid = scoreArea({ spec: hybridSpec, judgements: [judgements[0]], evidence: [evidence("blocked")], config });
+  const hybrid = scoreArea({
+    spec: hybridSpec,
+    judgements: [judgements[0]],
+    evidence: [evidence("blocked")],
+    config,
+  });
   assert.deepEqual(hybrid.unproven, ["R1"]);
   assert.equal(hybrid.judgeable, 0);
   assert.deepEqual(hybrid.pendingManual, ["R1"]);
@@ -167,7 +276,12 @@ test("a manual negative verdict remains judgeable when automation was blocked", 
     reasoning: "A human verified the absence",
     evidenceRefs: ["manual"],
   };
-  const score = scoreArea({ spec, judgements: [manual, judgements[1]], evidence: [evidence("blocked")], config });
+  const score = scoreArea({
+    spec,
+    judgements: [manual, judgements[1]],
+    evidence: [evidence("blocked")],
+    config,
+  });
   assert.deepEqual(score.unproven, []);
   assert.deepEqual(score.pendingManual, []);
   assert.equal(score.earned, 2);
@@ -179,16 +293,18 @@ test("a manual negative verdict remains judgeable when automation was blocked", 
 test("hybrid grader counts automatic and manual shares independently", () => {
   const hybrid: EvalSpec = {
     ...spec,
-    rubric: [{
-      id: "H1",
-      criterion: "Hybrid",
-      weight: 4,
-      tags: ["side-effect"],
-      scenarios: ["S1"],
-      grader: { type: "hybrid", autoShare: 0.25 },
-      passCriteria: "",
-      manualInstructions: "Check it",
-    }],
+    rubric: [
+      {
+        id: "H1",
+        criterion: "Hybrid",
+        weight: 4,
+        tags: ["side-effect"],
+        scenarios: ["S1"],
+        grader: { type: "hybrid", autoShare: 0.25 },
+        passCriteria: "",
+        manualInstructions: "Check it",
+      },
+    ],
   };
   const automatic: JudgedItem = {
     id: "H1",
@@ -198,13 +314,23 @@ test("hybrid grader counts automatic and manual shares independently", () => {
     evidenceRefs: ["shot.jpg"],
     source: "llm",
   };
-  const before = scoreArea({ spec: hybrid, judgements: [automatic], evidence: [evidence("completed")], config });
+  const before = scoreArea({
+    spec: hybrid,
+    judgements: [automatic],
+    evidence: [evidence("completed")],
+    config,
+  });
   assert.equal(before.earned, 1);
   assert.equal(before.judgeable, 1);
   assert.equal(before.coveragePct, 25);
   assert.deepEqual(before.pendingManual, ["H1"]);
 
-  const blocked = scoreArea({ spec: hybrid, judgements: [automatic], evidence: [evidence("blocked")], config });
+  const blocked = scoreArea({
+    spec: hybrid,
+    judgements: [automatic],
+    evidence: [evidence("blocked")],
+    config,
+  });
   assert.equal(blocked.earned, 0);
   assert.equal(blocked.judgeable, 0);
   assert.deepEqual(blocked.unproven, ["H1"]);
@@ -215,7 +341,12 @@ test("hybrid grader counts automatic and manual shares independently", () => {
     source: "manual",
     components: { automatic: "pass", manual: "fail" },
   };
-  const after = scoreArea({ spec: hybrid, judgements: [combined], evidence: [evidence("completed")], config });
+  const after = scoreArea({
+    spec: hybrid,
+    judgements: [combined],
+    evidence: [evidence("completed")],
+    config,
+  });
   assert.equal(after.earned, 1);
   assert.equal(after.judgeable, 4);
   assert.equal(after.scorePct, 25);
@@ -225,17 +356,19 @@ test("hybrid grader counts automatic and manual shares independently", () => {
 test("rescoring rebuilds finalized hybrid verdicts from current shares", () => {
   const manualOnly: EvalSpec = {
     ...spec,
-    rubric: [{
-      id: "H1",
-      criterion: "Hybrid gate",
-      weight: 4,
-      tags: ["side-effect"],
-      scenarios: ["S1"],
-      grader: { type: "hybrid", autoShare: 0 },
-      passCriteria: "Every weighted component passes",
-      manualInstructions: "Verify it",
-      gate: true,
-    }],
+    rubric: [
+      {
+        id: "H1",
+        criterion: "Hybrid gate",
+        weight: 4,
+        tags: ["side-effect"],
+        scenarios: ["S1"],
+        grader: { type: "hybrid", autoShare: 0 },
+        passCriteria: "Every weighted component passes",
+        manualInstructions: "Verify it",
+        gate: true,
+      },
+    ],
   };
   const finalized: JudgedItem = {
     id: "H1",
@@ -246,7 +379,12 @@ test("rescoring rebuilds finalized hybrid verdicts from current shares", () => {
     source: "manual",
     components: { automatic: "fail", manual: "pass" },
   };
-  const before = scoreArea({ spec: manualOnly, judgements: [finalized], evidence: [evidence("completed")], config });
+  const before = scoreArea({
+    spec: manualOnly,
+    judgements: [finalized],
+    evidence: [evidence("completed")],
+    config,
+  });
   assert.equal(before.items[0].verdict, "pass");
   assert.equal(before.gates?.[0].status, "passed");
 
@@ -254,7 +392,12 @@ test("rescoring rebuilds finalized hybrid verdicts from current shares", () => {
     ...manualOnly,
     rubric: [{ ...manualOnly.rubric[0], grader: { type: "hybrid", autoShare: 0.5 } }],
   };
-  const after = scoreArea({ spec: reweighted, judgements: [finalized], evidence: [evidence("completed")], config });
+  const after = scoreArea({
+    spec: reweighted,
+    judgements: [finalized],
+    evidence: [evidence("completed")],
+    config,
+  });
   assert.equal(after.items[0].verdict, "partial");
   assert.equal(after.scorePct, 50);
   assert.equal(after.gates?.[0].status, "failed");
@@ -279,27 +422,32 @@ test("critical rubric items become hard pass, fail, or unavailable gates", () =>
     evidence: [evidence("completed")],
     config,
   });
-  assert.deepEqual(score.gates?.map(({ itemId, status }) => ({ itemId, status })), [
-    { itemId: "PASS", status: "passed" },
-    { itemId: "FAIL", status: "failed" },
-    { itemId: "UNKNOWN", status: "unavailable" },
-  ]);
+  assert.deepEqual(
+    score.gates?.map(({ itemId, status }) => ({ itemId, status })),
+    [
+      { itemId: "PASS", status: "passed" },
+      { itemId: "FAIL", status: "failed" },
+      { itemId: "UNKNOWN", status: "unavailable" },
+    ],
+  );
 });
 
 test("a hybrid critical item stays unavailable until every weighted share is judged", () => {
   const gated: EvalSpec = {
     ...spec,
-    rubric: [{
-      id: "HYBRID_GATE",
-      criterion: "Human-confirmed side effect",
-      weight: 5,
-      tags: ["side-effect"],
-      scenarios: ["S1"],
-      grader: { type: "hybrid", autoShare: 0.5 },
-      passCriteria: "Both checks pass",
-      manualInstructions: "Verify the side effect",
-      gate: true,
-    }],
+    rubric: [
+      {
+        id: "HYBRID_GATE",
+        criterion: "Human-confirmed side effect",
+        weight: 5,
+        tags: ["side-effect"],
+        scenarios: ["S1"],
+        grader: { type: "hybrid", autoShare: 0.5 },
+        passCriteria: "Both checks pass",
+        manualInstructions: "Verify the side effect",
+        gate: true,
+      },
+    ],
   };
   const manualOnly: JudgedItem = {
     id: "HYBRID_GATE",
@@ -310,7 +458,12 @@ test("a hybrid critical item stays unavailable until every weighted share is jud
     source: "manual",
     components: { manual: "pass" },
   };
-  const score = scoreArea({ spec: gated, judgements: [manualOnly], evidence: [evidence("completed")], config });
+  const score = scoreArea({
+    spec: gated,
+    judgements: [manualOnly],
+    evidence: [evidence("completed")],
+    config,
+  });
   assert.equal(score.gates?.[0].status, "unavailable");
   assert.match(score.gates?.[0].reason ?? "", /Only 2\.5 of 5/);
 });
@@ -324,7 +477,12 @@ test("automated cannot-judge results reduce coverage without creating impossible
     evidenceRefs: [],
     source: rubric.grader.type === "command" ? "command" : "llm",
   }));
-  const score = scoreArea({ spec, judgements: cannotJudge, evidence: [evidence("completed")], config });
+  const score = scoreArea({
+    spec,
+    judgements: cannotJudge,
+    evidence: [evidence("completed")],
+    config,
+  });
   assert.deepEqual(score.pendingManual, []);
   assert.equal(score.coveragePct, 0);
 });
@@ -336,12 +494,14 @@ test("global tag and stratum diagnostics respect top-level area weights", () => 
       id,
       title: id,
       weight: areaWeight,
-      rubric: [{
-        ...spec.rubric[0],
-        id: "SHARED",
-        weight: rubricWeight,
-        tags: ["shared"],
-      }],
+      rubric: [
+        {
+          ...spec.rubric[0],
+          id: "SHARED",
+          weight: rubricWeight,
+          tags: ["shared"],
+        },
+      ],
     };
     const judgement: JudgedItem = {
       id: "SHARED",

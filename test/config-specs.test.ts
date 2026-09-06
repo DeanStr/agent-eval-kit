@@ -12,7 +12,10 @@ test("command grader output mode is explicit and strictly validated", () => {
   const root = temporary();
   const file = path.join(root, "spec.yaml");
   for (const mode of ["", ", output: auto", ", output: json", ", output: exit-code"]) {
-    fs.writeFileSync(file, `id: core\ntitle: Core\nweight: 100\ndescription: Contract\nscenarios:\n  - { id: S1, name: Inspect, instructions: Inspect }\nrubric:\n  - id: R1\n    criterion: Works\n    weight: 1\n    passCriteria: Works\n    grader: { type: command, methodFiles: [], command: test${mode} }\n`);
+    fs.writeFileSync(
+      file,
+      `id: core\ntitle: Core\nweight: 100\ndescription: Contract\nscenarios:\n  - { id: S1, name: Inspect, instructions: Inspect }\nrubric:\n  - id: R1\n    criterion: Works\n    weight: 1\n    passCriteria: Works\n    grader: { type: command, methodFiles: [], command: test${mode} }\n`,
+    );
     if (mode === "" || mode.endsWith("auto")) assert.throws(() => loadSpecs(file), /output/);
     else assert.equal(loadSpecs(file)[0].rubric[0].grader.type, "command");
   }
@@ -55,38 +58,68 @@ target: { kind: web, url: "\${AEK_TEST_MISSING}" }
 test("config rejects credential-bearing target and readiness URLs", () => {
   const root = temporary();
   const file = path.join(root, "evalkit.yaml");
-  fs.writeFileSync(file, `version: 1
+  fs.writeFileSync(
+    file,
+    `version: 1
 project: { name: Demo, root: . }
 target: { kind: web, url: "https://app.example.test/?access_token=retained-secret" }
-`);
-  assert.throws(() => loadConfig(file), /must not include credential-bearing query or fragment parameters/);
+`,
+  );
+  assert.throws(
+    () => loadConfig(file),
+    /must not include credential-bearing query or fragment parameters/,
+  );
 
-  fs.writeFileSync(file, `version: 1
+  fs.writeFileSync(
+    file,
+    `version: 1
 project: { name: Demo, root: . }
 target:
   kind: web
   url: https://app.example.test/
   ready: { url: "https://status.example.test/health?signature=retained-secret" }
-`);
-  assert.throws(() => loadConfig(file), /must not include credential-bearing query or fragment parameters/);
+`,
+  );
+  assert.throws(
+    () => loadConfig(file),
+    /must not include credential-bearing query or fragment parameters/,
+  );
 
-  fs.writeFileSync(file, `version: 1
+  fs.writeFileSync(
+    file,
+    `version: 1
 project: { name: Demo, root: . }
 target: { kind: web, url: "https://app.example.test/callback#access_token=retained-secret&token_type=bearer" }
-`);
-  assert.throws(() => loadConfig(file), /must not include credential-bearing query or fragment parameters/);
+`,
+  );
+  assert.throws(
+    () => loadConfig(file),
+    /must not include credential-bearing query or fragment parameters/,
+  );
 
-  fs.writeFileSync(file, `version: 1
+  fs.writeFileSync(
+    file,
+    `version: 1
 project: { name: Demo, root: . }
 target: { kind: web, url: "https://app.example.test/callback#session:retained-secret" }
-`);
-  assert.throws(() => loadConfig(file), /must not include credential-bearing query or fragment parameters/);
+`,
+  );
+  assert.throws(
+    () => loadConfig(file),
+    /must not include credential-bearing query or fragment parameters/,
+  );
 
-  fs.writeFileSync(file, `version: 1
+  fs.writeFileSync(
+    file,
+    `version: 1
 project: { name: Demo, root: . }
 target: { kind: web, url: "https://app.example.test/?tenant=public-demo#/dashboard?tab=activity" }
-`);
-  assert.equal(loadConfig(file).target.url, "https://app.example.test/?tenant=public-demo#/dashboard?tab=activity");
+`,
+  );
+  assert.equal(
+    loadConfig(file).target.url,
+    "https://app.example.test/?tenant=public-demo#/dashboard?tab=activity",
+  );
   assert.throws(
     () => loadConfig(file, { targetUrl: "https://preview.example.test/?key=retained-secret" }),
     /Invalid --url: must not include credential-bearing query or fragment parameters/,
@@ -108,7 +141,10 @@ agent: { provider: mock }
   );
   const configured = loadConfig(file);
   assert.equal(configured.target.url, "https://configured.example.test");
-  const overridden = loadConfig(file, { targetUrl: "https://override.example.test/path", maxTurns: 7 });
+  const overridden = loadConfig(file, {
+    targetUrl: "https://override.example.test/path",
+    maxTurns: 7,
+  });
   assert.equal(overridden.target.url, "https://override.example.test/path");
   assert.deepEqual(overridden.target.allowedOrigins, ["https://override.example.test"]);
   assert.equal(overridden.agent.maxTurns, 7);
@@ -118,23 +154,29 @@ agent: { provider: mock }
 test("a URL override rebases target-bound readiness without changing an external probe", () => {
   const root = temporary();
   const file = path.join(root, "evalkit.yaml");
-  fs.writeFileSync(file, `version: 1
+  fs.writeFileSync(
+    file,
+    `version: 1
 project: { name: Demo, root: . }
 target:
   kind: web
   url: https://configured.example.test/app
   ready: { url: https://configured.example.test/health?deep=1 }
-`);
+`,
+  );
   const overridden = loadConfig(file, { targetUrl: "http://127.0.0.1:4173/preview" });
   assert.equal(overridden.target.ready?.url, "http://127.0.0.1:4173/health?deep=1");
 
-  fs.writeFileSync(file, `version: 1
+  fs.writeFileSync(
+    file,
+    `version: 1
 project: { name: Demo, root: . }
 target:
   kind: web
   url: https://configured.example.test/app
   ready: { url: https://status.example.test/target-health }
-`);
+`,
+  );
   const external = loadConfig(file, { targetUrl: "https://preview.example.test/build" });
   assert.equal(external.target.ready?.url, "https://status.example.test/target-health");
 });
@@ -142,7 +184,9 @@ target:
 test("config requires exactly one readiness probe", () => {
   const root = temporary();
   const file = path.join(root, "evalkit.yaml");
-  fs.writeFileSync(file, `version: 1
+  fs.writeFileSync(
+    file,
+    `version: 1
 project: { name: Demo, root: . }
 target:
   kind: web
@@ -150,24 +194,30 @@ target:
   ready:
     url: https://configured.example.test/health
     command: node check-ready.js
-`);
+`,
+  );
   assert.throws(() => loadConfig(file), /ready needs exactly one of url or command/);
 });
 
 test("config rejects unknown keys instead of silently ignoring typos", () => {
   const root = temporary();
   const file = path.join(root, "evalkit.yaml");
-  fs.writeFileSync(file, `version: 1
+  fs.writeFileSync(
+    file,
+    `version: 1
 project: { name: Demo, root: . }
 target: { kind: repository }
 scorng: { minimumCoverage: 80 }
-`);
+`,
+  );
   assert.throws(() => loadConfig(file), /Unrecognized key.*scorng/);
 });
 
 test("authenticated scenarios require a persona and browser execution", () => {
   const root = temporary();
-  fs.writeFileSync(path.join(root, "auth.yaml"), `id: auth
+  fs.writeFileSync(
+    path.join(root, "auth.yaml"),
+    `id: auth
 title: Auth
 weight: 100
 description: Auth validation
@@ -176,17 +226,21 @@ scenarios:
   - { id: WORKSPACE_AUTH, name: Wrong mode, kind: workspace, persona: buyer, instructions: Inspect, requiresAuth: true }
 rubric:
   - { id: R1, criterion: Works, weight: 1, scenarios: [NO_PERSONA], grader: { type: llm }, passCriteria: Works }
-`);
+`,
+  );
   const specs = loadSpecs(root);
   assert.throws(
-    () => assertScenarioTargetCompatibility(specs, { kind: "web", url: "https://app.example.test" }),
+    () =>
+      assertScenarioTargetCompatibility(specs, { kind: "web", url: "https://app.example.test" }),
     /NO_PERSONA requires authentication but has no persona[\s\S]*WORKSPACE_AUTH requires authentication but resolves to workspace mode/,
   );
 });
 
 test("every browser scenario requires a configured target URL", () => {
   const root = temporary();
-  fs.writeFileSync(path.join(root, "browser.yaml"), `id: browser
+  fs.writeFileSync(
+    path.join(root, "browser.yaml"),
+    `id: browser
 title: Browser
 weight: 100
 description: Browser validation
@@ -194,7 +248,8 @@ scenarios:
   - { id: PUBLIC_BROWSER, name: Public browser, kind: browser, instructions: Inspect }
 rubric:
   - { id: R1, criterion: Works, weight: 1, scenarios: [PUBLIC_BROWSER], grader: { type: llm }, passCriteria: Works }
-`);
+`,
+  );
   const specs = loadSpecs(root);
   assert.throws(
     () => assertScenarioTargetCompatibility(specs, { kind: "repository" }),
@@ -205,24 +260,30 @@ rubric:
 test("config rejects viewports that would make screenshots unusable as judge evidence", () => {
   const root = temporary();
   const file = path.join(root, "evalkit.yaml");
-  fs.writeFileSync(file, `version: 1
+  fs.writeFileSync(
+    file,
+    `version: 1
 project: { name: Demo, root: . }
 target: { kind: web, url: https://app.example.test }
 browser: { viewport: { width: 2560, height: 1440 } }
-`);
+`,
+  );
   assert.throws(() => loadConfig(file), /2000px evidence-image limit/);
 });
 
 test("web targets reject non-HTTP URLs and always retain their own origin", () => {
   const root = temporary();
   const file = path.join(root, "evalkit.yaml");
-  fs.writeFileSync(file, `version: 1
+  fs.writeFileSync(
+    file,
+    `version: 1
 project: { name: Demo, root: . }
 target:
   kind: web
   url: https://app.example.test/path
   allowedOrigins: [https://app.example.test, https://cdn.example.test, "https://*.assets.example.test"]
-`);
+`,
+  );
   const config = loadConfig(file);
   assert.deepEqual(config.target.allowedOrigins, [
     "https://app.example.test",
@@ -242,13 +303,16 @@ test("wildcard origins must remain valid URLs after wildcard substitution", () =
   const root = temporary();
   const file = path.join(root, "evalkit.yaml");
   for (const origin of ["https://*.bad host", "https://*.example.test:70000"]) {
-    fs.writeFileSync(file, `version: 1
+    fs.writeFileSync(
+      file,
+      `version: 1
 project: { name: Demo, root: . }
 target:
   kind: web
   url: https://app.example.test
   allowedOrigins: [${JSON.stringify(origin)}]
-`);
+`,
+    );
     assert.throws(() => loadConfig(file), /must be an exact HTTP\(S\) origin or wildcard/);
   }
 });
@@ -256,7 +320,9 @@ target:
 test("resolved config snapshots redact secrets embedded in command strings", () => {
   const root = temporary();
   const file = path.join(root, "evalkit.yaml");
-  fs.writeFileSync(file, `version: 1
+  fs.writeFileSync(
+    file,
+    `version: 1
 project: { name: Demo, root: . }
 target:
   kind: command
@@ -266,9 +332,13 @@ target:
       --auth-token "quoted-auth-secret" --password='quoted-password-secret'
     env:
       DATABASE_URL: postgres://alice:database-password@db.internal/app
-`);
+`,
+  );
   const safe = JSON.stringify(redactConfig(loadConfig(file)));
-  assert.doesNotMatch(safe, /super-secret-value|sk-proj-abcdefghijklmnop|quoted-auth-secret|quoted-password-secret|database-password/);
+  assert.doesNotMatch(
+    safe,
+    /super-secret-value|sk-proj-abcdefghijklmnop|quoted-auth-secret|quoted-password-secret|database-password/,
+  );
   assert.match(safe, /\[REDACTED\]/);
   assert.match(safe, /postgres:\/\/alice:\[REDACTED\]@db\.internal\/app/);
 });
@@ -297,7 +367,9 @@ rubric:
 
 test("scenario ids cannot collide with reserved run artifacts", () => {
   const root = temporary();
-  fs.writeFileSync(path.join(root, "reserved.yaml"), `id: area
+  fs.writeFileSync(
+    path.join(root, "reserved.yaml"),
+    `id: area
 title: Area
 weight: 100
 description: Reserved paths
@@ -305,13 +377,19 @@ scenarios:
   - { id: REPORT.JSON, name: Collision, instructions: Inspect }
 rubric:
   - { id: R1, criterion: Works, weight: 1, scenarios: [REPORT.JSON], grader: { type: llm }, passCriteria: Works }
-`);
-  assert.throws(() => loadSpecs(root), /scenario id REPORT\.JSON is reserved by the run artifact layout/);
+`,
+  );
+  assert.throws(
+    () => loadSpecs(root),
+    /scenario id REPORT\.JSON is reserved by the run artifact layout/,
+  );
 });
 
 test("artifact-backed ids cannot differ only by case", () => {
   const root = temporary();
-  fs.writeFileSync(path.join(root, "one.yaml"), `id: Checkout
+  fs.writeFileSync(
+    path.join(root, "one.yaml"),
+    `id: Checkout
 title: One
 weight: 50
 description: One
@@ -319,8 +397,11 @@ scenarios:
   - { id: Create, name: Create, instructions: Inspect }
 rubric:
   - { id: VERIFY, criterion: Works, weight: 1, scenarios: [Create], grader: { type: llm }, passCriteria: Works }
-`);
-  fs.writeFileSync(path.join(root, "two.yaml"), `id: checkout
+`,
+  );
+  fs.writeFileSync(
+    path.join(root, "two.yaml"),
+    `id: checkout
 title: Two
 weight: 50
 description: Two
@@ -328,7 +409,8 @@ scenarios:
   - { id: create, name: Create again, instructions: Inspect }
 rubric:
   - { id: verify, criterion: Works too, weight: 1, scenarios: [create], grader: { type: llm }, passCriteria: Works }
-`);
+`,
+  );
   assert.throws(
     () => loadSpecs(root),
     /area ids Checkout and checkout collide[\s\S]*scenario ids Create and create collide[\s\S]*rubric ids VERIFY and verify collide/,
@@ -337,7 +419,9 @@ rubric:
 
 test("expanded scenario ids are collision-checked case-insensitively", () => {
   const root = temporary();
-  fs.writeFileSync(path.join(root, "expanded.yaml"), `id: area
+  fs.writeFileSync(
+    path.join(root, "expanded.yaml"),
+    `id: area
 title: Area
 weight: 100
 description: Expanded collision
@@ -350,7 +434,8 @@ scenarios:
       - { id: case }
 rubric:
   - { id: R1, criterion: Works, weight: 1, scenarios: [flow], grader: { type: llm }, passCriteria: Works }
-`);
+`,
+  );
   assert.throws(
     () => loadSpecs(root),
     /expanded scenario id flow--case collides with another scenario or case across the spec set/,
@@ -360,7 +445,9 @@ rubric:
 test("area and scenario artifact IDs are bounded before they become directory names", () => {
   const root = temporary();
   const longId = "s".repeat(101);
-  fs.writeFileSync(path.join(root, "long-scenario.yaml"), `id: area
+  fs.writeFileSync(
+    path.join(root, "long-scenario.yaml"),
+    `id: area
 title: Area
 weight: 100
 description: Long scenario
@@ -368,11 +455,14 @@ scenarios:
   - { id: ${longId}, name: Long, instructions: Inspect }
 rubric:
   - { id: R1, criterion: Works, weight: 1, scenarios: [], grader: { type: llm }, passCriteria: Works }
-`);
+`,
+  );
   assert.throws(() => loadSpecs(root), /scenarios\.0\.id: must be at most 100 characters/);
 
   fs.rmSync(path.join(root, "long-scenario.yaml"));
-  fs.writeFileSync(path.join(root, "long-case.yaml"), `id: area
+  fs.writeFileSync(
+    path.join(root, "long-case.yaml"),
+    `id: area
 title: Area
 weight: 100
 description: Long case
@@ -384,11 +474,17 @@ scenarios:
       - { id: ${longId} }
 rubric:
   - { id: R1, criterion: Works, weight: 1, scenarios: [flow], grader: { type: llm }, passCriteria: Works }
-`);
-  assert.throws(() => loadSpecs(root), /scenarios\.0\.cases\.0\.id: must be at most 100 characters/);
+`,
+  );
+  assert.throws(
+    () => loadSpecs(root),
+    /scenarios\.0\.cases\.0\.id: must be at most 100 characters/,
+  );
 
   fs.rmSync(path.join(root, "long-case.yaml"));
-  fs.writeFileSync(path.join(root, "long-area.yaml"), `id: ${longId}
+  fs.writeFileSync(
+    path.join(root, "long-area.yaml"),
+    `id: ${longId}
 title: Area
 weight: 100
 description: Long area
@@ -396,13 +492,16 @@ scenarios:
   - { id: flow, name: Flow, instructions: Inspect }
 rubric:
   - { id: R1, criterion: Works, weight: 1, scenarios: [flow], grader: { type: llm }, passCriteria: Works }
-`);
+`,
+  );
   assert.throws(() => loadSpecs(root), /id: must be at most 100 characters/);
 });
 
 test("artifact-backed IDs reject Windows device names and terminal dots", () => {
   const root = temporary();
-  fs.writeFileSync(path.join(root, "nonportable.yaml"), `id: CON
+  fs.writeFileSync(
+    path.join(root, "nonportable.yaml"),
+    `id: CON
 title: Area
 weight: 100
 description: Non-portable IDs
@@ -414,13 +513,16 @@ scenarios:
       - { id: LPT1 }
 rubric:
   - { id: NUL.log, criterion: Works, weight: 1, scenarios: [AUX.txt], grader: { type: llm }, passCriteria: Works }
-`);
+`,
+  );
   assert.throws(
     () => loadSpecs(root),
     /id: must not be a Windows reserved device name[\s\S]*scenarios\.0\.id: must not be a Windows reserved device name[\s\S]*cases\.0\.id: must not be a Windows reserved device name[\s\S]*rubric\.0\.id: must not be a Windows reserved device name/,
   );
 
-  fs.writeFileSync(path.join(root, "nonportable.yaml"), `id: area.
+  fs.writeFileSync(
+    path.join(root, "nonportable.yaml"),
+    `id: area.
 title: Area
 weight: 100
 description: Non-portable ID
@@ -428,8 +530,12 @@ scenarios:
   - { id: flow, name: Flow, instructions: Inspect }
 rubric:
   - { id: R1, criterion: Works, weight: 1, scenarios: [flow], grader: { type: llm }, passCriteria: Works }
-`);
-  assert.throws(() => loadSpecs(root), /id: must not be a Windows reserved device name or end in a dot/);
+`,
+  );
+  assert.throws(
+    () => loadSpecs(root),
+    /id: must not be a Windows reserved device name or end in a dot/,
+  );
 });
 
 test("hybrid graders require manual instructions", () => {
@@ -479,7 +585,9 @@ rubric:
 
 test("specs reject unknown fields instead of running with misspelled behavior", () => {
   const root = temporary();
-  fs.writeFileSync(path.join(root, "typo.yaml"), `id: area
+  fs.writeFileSync(
+    path.join(root, "typo.yaml"),
+    `id: area
 title: Area
 weight: 100
 description: Test
@@ -487,7 +595,8 @@ scenarios:
   - { id: S1, name: One, instructions: Do it, requireAuth: true }
 rubric:
   - { id: R1, criterion: Works, weight: 1, scenarios: [S1], grader: { type: llm }, passCriteria: It works }
-`);
+`,
+  );
   assert.throws(() => loadSpecs(root), /requireAuth/);
 });
 

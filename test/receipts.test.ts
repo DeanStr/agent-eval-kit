@@ -9,7 +9,12 @@ import { buildRunReceipt } from "../src/receipts.js";
 import { captureSchema } from "../src/visual/contracts.js";
 import type { EvalConfig, EvalSpec } from "../src/types.js";
 
-function inputs(root: string): { config: EvalConfig; spec: EvalSpec; fixtures: unknown; fixtureData: string } {
+function inputs(root: string): {
+  config: EvalConfig;
+  spec: EvalSpec;
+  fixtures: unknown;
+  fixtureData: string;
+} {
   const specFile = path.join(root, "core.yaml");
   const fixturesFile = path.join(root, "fixtures.yaml");
   const fixtureData = path.join(root, "example.txt");
@@ -45,7 +50,7 @@ function inputs(root: string): { config: EvalConfig; spec: EvalSpec; fixtures: u
   return { config, spec, fixtures: { files: { example: "./example.txt" } }, fixtureData };
 }
 
-test("browser receipts support headless-only installations and reject missing launch-mode binaries", async t => {
+test("browser receipts support headless-only installations and reject missing launch-mode binaries", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-receipt-shell-"));
   const previous = process.env.PLAYWRIGHT_BROWSERS_PATH;
   t.after(() => {
@@ -62,26 +67,55 @@ test("browser receipts support headless-only installations and reject missing la
     assert.notEqual(parent, installation, "Expected a Playwright-managed Chromium installation");
     installation = parent;
   }
-  const cache = path.dirname(installation), shellOnly = path.join(root, "shell-only");
+  const cache = path.dirname(installation),
+    shellOnly = path.join(root, "shell-only");
   fs.mkdirSync(shellOnly);
-  for (const name of fs.readdirSync(cache).filter(name => /^(chromium_headless_shell|ffmpeg)-\d+$/.test(name))) {
+  for (const name of fs
+    .readdirSync(cache)
+    .filter((name) => /^(chromium_headless_shell|ffmpeg)-\d+$/.test(name))) {
     fs.symlinkSync(path.join(cache, name), path.join(shellOnly, name), "dir");
   }
   const { config, spec, fixtures } = inputs(root);
   config.target = { kind: "web", url: "http://127.0.0.1:4188", allowedOrigins: [] };
-  spec.scenarios = [{ id: "SCENE", name: "Scene", instructions: "Capture", successSignals: [], dependsOn: [], requiresAuth: false, capture: captureSchema.parse({}) }];
-  spec.rubric = [{ id: "CAPTURE", criterion: "Render", weight: 1, tags: [], scenarios: ["SCENE"], passCriteria: "Rendered", grader: { type: "capture" } }];
+  spec.scenarios = [
+    {
+      id: "SCENE",
+      name: "Scene",
+      instructions: "Capture",
+      successSignals: [],
+      dependsOn: [],
+      requiresAuth: false,
+      capture: captureSchema.parse({}),
+    },
+  ];
+  spec.rubric = [
+    {
+      id: "CAPTURE",
+      criterion: "Render",
+      weight: 1,
+      tags: [],
+      scenarios: ["SCENE"],
+      passCriteria: "Rendered",
+      grader: { type: "capture" },
+    },
+  ];
   process.env.PLAYWRIGHT_BROWSERS_PATH = shellOnly;
   const receipt = buildRunReceipt({ config, specs: [spec], fixtures });
   assert.equal(receipt.runtime.evidence?.chromium, expectedVersion);
   config.browser.headless = false;
-  assert.throws(() => buildRunReceipt({ config, specs: [spec], fixtures }), /Unable to determine Chromium version for headed capture.*Executable doesn't exist/s);
+  assert.throws(
+    () => buildRunReceipt({ config, specs: [spec], fixtures }),
+    /Unable to determine Chromium version for headed capture.*Executable doesn't exist/s,
+  );
   config.browser.headless = true;
   process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(root, "empty-cache");
-  assert.throws(() => buildRunReceipt({ config, specs: [spec], fixtures }), /Unable to determine Chromium version for headless capture.*Executable doesn't exist/s);
+  assert.throws(
+    () => buildRunReceipt({ config, specs: [spec], fixtures }),
+    /Unable to determine Chromium version for headless capture.*Executable doesn't exist/s,
+  );
 });
 
-test("receipts only require Chromium for browser scenarios in the selected split and case selection", t => {
+test("receipts only require Chromium for browser scenarios in the selected split and case selection", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-receipt-browser-selection-"));
   const previous = process.env.PLAYWRIGHT_BROWSERS_PATH;
   t.after(() => {
@@ -92,25 +126,71 @@ test("receipts only require Chromium for browser scenarios in the selected split
   process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(root, "empty-cache");
   const { config, spec, fixtures } = inputs(root);
   config.target.url = "http://127.0.0.1:4188";
-  const common = { instructions: "Inspect", successSignals: [], dependsOn: [], requiresAuth: false };
+  const common = {
+    instructions: "Inspect",
+    successSignals: [],
+    dependsOn: [],
+    requiresAuth: false,
+  };
   spec.scenarios = [
-    { ...common, id: "BROWSER", name: "Browser", kind: "browser", capture: captureSchema.parse({}), cases: [{ id: "dev", variables: {}, strata: [], split: "development" }] },
-    { ...common, id: "WORK", name: "Workspace", kind: "workspace", cases: [{ id: "eval", variables: {}, strata: [], split: "evaluation" }] },
+    {
+      ...common,
+      id: "BROWSER",
+      name: "Browser",
+      kind: "browser",
+      capture: captureSchema.parse({}),
+      cases: [{ id: "dev", variables: {}, strata: [], split: "development" }],
+    },
+    {
+      ...common,
+      id: "WORK",
+      name: "Workspace",
+      kind: "workspace",
+      cases: [{ id: "eval", variables: {}, strata: [], split: "evaluation" }],
+    },
   ];
-  spec.rubric = [{ id: "CHECK", criterion: "Inspect", weight: 1, tags: [], scenarios: ["BROWSER", "WORK"], passCriteria: "Inspected", grader: { type: "llm" } }];
+  spec.rubric = [
+    {
+      id: "CHECK",
+      criterion: "Inspect",
+      weight: 1,
+      tags: [],
+      scenarios: ["BROWSER", "WORK"],
+      passCriteria: "Inspected",
+      grader: { type: "llm" },
+    },
+  ];
   const options = { config, specs: [spec], fixtures };
-  assert.equal(buildRunReceipt({ ...options, split: "evaluation" }).runtime.evidence?.chromium, undefined);
+  assert.equal(
+    buildRunReceipt({ ...options, split: "evaluation" }).runtime.evidence?.chromium,
+    undefined,
+  );
   for (const selection of ["WORK", "WORK--eval"]) {
-    assert.equal(buildRunReceipt({ ...options, scenarioIds: [selection] }).runtime.evidence?.chromium, undefined);
+    assert.equal(
+      buildRunReceipt({ ...options, scenarioIds: [selection] }).runtime.evidence?.chromium,
+      undefined,
+    );
   }
-  assert.throws(() => buildRunReceipt({ ...options, split: "development" }), /Unable to determine Chromium version for headless capture/);
+  assert.throws(
+    () => buildRunReceipt({ ...options, split: "development" }),
+    /Unable to determine Chromium version for headless capture/,
+  );
   for (const selection of ["BROWSER", "BROWSER--dev"]) {
-    assert.throws(() => buildRunReceipt({ ...options, scenarioIds: [selection] }), /Unable to determine Chromium version for headless capture/);
+    assert.throws(
+      () => buildRunReceipt({ ...options, scenarioIds: [selection] }),
+      /Unable to determine Chromium version for headless capture/,
+    );
   }
   spec.scenarios[0].cases = undefined;
   spec.scenarios[0].split = "development";
-  assert.equal(buildRunReceipt({ ...options, split: "evaluation" }).runtime.evidence?.chromium, undefined);
-  assert.throws(() => buildRunReceipt({ ...options, split: "development" }), /Unable to determine Chromium version for headless capture/);
+  assert.equal(
+    buildRunReceipt({ ...options, split: "evaluation" }).runtime.evidence?.chromium,
+    undefined,
+  );
+  assert.throws(
+    () => buildRunReceipt({ ...options, split: "development" }),
+    /Unable to determine Chromium version for headless capture/,
+  );
 });
 
 test("run receipts are deterministic and fingerprint exact fixture bytes", () => {
@@ -167,15 +247,17 @@ test("run receipts require a detectable provider CLI version", () => {
 test("target location changes remain comparable while additional origin policies do not", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-receipt-target-"));
   const { config, spec, fixtures } = inputs(root);
-  spec.scenarios = [{
-    id: "BROWSER",
-    name: "Browser",
-    kind: "browser",
-    instructions: "Inspect",
-    successSignals: [],
-    dependsOn: [],
-    requiresAuth: false,
-  }];
+  spec.scenarios = [
+    {
+      id: "BROWSER",
+      name: "Browser",
+      kind: "browser",
+      instructions: "Inspect",
+      successSignals: [],
+      dependsOn: [],
+      requiresAuth: false,
+    },
+  ];
   const baseline: EvalConfig = {
     ...config,
     target: {
@@ -332,20 +414,25 @@ test("workspace-only web evaluations ignore unused browser origin policy", () =>
     url: "https://app.example.test",
     allowedOrigins: ["https://app.example.test", "https://auth.example.test"],
   };
-  spec.scenarios = [{
-    id: "WORKSPACE",
-    name: "Workspace",
-    kind: "workspace",
-    instructions: "Inspect source",
-    successSignals: [],
-    dependsOn: [],
-    requiresAuth: false,
-  }];
+  spec.scenarios = [
+    {
+      id: "WORKSPACE",
+      name: "Workspace",
+      kind: "workspace",
+      instructions: "Inspect source",
+      successSignals: [],
+      dependsOn: [],
+      requiresAuth: false,
+    },
+  ];
   const first = buildRunReceipt({ config, specs: [spec], fixtures });
   const changed = buildRunReceipt({
     config: {
       ...config,
-      target: { ...config.target, allowedOrigins: ["https://app.example.test", "https://cdn.example.test"] },
+      target: {
+        ...config.target,
+        allowedOrigins: ["https://app.example.test", "https://cdn.example.test"],
+      },
     },
     specs: [spec],
     fixtures,
@@ -362,20 +449,25 @@ test("mixed-mode browser origin policies participate in evaluator compatibility"
     url: "https://app.example.test",
     allowedOrigins: ["https://app.example.test", "https://auth.example.test"],
   };
-  spec.scenarios = [{
-    id: "BROWSER",
-    name: "Browser",
-    kind: "browser",
-    instructions: "Inspect",
-    successSignals: [],
-    dependsOn: [],
-    requiresAuth: false,
-  }];
+  spec.scenarios = [
+    {
+      id: "BROWSER",
+      name: "Browser",
+      kind: "browser",
+      instructions: "Inspect",
+      successSignals: [],
+      dependsOn: [],
+      requiresAuth: false,
+    },
+  ];
   const first = buildRunReceipt({ config, specs: [spec], fixtures });
   const changed = buildRunReceipt({
     config: {
       ...config,
-      target: { ...config.target, allowedOrigins: ["https://app.example.test", "https://cdn.example.test"] },
+      target: {
+        ...config.target,
+        allowedOrigins: ["https://app.example.test", "https://cdn.example.test"],
+      },
     },
     specs: [spec],
     fixtures,
@@ -515,7 +607,14 @@ test("dirty submodule revisions and contents affect target fingerprints", () => 
   git(dependency, ["add", "."]);
   git(dependency, ["commit", "-m", "dependency one"]);
   const { config, spec, fixtures } = inputs(root);
-  git(root, ["-c", "protocol.file.allow=always", "submodule", "add", dependency, "modules/dependency"]);
+  git(root, [
+    "-c",
+    "protocol.file.allow=always",
+    "submodule",
+    "add",
+    dependency,
+    "modules/dependency",
+  ]);
   git(root, ["add", "."]);
   git(root, ["commit", "-m", "project"]);
 

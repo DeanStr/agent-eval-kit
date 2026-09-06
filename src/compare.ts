@@ -3,7 +3,14 @@ import path from "node:path";
 import { runReportSchema } from "./artifact-schemas.js";
 import { scoreRatios } from "./score-slice.js";
 import { readJson, safeName, writeJson } from "./io.js";
-import type { AreaResult, JudgedItem, RunReceipt, RunReport, ScoreSlice, Verdict } from "./types.js";
+import type {
+  AreaResult,
+  JudgedItem,
+  RunReceipt,
+  RunReport,
+  ScoreSlice,
+  Verdict,
+} from "./types.js";
 
 export type ItemChange =
   | "improved"
@@ -91,11 +98,16 @@ export interface ComparisonThresholds {
 
 const round = (value: number) => Math.round(value * 1000) / 1000;
 
-function metric(baseline: number | null, candidate: number | null, comparable = true): MetricComparison {
+function metric(
+  baseline: number | null,
+  candidate: number | null,
+  comparable = true,
+): MetricComparison {
   return {
     baseline,
     candidate,
-    delta: !comparable || baseline === null || candidate === null ? null : round(candidate - baseline),
+    delta:
+      !comparable || baseline === null || candidate === null ? null : round(candidate - baseline),
   };
 }
 
@@ -121,7 +133,11 @@ function unionById<T extends { id: string }>(baseline: T[], candidate: T[]): str
   return [...new Set([...baseline.map(({ id }) => id), ...candidate.map(({ id }) => id)])];
 }
 
-function areaComparison(baseline: AreaResult | undefined, candidate: AreaResult | undefined, comparable: boolean): AreaComparison {
+function areaComparison(
+  baseline: AreaResult | undefined,
+  candidate: AreaResult | undefined,
+  comparable: boolean,
+): AreaComparison {
   const status = !baseline ? "added" : !candidate ? "removed" : "compared";
   return {
     id: (candidate ?? baseline)!.id,
@@ -132,7 +148,12 @@ function areaComparison(baseline: AreaResult | undefined, candidate: AreaResult 
   };
 }
 
-function tagComparison(tag: string, baseline: ScoreSlice | undefined, candidate: ScoreSlice | undefined, comparable: boolean): TagComparison {
+function tagComparison(
+  tag: string,
+  baseline: ScoreSlice | undefined,
+  candidate: ScoreSlice | undefined,
+  comparable: boolean,
+): TagComparison {
   return {
     tag,
     status: !baseline ? "added" : !candidate ? "removed" : "compared",
@@ -167,8 +188,12 @@ function itemChange(baseline?: JudgedItem, candidate?: JudgedItem): ItemChange {
   return baseline.verdict === candidate.verdict ? "unchanged" : "changed";
 }
 
-function recordHashes<T extends { sha256: string }>(value: Record<string, T> | undefined): Record<string, string> {
-  return Object.fromEntries(Object.entries(value ?? {}).map(([name, receipt]) => [name, receipt.sha256]));
+function recordHashes<T extends { sha256: string }>(
+  value: Record<string, T> | undefined,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(value ?? {}).map(([name, receipt]) => [name, receipt.sha256]),
+  );
 }
 
 function compatibility(
@@ -181,18 +206,29 @@ function compatibility(
   }
   const differences: string[] = [];
   if (baseline.inputs.methodSha256 !== candidate.inputs.methodSha256) {
-    differences.push("Evaluator configuration, provider version, scoring, variables, or instructions changed.");
+    differences.push(
+      "Evaluator configuration, provider version, scoring, variables, or instructions changed.",
+    );
   }
-  if (stableValue(recordHashes(baseline.inputs.graderMethods)) !== stableValue(recordHashes(candidate.inputs.graderMethods))) {
+  if (
+    stableValue(recordHashes(baseline.inputs.graderMethods)) !==
+    stableValue(recordHashes(candidate.inputs.graderMethods))
+  ) {
     differences.push("One or more declared command grader method files changed.");
   }
   if (stableValue(baseline.inputs.selection) !== stableValue(candidate.inputs.selection)) {
     differences.push("Selected areas or scenarios changed.");
   }
-  if (stableValue(recordHashes(baseline.inputs.specs)) !== stableValue(recordHashes(candidate.inputs.specs))) {
+  if (
+    stableValue(recordHashes(baseline.inputs.specs)) !==
+    stableValue(recordHashes(candidate.inputs.specs))
+  ) {
     differences.push("One or more evaluation specs changed.");
   }
-  if (stableValue(recordHashes(baseline.inputs.textReferences)) !== stableValue(recordHashes(candidate.inputs.textReferences))) {
+  if (
+    stableValue(recordHashes(baseline.inputs.textReferences)) !==
+    stableValue(recordHashes(candidate.inputs.textReferences))
+  ) {
     differences.push("One or more text references or style targets changed.");
   }
   const beforeFixtures = baseline.inputs.fixtures;
@@ -200,17 +236,24 @@ function compatibility(
   if (beforeFixtures?.manifest.sha256 !== afterFixtures?.manifest.sha256) {
     differences.push("The fixture manifest changed.");
   }
-  if (stableValue(recordHashes(beforeFixtures?.files)) !== stableValue(recordHashes(afterFixtures?.files))) {
+  if (
+    stableValue(recordHashes(beforeFixtures?.files)) !==
+    stableValue(recordHashes(afterFixtures?.files))
+  ) {
     differences.push("One or more fixture files changed.");
   }
-  if (!differences.length) differences.push("The evaluation fingerprint changed for an unknown reason.");
+  if (!differences.length)
+    differences.push("The evaluation fingerprint changed for an unknown reason.");
   return { status: "incompatible", differences, overridden };
 }
 
 function stableValue(value: unknown): string {
   if (!value || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableValue).join(",")}]`;
-  return `{${Object.keys(value as Record<string, unknown>).sort().map((key) => `${JSON.stringify(key)}:${stableValue((value as Record<string, unknown>)[key])}`).join(",")}}`;
+  return `{${Object.keys(value as Record<string, unknown>)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableValue((value as Record<string, unknown>)[key])}`)
+    .join(",")}}`;
 }
 
 export function compareReports(
@@ -218,12 +261,19 @@ export function compareReports(
   candidate: RunReport,
   options: { allowIncompatible?: boolean } = {},
 ): ComparisonReport {
-  const compatible = compatibility(baseline.receipt, candidate.receipt, Boolean(options.allowIncompatible));
-  const metricsComparable = compatible.status === "compatible" || Boolean(options.allowIncompatible);
+  const compatible = compatibility(
+    baseline.receipt,
+    candidate.receipt,
+    Boolean(options.allowIncompatible),
+  );
+  const metricsComparable =
+    compatible.status === "compatible" || Boolean(options.allowIncompatible);
   const baselineAreas = new Map(baseline.areas.map((area) => [area.id, area]));
   const candidateAreas = new Map(candidate.areas.map((area) => [area.id, area]));
   const areaIds = unionById(baseline.areas, candidate.areas);
-  const areas = areaIds.map((id) => areaComparison(baselineAreas.get(id), candidateAreas.get(id), metricsComparable));
+  const areas = areaIds.map((id) =>
+    areaComparison(baselineAreas.get(id), candidateAreas.get(id), metricsComparable),
+  );
   const tags = [...new Set([...Object.keys(baseline.byTag), ...Object.keys(candidate.byTag)])]
     .sort()
     .map((tag) => tagComparison(tag, baseline.byTag[tag], candidate.byTag[tag], metricsComparable));
@@ -233,10 +283,22 @@ export function compareReports(
     const candidateArea = candidateAreas.get(areaId);
     const unavailableIfUnproven = (item: JudgedItem, area: AreaResult | undefined): JudgedItem =>
       area?.unproven.includes(item.id)
-        ? { ...item, verdict: "cannot_judge", confidence: "low", score: item.score && !item.components ? { ...item.score, earned: 0, judgeable: 0, scorePct: null, coveragePct: 0 } : item.score }
+        ? {
+            ...item,
+            verdict: "cannot_judge",
+            confidence: "low",
+            score:
+              item.score && !item.components
+                ? { ...item.score, earned: 0, judgeable: 0, scorePct: null, coveragePct: 0 }
+                : item.score,
+          }
         : item;
-    const beforeItems = (baselineArea?.items ?? []).map((item) => unavailableIfUnproven(item, baselineArea));
-    const afterItems = (candidateArea?.items ?? []).map((item) => unavailableIfUnproven(item, candidateArea));
+    const beforeItems = (baselineArea?.items ?? []).map((item) =>
+      unavailableIfUnproven(item, baselineArea),
+    );
+    const afterItems = (candidateArea?.items ?? []).map((item) =>
+      unavailableIfUnproven(item, candidateArea),
+    );
     const beforeById = new Map(beforeItems.map((item) => [item.id, item]));
     const afterById = new Map(afterItems.map((item) => [item.id, item]));
     for (const id of unionById(beforeItems, afterItems)) {
@@ -247,17 +309,35 @@ export function compareReports(
         id,
         baselineVerdict: before?.verdict,
         candidateVerdict: after?.verdict,
-        scorePct: metric(before?.score?.scorePct ?? null, after?.score?.scorePct ?? null, metricsComparable),
-        coveragePct: metric(before?.score?.coveragePct ?? null, after?.score?.coveragePct ?? null, metricsComparable),
+        scorePct: metric(
+          before?.score?.scorePct ?? null,
+          after?.score?.scorePct ?? null,
+          metricsComparable,
+        ),
+        coveragePct: metric(
+          before?.score?.coveragePct ?? null,
+          after?.score?.coveragePct ?? null,
+          metricsComparable,
+        ),
         change: before && after && !metricsComparable ? "unavailable" : itemChange(before, after),
       });
     }
   }
 
   const changes: ItemChange[] = [
-    "improved", "regressed", "unchanged", "changed", "unavailable", "gained_coverage", "lost_coverage", "added", "removed",
+    "improved",
+    "regressed",
+    "unchanged",
+    "changed",
+    "unavailable",
+    "gained_coverage",
+    "lost_coverage",
+    "added",
+    "removed",
   ];
-  const summary = Object.fromEntries(changes.map((change) => [change, 0])) as ComparisonReport["summary"];
+  const summary = Object.fromEntries(
+    changes.map((change) => [change, 0]),
+  ) as ComparisonReport["summary"];
   for (const item of items) summary[item.change]++;
   summary.areasAdded = areas.filter(({ status }) => status === "added").length;
   summary.areasRemoved = areas.filter(({ status }) => status === "removed").length;
@@ -267,7 +347,9 @@ export function compareReports(
     warnings.push(`Project changed from ${baseline.project} to ${candidate.project}.`);
   }
   if (baseline.scoreWithheld || candidate.scoreWithheld) {
-    warnings.push("Overall score delta is unavailable because at least one run has a withheld score.");
+    warnings.push(
+      "Overall score delta is unavailable because at least one run has a withheld score.",
+    );
   }
   if (compatible.status !== "compatible") {
     warnings.push(
@@ -286,7 +368,11 @@ export function compareReports(
     candidate: snapshot(candidate),
     overall: {
       scorePct: metric(comparableScore(baseline), comparableScore(candidate), metricsComparable),
-      coveragePct: metric(baseline.overallCoveragePct, candidate.overallCoveragePct, metricsComparable),
+      coveragePct: metric(
+        baseline.overallCoveragePct,
+        candidate.overallCoveragePct,
+        metricsComparable,
+      ),
     },
     compatibility: compatible,
     summary,
@@ -303,10 +389,13 @@ export function comparisonFailures(
 ): string[] {
   const failures: string[] = [];
   if (thresholds.requireCompatible && comparison.compatibility.status !== "compatible") {
-    failures.push(`evaluation inputs are ${comparison.compatibility.status}: ${comparison.compatibility.differences.join(" ")}`);
+    failures.push(
+      `evaluation inputs are ${comparison.compatibility.status}: ${comparison.compatibility.differences.join(" ")}`,
+    );
   }
   if (thresholds.failOnRegression) {
-    const count = comparison.summary.regressed + comparison.summary.lost_coverage + comparison.summary.removed;
+    const count =
+      comparison.summary.regressed + comparison.summary.lost_coverage + comparison.summary.removed;
     if (count > 0 || comparison.summary.areasRemoved > 0) {
       failures.push(
         `${count} item regression(s) or removals and ${comparison.summary.areasRemoved} removed area(s)`,
@@ -316,17 +405,25 @@ export function comparisonFailures(
   if (thresholds.maxScoreDrop !== undefined) {
     const delta = comparison.overall.scorePct.delta;
     if (delta === null) {
-      failures.push(`score delta is unavailable; cannot enforce maximum drop ${thresholds.maxScoreDrop} points`);
+      failures.push(
+        `score delta is unavailable; cannot enforce maximum drop ${thresholds.maxScoreDrop} points`,
+      );
     } else if (delta < -thresholds.maxScoreDrop) {
-      failures.push(`score dropped ${round(-delta)} points; maximum allowed is ${thresholds.maxScoreDrop}`);
+      failures.push(
+        `score dropped ${round(-delta)} points; maximum allowed is ${thresholds.maxScoreDrop}`,
+      );
     }
   }
   if (thresholds.maxCoverageDrop !== undefined) {
     const delta = comparison.overall.coveragePct.delta;
     if (delta === null) {
-      failures.push(`coverage delta is unavailable; cannot enforce maximum drop ${thresholds.maxCoverageDrop} points`);
+      failures.push(
+        `coverage delta is unavailable; cannot enforce maximum drop ${thresholds.maxCoverageDrop} points`,
+      );
     } else if (delta < -thresholds.maxCoverageDrop) {
-      failures.push(`coverage dropped ${round(-delta)} points; maximum allowed is ${thresholds.maxCoverageDrop}`);
+      failures.push(
+        `coverage dropped ${round(-delta)} points; maximum allowed is ${thresholds.maxCoverageDrop}`,
+      );
     }
   }
   return failures;
@@ -343,11 +440,13 @@ function resolveReportFile(input: string): string {
 function reportContainsSelectedAreas(report: RunReport, allowPartial: boolean): boolean {
   const selected = report.receipt.inputs.selection.areas;
   const reported = report.areas.map((area) => area.id);
-  return selected.every((id): id is string => typeof id === "string") &&
+  return (
+    selected.every((id): id is string => typeof id === "string") &&
     new Set(selected).size === selected.length &&
     new Set(reported).size === reported.length &&
     reported.every((id) => selected.includes(id)) &&
-    (allowPartial || selected.length === reported.length);
+    (allowPartial || selected.length === reported.length)
+  );
 }
 
 function loadReport(input: string, allowPartial: boolean): { file: string; report: RunReport } {
@@ -358,7 +457,9 @@ function loadReport(input: string, allowPartial: boolean): { file: string; repor
     throw new Error(`Invalid Agent Eval Kit report: ${file}: ${parsed.error.message}`);
   }
   if (!reportContainsSelectedAreas(report, allowPartial)) {
-    throw new Error(`Invalid Agent Eval Kit report: ${file}: selected areas do not match reported areas`);
+    throw new Error(
+      `Invalid Agent Eval Kit report: ${file}: selected areas do not match reported areas`,
+    );
   }
   return { file, report };
 }
@@ -376,11 +477,24 @@ export function loadResumableRunReport(input: string): { file: string; report: R
 const escapeHtml = (value: string) =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-const display = (value: number | null, suffix = "%") => value === null ? "—" : `${value}${suffix}`;
-const delta = (value: number | null) => value === null ? "—" : `${value > 0 ? "+" : ""}${value}`;
+const display = (value: number | null, suffix = "%") =>
+  value === null ? "—" : `${value}${suffix}`;
+const delta = (value: number | null) => (value === null ? "—" : `${value > 0 ? "+" : ""}${value}`);
 
-function metricRows(rows: Array<{ name: string; status: string; scorePct: MetricComparison; coveragePct: MetricComparison }>): string {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.status)}</td><td>${display(row.scorePct.baseline)}</td><td>${display(row.scorePct.candidate)}</td><td>${delta(row.scorePct.delta)}</td><td>${display(row.coveragePct.baseline)}</td><td>${display(row.coveragePct.candidate)}</td><td>${delta(row.coveragePct.delta)}</td></tr>`).join("");
+function metricRows(
+  rows: Array<{
+    name: string;
+    status: string;
+    scorePct: MetricComparison;
+    coveragePct: MetricComparison;
+  }>,
+): string {
+  return rows
+    .map(
+      (row) =>
+        `<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.status)}</td><td>${display(row.scorePct.baseline)}</td><td>${display(row.scorePct.candidate)}</td><td>${delta(row.scorePct.delta)}</td><td>${display(row.coveragePct.baseline)}</td><td>${display(row.coveragePct.candidate)}</td><td>${delta(row.coveragePct.delta)}</td></tr>`,
+    )
+    .join("");
 }
 
 export function comparisonHtml(comparison: ComparisonReport): string {
@@ -388,7 +502,12 @@ export function comparisonHtml(comparison: ComparisonReport): string {
   const warnings = comparison.warnings.length
     ? `<div class="warn"><strong>Notes</strong><ul>${comparison.warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></div>`
     : "";
-  const itemRows = changed.map((item) => `<tr><td>${escapeHtml(item.areaId)}</td><td>${escapeHtml(item.id)}</td><td>${escapeHtml(item.baselineVerdict ?? "—")}</td><td>${escapeHtml(item.candidateVerdict ?? "—")}</td><td>${display(item.scorePct.baseline)} → ${display(item.scorePct.candidate)}</td><td>${display(item.coveragePct.baseline)} → ${display(item.coveragePct.candidate)}</td><td class="${item.change === "regressed" || item.change === "lost_coverage" || item.change === "removed" ? "bad" : item.change === "improved" || item.change === "gained_coverage" ? "good" : ""}">${escapeHtml(item.change)}</td></tr>`).join("");
+  const itemRows = changed
+    .map(
+      (item) =>
+        `<tr><td>${escapeHtml(item.areaId)}</td><td>${escapeHtml(item.id)}</td><td>${escapeHtml(item.baselineVerdict ?? "—")}</td><td>${escapeHtml(item.candidateVerdict ?? "—")}</td><td>${display(item.scorePct.baseline)} → ${display(item.scorePct.candidate)}</td><td>${display(item.coveragePct.baseline)} → ${display(item.coveragePct.candidate)}</td><td class="${item.change === "regressed" || item.change === "lost_coverage" || item.change === "removed" ? "bad" : item.change === "improved" || item.change === "gained_coverage" ? "good" : ""}">${escapeHtml(item.change)}</td></tr>`,
+    )
+    .join("");
   const compatibilityHtml = `<p class="${comparison.compatibility.status === "compatible" ? "good" : "bad"}"><strong>Evaluation inputs:</strong> ${escapeHtml(comparison.compatibility.status)}${comparison.compatibility.overridden ? " (override enabled)" : ""}</p>`;
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(comparison.candidate.project)} comparison</title><style>
 body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;color:#1f2328;max-width:1120px;margin:2rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #d0d7de;padding:.45rem .65rem;text-align:left}th{background:#f6f8fa}.headline{font-size:1.6rem;font-weight:750}.good{color:#1a7f37;font-weight:650}.bad{color:#cf222e;font-weight:650}.warn{background:#fff8c5;border:1px solid #d4a72c;border-radius:6px;padding:.6rem 1rem}code{font-size:.9em}</style></head><body>

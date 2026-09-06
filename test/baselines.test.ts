@@ -19,8 +19,16 @@ function receipt(): RunReceipt {
       selection: { areas: ["core"] },
     },
     target: { kind: "repository", git: { commit: "a".repeat(40), dirty: false } },
-    providers: { agent: { provider: "mock", cliVersion: "mock 0.1.0" }, judge: { provider: "mock", cliVersion: "mock 0.1.0" } },
-    runtime: { kitVersion: "0.1.0", node: process.version, platform: process.platform, arch: process.arch },
+    providers: {
+      agent: { provider: "mock", cliVersion: "mock 0.1.0" },
+      judge: { provider: "mock", cliVersion: "mock 0.1.0" },
+    },
+    runtime: {
+      kitVersion: "0.1.0",
+      node: process.version,
+      platform: process.platform,
+      arch: process.arch,
+    },
   };
 }
 
@@ -34,12 +42,29 @@ function report(): RunReport {
     finishedAt: "2026-01-01T00:01:00Z",
     kitVersion: "0.1.0",
     providers: { agent: { provider: "mock" }, judge: { provider: "mock" } },
-    areas: [{
-      id: "core", title: "Core", weight: 100, optional: false,
-      earned: 1, judgeable: 1, total: 1, scorePct: 100, coveragePct: 100,
-      items: [], defects: [], notes: "", scenarios: [], pendingManual: [], unproven: [],
-      byTag: {}, byStratum: {}, gates: [], caseResults: [],
-    }],
+    areas: [
+      {
+        id: "core",
+        title: "Core",
+        weight: 100,
+        optional: false,
+        earned: 1,
+        judgeable: 1,
+        total: 1,
+        scorePct: 100,
+        coveragePct: 100,
+        items: [],
+        defects: [],
+        notes: "",
+        scenarios: [],
+        pendingManual: [],
+        unproven: [],
+        byTag: {},
+        byStratum: {},
+        gates: [],
+        caseResults: [],
+      },
+    ],
     overallScorePct: 100,
     overallCoveragePct: 100,
     scoreWithheld: false,
@@ -52,17 +77,20 @@ function report(): RunReport {
 }
 
 function writeRunState(runDir: string, status: "running" | "complete"): void {
-  fs.writeFileSync(path.join(runDir, "run-state.json"), `${JSON.stringify({
-    schemaVersion: 1,
-    status,
-    runId: path.basename(runDir),
-    pid: 0,
-    configFile: path.join(path.dirname(runDir), "evalkit.yaml"),
-    startedAt: "2026-01-01T00:00:00Z",
-    selectedAreas: [],
-    specHashes: {},
-    inputFingerprint: "i".repeat(64),
-  })}\n`);
+  fs.writeFileSync(
+    path.join(runDir, "run-state.json"),
+    `${JSON.stringify({
+      schemaVersion: 1,
+      status,
+      runId: path.basename(runDir),
+      pid: 0,
+      configFile: path.join(path.dirname(runDir), "evalkit.yaml"),
+      startedAt: "2026-01-01T00:00:00Z",
+      selectedAreas: [],
+      specHashes: {},
+      inputFingerprint: "i".repeat(64),
+    })}\n`,
+  );
 }
 
 test("baseline promotion preserves immutable snapshots behind an atomic named pointer", () => {

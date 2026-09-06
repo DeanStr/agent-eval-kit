@@ -14,7 +14,9 @@ test("isolated OAuth refreshes persist for the next invocation without overwriti
     const save = stageCredentials(source, isolated);
     fs.writeFileSync(isolated, JSON.stringify({ refresh: "rotated-test-value" }));
     save();
-    assert.deepEqual(JSON.parse(fs.readFileSync(source, "utf8")), { refresh: "rotated-test-value" });
+    assert.deepEqual(JSON.parse(fs.readFileSync(source, "utf8")), {
+      refresh: "rotated-test-value",
+    });
     if (process.platform !== "win32") assert.equal(fs.statSync(source).mode & 0o777, 0o600);
 
     const saveSecond = stageCredentials(source, isolated);
@@ -39,7 +41,13 @@ test("malformed refreshed credentials cannot replace working credentials", () =>
     assert.throws(save, /invalid refreshed credential/);
     assert.deepEqual(fs.readFileSync(source), original);
     fs.writeFileSync(isolated, "invalid-secret-content");
-    assert.throws(save, error => error instanceof Error && /invalid refreshed credential JSON/.test(error.message) && !error.message.includes("invalid-secret-content"));
+    assert.throws(
+      save,
+      (error) =>
+        error instanceof Error &&
+        /invalid refreshed credential JSON/.test(error.message) &&
+        !error.message.includes("invalid-secret-content"),
+    );
     assert.deepEqual(fs.readFileSync(source), original);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

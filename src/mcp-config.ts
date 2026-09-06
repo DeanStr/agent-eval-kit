@@ -21,19 +21,30 @@ export const BROWSER_TOOL_NAMES = [
   "done",
 ];
 
-export const WORKSPACE_TOOL_NAMES = ["list_files", "read_file", "search", "observe", "publish_output", "done"];
+export const WORKSPACE_TOOL_NAMES = [
+  "list_files",
+  "read_file",
+  "search",
+  "observe",
+  "publish_output",
+  "done",
+];
 export const EVIDENCE_TOOL_NAMES = ["view_screenshot"];
 
 function mcpLaunch(entry: string, contextFile: string): { command: string; args: string[] } {
   const javascript = fileURLToPath(new URL(`./${entry}/mcp.js`, import.meta.url));
-  if (fs.existsSync(javascript)) return { command: process.execPath, args: [javascript, contextFile] };
+  if (fs.existsSync(javascript))
+    return { command: process.execPath, args: [javascript, contextFile] };
 
   const typescript = fileURLToPath(new URL(`./${entry}/mcp.ts`, import.meta.url));
   if (!fs.existsSync(typescript)) {
     throw new Error(`${entry} MCP entry point is missing (${javascript} / ${typescript})`);
   }
   const tsx = fileURLToPath(import.meta.resolve("tsx"));
-  return { command: process.execPath, args: ["--import", pathToFileURL(tsx).href, typescript, contextFile] };
+  return {
+    command: process.execPath,
+    args: ["--import", pathToFileURL(tsx).href, typescript, contextFile],
+  };
 }
 
 export function browserMcpLaunch(contextFile: string): { command: string; args: string[] } {

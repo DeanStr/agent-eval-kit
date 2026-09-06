@@ -34,16 +34,22 @@ test("Claude carries rotated isolated credentials into the next invocation", asy
   const config = path.join(root, "config");
   fs.mkdirSync(bin);
   fs.mkdirSync(config);
-  fs.writeFileSync(path.join(config, ".credentials.json"), JSON.stringify({ generation: 0 }), { mode: 0o600 });
+  fs.writeFileSync(path.join(config, ".credentials.json"), JSON.stringify({ generation: 0 }), {
+    mode: 0o600,
+  });
   const executable = path.join(bin, "claude");
-  fs.writeFileSync(executable, `#!/usr/bin/env node
+  fs.writeFileSync(
+    executable,
+    `#!/usr/bin/env node
 const fs = require('node:fs');
 const path = require('node:path');
 const file = path.join(process.env.CLAUDE_CONFIG_DIR, '.credentials.json');
 const { generation } = JSON.parse(fs.readFileSync(file, 'utf8'));
 fs.writeFileSync(file, JSON.stringify({ generation: generation + 1 }));
 console.log(JSON.stringify({ type: 'result', result: JSON.stringify({ generation }), structured_output: { generation }, usage: { input_tokens: 12, output_tokens_details: { reasoning_tokens: 4 }, service_tier: 'standard', iterations: [{ tokens: 3 }] } }));
-`, { mode: 0o755 });
+`,
+    { mode: 0o755 },
+  );
   const originalPath = process.env.PATH;
   const originalConfig = process.env.CLAUDE_CONFIG_DIR;
   process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
@@ -51,12 +57,21 @@ console.log(JSON.stringify({ type: 'result', result: JSON.stringify({ generation
   try {
     const first = await runClaude(providerInvocation(root));
     assert.deepEqual(first.structured, { generation: 0 });
-    assert.deepEqual(first.usage, { input_tokens: 12, output_tokens_details: { reasoning_tokens: 4 }, service_tier: "standard", iterations: [{ tokens: 3 }] });
+    assert.deepEqual(first.usage, {
+      input_tokens: 12,
+      output_tokens_details: { reasoning_tokens: 4 },
+      service_tier: "standard",
+      iterations: [{ tokens: 3 }],
+    });
     assert.deepEqual((await runClaude(providerInvocation(root))).structured, { generation: 1 });
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(config, ".credentials.json"), "utf8")), { generation: 2 });
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(config, ".credentials.json"), "utf8")), {
+      generation: 2,
+    });
   } finally {
-    if (originalPath === undefined) delete process.env.PATH; else process.env.PATH = originalPath;
-    if (originalConfig === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = originalConfig;
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    if (originalConfig === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = originalConfig;
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
@@ -69,15 +84,19 @@ test("Playwright browser path is resolved before provider HOME isolation", () =>
   );
   assert.equal(playwrightBrowsersPath({ PLAYWRIGHT_BROWSERS_PATH: "0" }), "0");
 
-  const expectedCache = process.platform === "linux"
-    ? path.join(os.homedir(), ".cache", "ms-playwright")
-    : process.platform === "darwin"
-      ? path.join(os.homedir(), "Library", "Caches", "ms-playwright")
-      : path.join(os.homedir(), "AppData", "Local", "ms-playwright");
+  const expectedCache =
+    process.platform === "linux"
+      ? path.join(os.homedir(), ".cache", "ms-playwright")
+      : process.platform === "darwin"
+        ? path.join(os.homedir(), "Library", "Caches", "ms-playwright")
+        : path.join(os.homedir(), "AppData", "Local", "ms-playwright");
   assert.equal(playwrightBrowsersPath({}), expectedCache);
 });
 
-for (const [provider, run] of [["Codex", runCodex], ["Claude", runClaude]] as const) {
+for (const [provider, run] of [
+  ["Codex", runCodex],
+  ["Claude", runClaude],
+] as const) {
   test(`${provider} rejects malformed structured event output`, async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), `aek-${provider.toLowerCase()}-events-`));
     const bin = path.join(root, "bin");
@@ -111,19 +130,30 @@ test("provider extra arguments cannot weaken evidence isolation", async () => {
       runGrok({ ...providerInvocation(root), extraArgs: ["--cwd", root] }),
       /grok extraArgs cannot include evidence-boundary option/,
     );
-    for (const extraArgs of [["resume", "session"], ["--image", path.join(root, "context.png")]]) {
+    for (const extraArgs of [
+      ["resume", "session"],
+      ["--image", path.join(root, "context.png")],
+    ]) {
       await assert.rejects(
         runCodex({ ...providerInvocation(root), extraArgs }),
         /codex extraArgs cannot include evidence-boundary option/,
       );
     }
-    for (const extraArgs of [["--agent", path.join(root, "agent.md")], ["--resume", "session"], ["-c"]]) {
+    for (const extraArgs of [
+      ["--agent", path.join(root, "agent.md")],
+      ["--resume", "session"],
+      ["-c"],
+    ]) {
       await assert.rejects(
         runClaude({ ...providerInvocation(root), extraArgs }),
         /claude extraArgs cannot include evidence-boundary option/,
       );
     }
-    for (const extraArgs of [["--agent", path.join(root, "agent.md")], ["--rules", "external"], ["-r", "session"]]) {
+    for (const extraArgs of [
+      ["--agent", path.join(root, "agent.md")],
+      ["--rules", "external"],
+      ["-r", "session"],
+    ]) {
       await assert.rejects(
         runGrok({ ...providerInvocation(root), extraArgs }),
         /grok extraArgs cannot include evidence-boundary option/,
@@ -146,7 +176,10 @@ test("Codex and Claude execute outside target-controlled instruction scope", asy
   fs.writeFileSync(path.join(project, "AGENTS.md"), "Target-controlled Codex instructions\n");
   fs.writeFileSync(path.join(project, "CLAUDE.md"), "Target-controlled Claude instructions\n");
   fs.writeFileSync(path.join(sourceClaudeConfig, ".credentials.json"), "{}\n", { mode: 0o600 });
-  fs.writeFileSync(path.join(sourceClaudeConfig, "CLAUDE.md"), "User-controlled Claude instructions\n");
+  fs.writeFileSync(
+    path.join(sourceClaudeConfig, "CLAUDE.md"),
+    "User-controlled Claude instructions\n",
+  );
   fs.writeFileSync(path.join(sourceClaudeConfig, "settings.json"), "{}\n");
   const codexCapture = path.join(root, "codex-capture.json");
   const claudeCapture = path.join(root, "claude-capture.json");
@@ -175,10 +208,12 @@ fs.writeFileSync(${JSON.stringify(provider === "codex" ? codexCapture : claudeCa
   settings: process.env.CLAUDE_CONFIG_DIR ? fs.existsSync(path.join(process.env.CLAUDE_CONFIG_DIR, "settings.json")) : false,
   args,
 }));
-${provider === "codex"
+${
+  provider === "codex"
     ? `fs.writeFileSync(args[args.lastIndexOf("--output-last-message") + 1], JSON.stringify({ ok: true }));
 console.log(JSON.stringify({ type: "thread.started", thread_id: "isolated" }));`
-    : `console.log(JSON.stringify({ type: "result", result: JSON.stringify({ ok: true }), structured_output: { ok: true } }));`}
+    : `console.log(JSON.stringify({ type: "result", result: JSON.stringify({ ok: true }), structured_output: { ok: true } }));`
+}
 `;
   for (const provider of ["codex", "claude"] as const) {
     const executable = path.join(bin, provider);
@@ -198,7 +233,11 @@ console.log(JSON.stringify({ type: "thread.started", thread_id: "isolated" }));`
     for (const capture of [codex, claude]) {
       assert.equal(capture.cwd.startsWith(`${project}${path.sep}`), false);
       assert.equal(capture.instructionFound, false);
-      assert.equal(fs.existsSync(capture.cwd), false, "provider working directory should be removed");
+      assert.equal(
+        fs.existsSync(capture.cwd),
+        false,
+        "provider working directory should be removed",
+      );
     }
     assert.equal(codex.cwdArg, codex.cwd);
     assert.equal(claude.args.includes("--safe-mode"), false);
@@ -233,7 +272,9 @@ test("Grok runs outside target and user instruction scopes while retaining subsc
 
   const captureFile = path.join(root, "capture.json");
   const fakeGrok = path.join(bin, "grok");
-  fs.writeFileSync(fakeGrok, `#!/usr/bin/env node
+  fs.writeFileSync(
+    fakeGrok,
+    `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
@@ -261,7 +302,8 @@ fs.writeFileSync(${JSON.stringify(captureFile)}, JSON.stringify({
   claudeInstructionsEnabled: process.env.GROK_CLAUDE_AGENTS_ENABLED,
 }));
 console.log(JSON.stringify({ structured_output: { ok: true }, result: "ok" }));
-`);
+`,
+  );
   fs.chmodSync(fakeGrok, 0o755);
 
   const promptFile = path.join(invocationDir, "prompt.md");
@@ -270,7 +312,10 @@ console.log(JSON.stringify({ structured_output: { ok: true }, result: "ok" }));
   const mcpConfig = path.join(invocationDir, ".mcp.json");
   fs.writeFileSync(promptFile, "Evaluate only supplied evidence.");
   fs.writeFileSync(outputSchemaFile, "{}");
-  fs.writeFileSync(mcpConfig, JSON.stringify({ mcpServers: { evidence: { command: "true", args: [] } } }));
+  fs.writeFileSync(
+    mcpConfig,
+    JSON.stringify({ mcpServers: { evidence: { command: "true", args: [] } } }),
+  );
 
   const originalPath = process.env.PATH;
   const originalGrokHome = process.env.GROK_HOME;
@@ -289,7 +334,13 @@ console.log(JSON.stringify({ structured_output: { ok: true }, result: "ok" }));
       extraArgs: ["--max-turns", "100"],
       maxTurns: 20,
       allowWorkspaceTools: false,
-      mcp: { name: "evidence", command: "true", args: [], configFile: mcpConfig, toolNames: ["view_screenshot"] },
+      mcp: {
+        name: "evidence",
+        command: "true",
+        args: [],
+        configFile: mcpConfig,
+        toolNames: ["view_screenshot"],
+      },
     });
     assert.deepEqual(result.structured, { ok: true });
     const capture = JSON.parse(fs.readFileSync(captureFile, "utf8"));
@@ -304,7 +355,11 @@ console.log(JSON.stringify({ structured_output: { ok: true }, result: "ok" }));
     assert.equal(capture.tools, "");
     assert.equal(capture.maxTurns, "20");
     assert.equal(capture.claudeInstructionsEnabled, "0");
-    assert.equal(fs.existsSync(capture.cwd), false, "isolated Grok directory should be removed after the run");
+    assert.equal(
+      fs.existsSync(capture.cwd),
+      false,
+      "isolated Grok directory should be removed after the run",
+    );
   } finally {
     if (originalPath === undefined) delete process.env.PATH;
     else process.env.PATH = originalPath;

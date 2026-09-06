@@ -15,7 +15,9 @@ if (!contextFile) {
   process.exit(2);
 }
 
-const context = JSON.parse(fs.readFileSync(path.resolve(contextFile), "utf8")) as WorkspaceMcpContext;
+const context = JSON.parse(
+  fs.readFileSync(path.resolve(contextFile), "utf8"),
+) as WorkspaceMcpContext;
 const root = fs.realpathSync(context.projectRoot);
 fs.mkdirSync(context.evidenceDir, { recursive: true });
 const transcriptFile = path.join(context.evidenceDir, "workspace-transcript.ndjson");
@@ -55,7 +57,9 @@ const evaluatorOnlyRoots = (context.evaluatorOnlyPaths ?? [])
   .filter(insideRoot);
 
 function evaluatorOnly(candidate: string): boolean {
-  return evaluatorOnlyRoots.some((hidden) => candidate === hidden || candidate.startsWith(`${hidden}${path.sep}`));
+  return evaluatorOnlyRoots.some(
+    (hidden) => candidate === hidden || candidate.startsWith(`${hidden}${path.sep}`),
+  );
 }
 
 function excludedProjectPath(candidate: string): boolean {
@@ -72,11 +76,14 @@ function excludedProjectPath(candidate: string): boolean {
 function projectPath(relative = "."): string {
   const lexical = path.resolve(root, relative);
   if (!insideRoot(lexical)) throw new Error(`Path escapes project root: ${relative}`);
-  if (excludedProjectPath(lexical)) throw new Error(`Excluded project path is not available to scenario agents: ${relative}`);
+  if (excludedProjectPath(lexical))
+    throw new Error(`Excluded project path is not available to scenario agents: ${relative}`);
   const actual = fs.realpathSync(lexical);
   if (!insideRoot(actual)) throw new Error(`Symlink escapes project root: ${relative}`);
-  if (excludedProjectPath(actual)) throw new Error(`Excluded project path is not available to scenario agents: ${relative}`);
-  if (evaluatorOnly(actual)) throw new Error(`Evaluator-only path is not available to scenario agents: ${relative}`);
+  if (excludedProjectPath(actual))
+    throw new Error(`Excluded project path is not available to scenario agents: ${relative}`);
+  if (evaluatorOnly(actual))
+    throw new Error(`Evaluator-only path is not available to scenario agents: ${relative}`);
   return actual;
 }
 
@@ -147,7 +154,8 @@ const server = new McpServer({ name: "agent-eval-workspace", version: "0.1.0" })
 server.registerTool(
   "list_files",
   {
-    description: "List project files without exposing dependency, build, VCS, or prior-evaluation directories.",
+    description:
+      "List project files without exposing dependency, build, VCS, or prior-evaluation directories.",
     inputSchema: {
       path: z.string().default("."),
       contains: z.string().optional().describe("Optional case-insensitive substring filter"),
@@ -172,7 +180,8 @@ server.registerTool(
 server.registerTool(
   "read_file",
   {
-    description: "Read a bounded line and character range from a text file inside the project root.",
+    description:
+      "Read a bounded line and character range from a text file inside the project root.",
     inputSchema: {
       path: z.string().min(1),
       startLine: z.number().int().positive().default(1),
@@ -235,7 +244,8 @@ server.registerTool(
         if (text === undefined) continue;
         for (const [index, line] of text.split(/\r?\n/).entries()) {
           const haystack = caseSensitive ? line : line.toLowerCase();
-          if (haystack.includes(needle)) matches.push(`${file}:${index + 1}: ${line.slice(0, 500)}`);
+          if (haystack.includes(needle))
+            matches.push(`${file}:${index + 1}: ${line.slice(0, 500)}`);
           if (matches.length >= maxMatches) return `${matches.join("\n")}\n… matches truncated`;
         }
       }
@@ -246,7 +256,8 @@ server.registerTool(
 server.registerTool(
   "observe",
   {
-    description: "Record a concise factual observation with file:line evidence for the independent judge.",
+    description:
+      "Record a concise factual observation with file:line evidence for the independent judge.",
     inputSchema: { note: z.string().min(1) },
   },
   ({ note }) =>
@@ -257,14 +268,18 @@ server.registerTool(
     }),
 );
 
-registerOutputTool(server, { outputs: context.outputs, directory: context.evidenceDir, transcriptFile,
+registerOutputTool(server, {
+  outputs: context.outputs,
+  directory: context.evidenceDir,
+  transcriptFile,
   call: (input, action) => callTool("publish_output", input, action),
 });
 
 server.registerTool(
   "done",
   {
-    description: "Finish workspace evidence collection with an honest outcome and evidence-grounded summary.",
+    description:
+      "Finish workspace evidence collection with an honest outcome and evidence-grounded summary.",
     inputSchema: {
       outcome: z.enum(["completed", "blocked", "feature_not_found"]),
       summary: z.string().min(1),
@@ -281,7 +296,13 @@ server.registerTool(
     };
     writeJson(resultFile, state);
     const result = "Scenario evidence finalized. Return the required structured result now.";
-    record({ step, at: new Date().toISOString(), tool: "done", input: { outcome, summary }, result });
+    record({
+      step,
+      at: new Date().toISOString(),
+      tool: "done",
+      input: { outcome, summary },
+      result,
+    });
     return { content: [{ type: "text" as const, text: result }] };
   },
 );

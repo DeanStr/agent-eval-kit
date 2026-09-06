@@ -22,7 +22,17 @@ test("CLI campaigns fail when individually passing repetitions use different tar
     spec.rubric[0].grader.command = `${JSON.stringify(process.execPath)} -e "require('node:fs').appendFileSync('target.txt','changed')"`;
     fs.writeFileSync(file, YAML.stringify(spec));
     const output = path.join(root, "campaign");
-    const result = runCli(root, ["campaign", "--repetitions", "2", "--output", output, "--fail-under-score", "100", "--fail-under-coverage", "100"]);
+    const result = runCli(root, [
+      "campaign",
+      "--repetitions",
+      "2",
+      "--output",
+      output,
+      "--fail-under-score",
+      "100",
+      "--fail-under-coverage",
+      "100",
+    ]);
     assert.equal(result.status, 2, result.stderr);
     const campaign = JSON.parse(fs.readFileSync(path.join(output, "campaign.json"), "utf8"));
     assert.ok(campaign.runs.every((run: { scorePct: number }) => run.scorePct === 100));
@@ -45,34 +55,81 @@ function runCli(cwd: string, args: string[]) {
 }
 
 test("CLI execution faults fail without thresholds while valid abstentions remain reports", () => {
-  for (const fault of ["command-exit", "command-json", "judge-exit", "judge-timeout", "judge-schema", "judge-omission", "scenario-exit", "abstention"]) {
+  for (const fault of [
+    "command-exit",
+    "command-json",
+    "judge-exit",
+    "judge-timeout",
+    "judge-schema",
+    "judge-omission",
+    "scenario-exit",
+    "abstention",
+  ]) {
     const root = temporary();
     try {
       writeProject(root);
       const bin = path.join(root, "bin");
       fs.mkdirSync(bin);
-      const answer = { items: [{ id: "R1", verdict: "cannot_judge", confidence: "low", reasoning: "Evidence is inconclusive", evidenceRefs: [] }], cases: [], defects: [], notes: "" };
-      const behavior = fault === "judge-timeout" ? "setInterval(() => {}, 1000);"
-        : fault === "judge-schema" ? 'console.log(JSON.stringify({type:"result",structured_output:{invalid:true}}));'
-        : fault === "judge-omission" ? 'console.log(JSON.stringify({type:"result",structured_output:{items:[],cases:[],defects:[],notes:""}}));'
-        : fault === "abstention" ? `console.log(JSON.stringify({type:"result",structured_output:${JSON.stringify(answer)}}));`
-        : 'console.error("provider execution failed"); process.exit(7);';
-      fs.writeFileSync(path.join(bin, "claude"), `#!${process.execPath}\nif (process.argv.includes("--version")) { console.log("test-provider 1.0"); } else { ${behavior} }\n`, { mode: 0o755 });
+      const answer = {
+        items: [
+          {
+            id: "R1",
+            verdict: "cannot_judge",
+            confidence: "low",
+            reasoning: "Evidence is inconclusive",
+            evidenceRefs: [],
+          },
+        ],
+        cases: [],
+        defects: [],
+        notes: "",
+      };
+      const behavior =
+        fault === "judge-timeout"
+          ? "setInterval(() => {}, 1000);"
+          : fault === "judge-schema"
+            ? 'console.log(JSON.stringify({type:"result",structured_output:{invalid:true}}));'
+            : fault === "judge-omission"
+              ? 'console.log(JSON.stringify({type:"result",structured_output:{items:[],cases:[],defects:[],notes:""}}));'
+              : fault === "abstention"
+                ? `console.log(JSON.stringify({type:"result",structured_output:${JSON.stringify(answer)}}));`
+                : 'console.error("provider execution failed"); process.exit(7);';
+      fs.writeFileSync(
+        path.join(bin, "claude"),
+        `#!${process.execPath}\nif (process.argv.includes("--version")) { console.log("test-provider 1.0"); } else { ${behavior} }\n`,
+        { mode: 0o755 },
+      );
       const configFile = path.join(root, "evalkit.yaml");
       const config = YAML.parse(fs.readFileSync(configFile, "utf8"));
-      if (fault.startsWith("judge") || fault === "abstention") config.judge = { provider: "claude", timeoutSeconds: 1 };
+      if (fault.startsWith("judge") || fault === "abstention")
+        config.judge = { provider: "claude", timeoutSeconds: 1 };
       if (fault === "scenario-exit") config.agent = { provider: "claude", timeoutSeconds: 1 };
       fs.writeFileSync(configFile, YAML.stringify(config));
       const specFile = path.join(root, "specs", "core.yaml");
       const spec = YAML.parse(fs.readFileSync(specFile, "utf8"));
       spec.rubric[0].gate = false;
-      if (fault.startsWith("judge") || fault === "abstention") spec.rubric[0].grader = { type: "llm" };
-      else spec.rubric[0].grader = fault === "command-json"
-        ? { type: "command", methodFiles: [], output: "json", command: `${JSON.stringify(process.execPath)} -e 'console.log(JSON.stringify({verdict:"faill",reasoning:"broken"}))'` }
-        : { type: "command", methodFiles: [], output: "exit-code", command: `${JSON.stringify(process.execPath)} -e "process.exit(127)"` };
+      if (fault.startsWith("judge") || fault === "abstention")
+        spec.rubric[0].grader = { type: "llm" };
+      else
+        spec.rubric[0].grader =
+          fault === "command-json"
+            ? {
+                type: "command",
+                methodFiles: [],
+                output: "json",
+                command: `${JSON.stringify(process.execPath)} -e 'console.log(JSON.stringify({verdict:"faill",reasoning:"broken"}))'`,
+              }
+            : {
+                type: "command",
+                methodFiles: [],
+                output: "exit-code",
+                command: `${JSON.stringify(process.execPath)} -e "process.exit(127)"`,
+              };
       fs.writeFileSync(specFile, YAML.stringify(spec));
       const result = spawnSync(process.execPath, [tsxCli, cli, "run"], {
-        cwd: root, encoding: "utf8", timeout: 20_000,
+        cwd: root,
+        encoding: "utf8",
+        timeout: 20_000,
         env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}` },
       });
       assert.equal(result.status, fault === "abstention" ? 0 : 1, `${fault}: ${result.stderr}`);
@@ -80,8 +137,13 @@ test("CLI execution faults fail without thresholds while valid abstentions remai
       const state = JSON.parse(fs.readFileSync(path.join(runDir, "run-state.json"), "utf8"));
       assert.equal(state.status, fault === "abstention" ? "complete" : "failed");
       assert.equal(fs.existsSync(path.join(runDir, ".run.lock")), false);
-      if (fault.startsWith("judge")) assert.ok(fs.existsSync(path.join(runDir, "areas", "core", "_judge", "provider-run.json")));
-      if (fault === "scenario-exit") assert.equal(JSON.parse(fs.readFileSync(path.join(runDir, "S1", "evidence.json"), "utf8")).outcome, "agent_error");
+      if (fault.startsWith("judge"))
+        assert.ok(fs.existsSync(path.join(runDir, "areas", "core", "_judge", "provider-run.json")));
+      if (fault === "scenario-exit")
+        assert.equal(
+          JSON.parse(fs.readFileSync(path.join(runDir, "S1", "evidence.json"), "utf8")).outcome,
+          "agent_error",
+        );
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -131,7 +193,10 @@ test("CLI doctor checks only capabilities required by the current project", () =
   const result = runCli(root, ["doctor"]);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /playwright chromium \(optional\)/);
-  assert.doesNotMatch(result.stdout, /codex binary|claude binary|grok binary|supported subscription provider/);
+  assert.doesNotMatch(
+    result.stdout,
+    /codex binary|claude binary|grok binary|supported subscription provider/,
+  );
 
   const empty = runCli(root, ["doctor", "--providers="]);
   assert.equal(empty.status, 1);
@@ -143,7 +208,10 @@ test("CLI critical gates preserve run artifacts, and comparison gates preserve c
   writeProject(root);
   const run = runCli(root, ["run", "--split", "all", "--scenarios", "S1", "--max-turns", "7"]);
   assert.equal(run.status, 2, run.stderr);
-  assert.match(run.stderr, /CI threshold failed: critical gates not satisfied: core\/R1 \(failed: fail\)/);
+  assert.match(
+    run.stderr,
+    /CI threshold failed: critical gates not satisfied: core\/R1 \(failed: fail\)/,
+  );
   const candidateDir = path.join(root, "runs", fs.readdirSync(path.join(root, "runs"))[0]);
   const candidate = JSON.parse(fs.readFileSync(path.join(candidateDir, "report.json"), "utf8"));
   const verified = runCli(root, ["verify", "--run", candidateDir]);
@@ -158,10 +226,13 @@ test("CLI critical gates preserve run artifacts, and comparison gates preserve c
   const originalConfig = fs.readFileSync(configFile, "utf8");
   const reportFile = path.join(candidateDir, "report.json");
   const reportBeforeRejectedRescore = fs.readFileSync(reportFile);
-  fs.writeFileSync(configFile, originalConfig.replace(
-    "agent: { provider: mock }",
-    "agent: { provider: mock, model: relabeled-model }",
-  ));
+  fs.writeFileSync(
+    configFile,
+    originalConfig.replace(
+      "agent: { provider: mock }",
+      "agent: { provider: mock, model: relabeled-model }",
+    ),
+  );
   const relabeledRescore = runCli(root, ["rescore", "--run", candidateDir]);
   assert.equal(relabeledRescore.status, 1);
   assert.match(relabeledRescore.stderr, /Resolved config changed outside scoring/);
@@ -169,7 +240,14 @@ test("CLI critical gates preserve run artifacts, and comparison gates preserve c
   fs.writeFileSync(configFile, originalConfig);
 
   const publicOutput = path.join(root, "public-output");
-  const exported = runCli(root, ["export", "--public", "--run", candidateDir, "--output", publicOutput]);
+  const exported = runCli(root, [
+    "export",
+    "--public",
+    "--run",
+    candidateDir,
+    "--output",
+    publicOutput,
+  ]);
   assert.equal(exported.status, 0, exported.stderr);
   assert(fs.existsSync(path.join(publicOutput, "public-report.json")));
   assert(fs.existsSync(path.join(publicOutput, "privacy-lint.json")));
@@ -177,12 +255,24 @@ test("CLI critical gates preserve run artifacts, and comparison gates preserve c
   assert.equal(linted.status, 0, linted.stderr);
 
   const promoted = runCli(root, [
-    "baseline", "promote", "--run", candidateDir, "--name", "main", "--reviewer", "ci-test",
+    "baseline",
+    "promote",
+    "--run",
+    candidateDir,
+    "--name",
+    "main",
+    "--reviewer",
+    "ci-test",
   ]);
   assert.equal(promoted.status, 0, promoted.stderr);
   const comparedToNamed = runCli(root, [
-    "compare", "--baseline-name", "main", "--candidate", candidateDir,
-    "--output", path.join(root, "named-comparison"),
+    "compare",
+    "--baseline-name",
+    "main",
+    "--candidate",
+    candidateDir,
+    "--output",
+    path.join(root, "named-comparison"),
   ]);
   assert.equal(comparedToNamed.status, 0, comparedToNamed.stderr);
   assert.match(comparedToNamed.stdout, /score \+0 points/);
@@ -195,7 +285,13 @@ test("CLI critical gates preserve run artifacts, and comparison gates preserve c
   baseline.areas[0].scorePct = 100;
   baseline.areas[0].earned = baseline.areas[0].judgeable;
   baseline.areas[0].items[0].verdict = "pass";
-  baseline.areas[0].items[0].score = { total: 1, judgeable: 1, earned: 1, scorePct: 100, coveragePct: 100 };
+  baseline.areas[0].items[0].score = {
+    total: 1,
+    judgeable: 1,
+    earned: 1,
+    scorePct: 100,
+    coveragePct: 100,
+  };
   baseline.byTag.general.scorePct = 100;
   baseline.byTag.general.earned = baseline.byTag.general.judgeable;
   baseline.areas[0].byTag.general.scorePct = 100;
@@ -216,8 +312,13 @@ test("CLI critical gates preserve run artifacts, and comparison gates preserve c
 
   const output = path.join(root, "comparison");
   const unsealed = runCli(root, [
-    "compare", "--baseline", baselineDir, "--candidate", candidateDir,
-    "--output", output,
+    "compare",
+    "--baseline",
+    baselineDir,
+    "--candidate",
+    candidateDir,
+    "--output",
+    output,
   ]);
   assert.equal(unsealed.status, 1);
   assert.match(unsealed.stderr, /Missing artifact-index\.json/);
@@ -225,18 +326,32 @@ test("CLI critical gates preserve run artifacts, and comparison gates preserve c
   writeArtifactIndex(baselineDir);
 
   const failedRun = runCli(root, [
-    "compare", "--baseline", baselineDir, "--candidate", candidateDir,
-    "--output", output,
+    "compare",
+    "--baseline",
+    baselineDir,
+    "--candidate",
+    candidateDir,
+    "--output",
+    output,
   ]);
   assert.equal(failedRun.status, 1);
-  assert.match(failedRun.stderr, /Only complete runs can be compared; baseline run status is failed/);
+  assert.match(
+    failedRun.stderr,
+    /Only complete runs can be compared; baseline run status is failed/,
+  );
   assert.equal(fs.existsSync(output), false);
   baselineState.status = "complete";
   fs.writeFileSync(path.join(baselineDir, "run-state.json"), JSON.stringify(baselineState));
 
   const compared = runCli(root, [
-    "compare", "--baseline", baselineDir, "--candidate", candidateDir,
-    "--output", output, "--fail-on-regression",
+    "compare",
+    "--baseline",
+    baselineDir,
+    "--candidate",
+    candidateDir,
+    "--output",
+    output,
+    "--fail-on-regression",
   ]);
   assert.equal(compared.status, 2, compared.stderr);
   assert.match(compared.stderr, /CI comparison failed/);
@@ -245,19 +360,32 @@ test("CLI critical gates preserve run artifacts, and comparison gates preserve c
 
   const unsafeOutput = path.join(candidateDir, "custom-comparison");
   const rejectedOutput = runCli(root, [
-    "compare", "--baseline", baselineDir, "--candidate", candidateDir,
-    "--output", unsafeOutput,
+    "compare",
+    "--baseline",
+    baselineDir,
+    "--candidate",
+    candidateDir,
+    "--output",
+    unsafeOutput,
   ]);
   assert.equal(rejectedOutput.status, 1);
-  assert.match(rejectedOutput.stderr, /inside a sealed run must be beneath its comparisons directory/);
+  assert.match(
+    rejectedOutput.stderr,
+    /inside a sealed run must be beneath its comparisons directory/,
+  );
   assert.equal(fs.existsSync(unsafeOutput), false);
   const verifiedAfterRejectedOutput = runCli(root, ["verify", "--run", candidateDir]);
   assert.equal(verifiedAfterRejectedOutput.status, 0, verifiedAfterRejectedOutput.stderr);
 
   const safeInRunOutput = path.join(candidateDir, "comparisons", "custom");
   const acceptedInRunOutput = runCli(root, [
-    "compare", "--baseline", baselineDir, "--candidate", candidateDir,
-    "--output", safeInRunOutput,
+    "compare",
+    "--baseline",
+    baselineDir,
+    "--candidate",
+    candidateDir,
+    "--output",
+    safeInRunOutput,
   ]);
   assert.equal(acceptedInRunOutput.status, 0, acceptedInRunOutput.stderr);
   assert(fs.existsSync(path.join(safeInRunOutput, "comparison.json")));
@@ -266,10 +394,10 @@ test("CLI critical gates preserve run artifacts, and comparison gates preserve c
 
   const specFile = path.join(root, "specs", "core.yaml");
   const originalSpec = fs.readFileSync(specFile, "utf8");
-  fs.writeFileSync(specFile, originalSpec.replace(
-    "Deliberate deterministic failure",
-    "A materially different criterion",
-  ));
+  fs.writeFileSync(
+    specFile,
+    originalSpec.replace("Deliberate deterministic failure", "A materially different criterion"),
+  );
   const incompatibleRescore = runCli(root, ["rescore", "--run", candidateDir]);
   assert.equal(incompatibleRescore.status, 1);
   assert.match(incompatibleRescore.stderr, /changed in judgement-relevant fields/i);
@@ -279,7 +407,10 @@ test("CLI campaign runs repeated subscription-compatible evaluations and writes 
   const root = temporary();
   writeProject(root);
   const specFile = path.join(root, "specs", "core.yaml");
-  fs.writeFileSync(specFile, fs.readFileSync(specFile, "utf8").replace("process.exit(1)", "process.exit(0)"));
+  fs.writeFileSync(
+    specFile,
+    fs.readFileSync(specFile, "utf8").replace("process.exit(1)", "process.exit(0)"),
+  );
   const output = path.join(root, "campaign-output");
   const result = runCli(root, ["campaign", "--repetitions", "2", "--output", output]);
   assert.equal(result.status, 0, result.stderr);
@@ -313,10 +444,22 @@ test("CLI campaign runs repeated subscription-compatible evaluations and writes 
   assert.deepEqual(afterRescore.receipt.inputs.fixtures, beforeRescore.receipt.inputs.fixtures);
   assert.deepEqual(afterRescore.receipt.inputs.selection, beforeRescore.receipt.inputs.selection);
   assert.deepEqual(afterRescore.receipt.inputs.config, beforeRescore.receipt.inputs.config);
-  assert.equal(afterRescore.receipt.inputs.specs.core.file, beforeRescore.receipt.inputs.specs.core.file);
-  assert.notEqual(afterRescore.receipt.inputs.methodSha256, beforeRescore.receipt.inputs.methodSha256);
-  assert.notEqual(afterRescore.receipt.inputs.specs.core.sha256, beforeRescore.receipt.inputs.specs.core.sha256);
-  assert.notEqual(afterRescore.receipt.evaluationFingerprint, beforeRescore.receipt.evaluationFingerprint);
+  assert.equal(
+    afterRescore.receipt.inputs.specs.core.file,
+    beforeRescore.receipt.inputs.specs.core.file,
+  );
+  assert.notEqual(
+    afterRescore.receipt.inputs.methodSha256,
+    beforeRescore.receipt.inputs.methodSha256,
+  );
+  assert.notEqual(
+    afterRescore.receipt.inputs.specs.core.sha256,
+    beforeRescore.receipt.inputs.specs.core.sha256,
+  );
+  assert.notEqual(
+    afterRescore.receipt.evaluationFingerprint,
+    beforeRescore.receipt.evaluationFingerprint,
+  );
   assert.notEqual(afterRescore.receipt.inputFingerprint, beforeRescore.receipt.inputFingerprint);
   const rescoredAgain = runCli(root, ["rescore", "--run", runDir]);
   assert.equal(rescoredAgain.status, 0, rescoredAgain.stderr);
@@ -328,7 +471,16 @@ test("CLI campaign runs repeated subscription-compatible evaluations and writes 
   const repeated = runCli(root, ["campaign", "--repetitions", "2", "--output", secondOutput]);
   assert.equal(repeated.status, 0, repeated.stderr);
   const comparisonOutput = path.join(root, "campaign-comparison");
-  const compared = runCli(root, ["campaign", "compare", "--baseline", output, "--candidate", secondOutput, "--output", comparisonOutput]);
+  const compared = runCli(root, [
+    "campaign",
+    "compare",
+    "--baseline",
+    output,
+    "--candidate",
+    secondOutput,
+    "--output",
+    comparisonOutput,
+  ]);
   assert.equal(compared.status, 0, compared.stderr);
   assert(fs.existsSync(path.join(comparisonOutput, "campaign-comparison.json")));
   assert(fs.existsSync(path.join(comparisonOutput, "campaign-comparison.html")));
@@ -386,7 +538,10 @@ rubric:
   assert.equal(run.status, 0, run.stderr);
   const runDir = path.join(root, "runs", fs.readdirSync(path.join(root, "runs"))[0]);
   const lockFile = path.join(runDir, ".run.lock");
-  fs.writeFileSync(lockFile, `${JSON.stringify({ schemaVersion: 1, pid: process.pid, token: "test-owner" })}\n`);
+  fs.writeFileSync(
+    lockFile,
+    `${JSON.stringify({ schemaVersion: 1, pid: process.pid, token: "test-owner" })}\n`,
+  );
   for (const command of ["rescore", "finalize"]) {
     const locked = runCli(root, [command, "--run", runDir]);
     assert.equal(locked.status, 1);
@@ -399,7 +554,10 @@ rubric:
   for (const command of ["rescore", "finalize"]) {
     const incomplete = runCli(root, [command, "--run", runDir]);
     assert.equal(incomplete.status, 1);
-    assert.match(incomplete.stderr, new RegExp(`Only complete runs can be ${command === "rescore" ? "rescored" : "finalized"}`));
+    assert.match(
+      incomplete.stderr,
+      new RegExp(`Only complete runs can be ${command === "rescore" ? "rescored" : "finalized"}`),
+    );
   }
   fs.writeFileSync(runStateFile, `${JSON.stringify(completeState)}\n`);
   const indexFile = path.join(runDir, "artifact-index.json");
@@ -410,52 +568,102 @@ rubric:
   assert.match(withoutIndex.stderr, /Missing artifact-index\.json/);
   fs.renameSync(indexBackup, indexFile);
   const configFile = path.join(root, "evalkit.yaml");
-  fs.writeFileSync(configFile, fs.readFileSync(configFile, "utf8").replace("partialCredit: 0.5", "partialCredit: 0.25"));
+  fs.writeFileSync(
+    configFile,
+    fs.readFileSync(configFile, "utf8").replace("partialCredit: 0.5", "partialCredit: 0.25"),
+  );
   const rescored = runCli(root, ["rescore", "--run", runDir]);
   assert.equal(rescored.status, 0, rescored.stderr);
   const manualFile = path.join(runDir, "manual-results.json");
-  fs.writeFileSync(manualFile, JSON.stringify({ "MANUAL-1": { verdict: "partial", notes: "Partly verified" } }));
+  fs.writeFileSync(
+    manualFile,
+    JSON.stringify({ "MANUAL-1": { verdict: "partial", notes: "Partly verified" } }),
+  );
   const first = runCli(root, ["finalize", "--run", runDir, "--reviewer", "alice"]);
   assert.equal(first.status, 0, first.stderr);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(runDir, "report.json"), "utf8")).overallScorePct, 25);
+  assert.equal(
+    JSON.parse(fs.readFileSync(path.join(runDir, "report.json"), "utf8")).overallScorePct,
+    25,
+  );
 
-  fs.writeFileSync(manualFile, JSON.stringify({ "MANUAL-1": { verdict: "fail", notes: "Corrected" } }));
+  fs.writeFileSync(
+    manualFile,
+    JSON.stringify({ "MANUAL-1": { verdict: "fail", notes: "Corrected" } }),
+  );
   const second = runCli(root, ["finalize", "--run", runDir, "--reviewer", "bob"]);
   assert.equal(second.status, 0, second.stderr);
-  const revisions = fs.readFileSync(path.join(runDir, "manual-revisions.ndjson"), "utf8")
-    .trim().split(/\r?\n/).map((line) => JSON.parse(line));
+  const revisions = fs
+    .readFileSync(path.join(runDir, "manual-revisions.ndjson"), "utf8")
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => JSON.parse(line));
   assert.equal(revisions.length, 2);
   assert.equal(revisions[1].previousHash, revisions[0].revisionHash);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(runDir, "report.json"), "utf8")).areas[0].items[0].verdict, "fail");
+  assert.equal(
+    JSON.parse(fs.readFileSync(path.join(runDir, "report.json"), "utf8")).areas[0].items[0].verdict,
+    "fail",
+  );
 
-  fs.writeFileSync(path.join(runDir, "inputs", "config.resolved.yaml"), "version: 1\nscoring: { partialCredit: 0.5 }\n");
+  fs.writeFileSync(
+    path.join(runDir, "inputs", "config.resolved.yaml"),
+    "version: 1\nscoring: { partialCredit: 0.5 }\n",
+  );
   writeArtifactIndex(runDir);
   const invalidOriginalScoring = runCli(root, ["rescore", "--run", runDir]);
   assert.equal(invalidOriginalScoring.status, 1);
-  assert.match(invalidOriginalScoring.stderr, /Original resolved config snapshot has invalid scoring settings/);
+  assert.match(
+    invalidOriginalScoring.stderr,
+    /Original resolved config snapshot has invalid scoring settings/,
+  );
 });
 
-
-test("CLI campaign regression gate writes completion rates before exiting 2", t => {
+test("CLI campaign regression gate writes completion rates before exiting 2", (t) => {
   const root = temporary();
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   for (const id of ["before", "after"]) {
     const report = buildCampaignReport({
-      campaignId: id, project: "CLI", startedAt: "now", plannedRepetitions: 3,
-      runs: [1, 2, 3].map(ordinal => id === "after" && ordinal > 1
-        ? { ordinal, status: "failed", error: "grader crashed" }
-        : { ordinal, status: "complete", runId: `${id}-${ordinal}`, runDir: `/runs/${id}-${ordinal}`,
-          evaluationFingerprint: "e".repeat(64), inputFingerprint: "f".repeat(64),
-          scorePct: 100, coveragePct: 100, scoreWithheld: false, gatesPassed: true, items: [], cases: [] }),
+      campaignId: id,
+      project: "CLI",
+      startedAt: "now",
+      plannedRepetitions: 3,
+      runs: [1, 2, 3].map((ordinal) =>
+        id === "after" && ordinal > 1
+          ? { ordinal, status: "failed", error: "grader crashed" }
+          : {
+              ordinal,
+              status: "complete",
+              runId: `${id}-${ordinal}`,
+              runDir: `/runs/${id}-${ordinal}`,
+              evaluationFingerprint: "e".repeat(64),
+              inputFingerprint: "f".repeat(64),
+              scorePct: 100,
+              coveragePct: 100,
+              scoreWithheld: false,
+              gatesPassed: true,
+              items: [],
+              cases: [],
+            },
+      ),
     });
     fs.writeFileSync(path.join(root, `${id}.json`), JSON.stringify(report));
   }
   const output = path.join(root, "comparison");
-  const result = runCli(root, ["campaign", "compare", "--baseline", path.join(root, "before.json"),
-    "--candidate", path.join(root, "after.json"), "--output", output, "--fail-on-regression"]);
+  const result = runCli(root, [
+    "campaign",
+    "compare",
+    "--baseline",
+    path.join(root, "before.json"),
+    "--candidate",
+    path.join(root, "after.json"),
+    "--output",
+    output,
+    "--fail-on-regression",
+  ]);
   assert.equal(result.status, 2, result.stderr);
   assert.match(result.stderr, /completion rate dropped/);
-  const comparison = JSON.parse(fs.readFileSync(path.join(output, "campaign-comparison.json"), "utf8"));
+  const comparison = JSON.parse(
+    fs.readFileSync(path.join(output, "campaign-comparison.json"), "utf8"),
+  );
   assert.equal(comparison.overall.completionRate.candidate, 1 / 3);
   const html = fs.readFileSync(path.join(output, "campaign-comparison.html"), "utf8");
   assert.match(html, /Completion rate.*100% → 33.333%/);

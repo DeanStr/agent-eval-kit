@@ -45,9 +45,15 @@ test("auth capture preserves interactive visibility and honors automated headles
     throw new Error("launch intercepted");
   });
   try {
-    await assert.rejects(captureAuth({ config, persona: "automated", clickText: "Sign in" }), /launch intercepted/);
+    await assert.rejects(
+      captureAuth({ config, persona: "automated", clickText: "Sign in" }),
+      /launch intercepted/,
+    );
     config.browser.headless = false;
-    await assert.rejects(captureAuth({ config, persona: "headed-automated", clickText: "Sign in" }), /launch intercepted/);
+    await assert.rejects(
+      captureAuth({ config, persona: "headed-automated", clickText: "Sign in" }),
+      /launch intercepted/,
+    );
     config.browser.headless = true;
     await assert.rejects(captureAuth({ config, persona: "interactive" }), /launch intercepted/);
     assert.deepEqual(launches, [true, false, false]);
@@ -104,7 +110,9 @@ test("auth capture permits a temporary OAuth popup and saves only application st
       return;
     }
     response.writeHead(200, { "content-type": "text/html" });
-    response.end(`<!doctype html><button onclick="window.open('${providerUrl}/authorize')">Sign in with OAuth</button>`);
+    response.end(
+      `<!doctype html><button onclick="window.open('${providerUrl}/authorize')">Sign in with OAuth</button>`,
+    );
   });
   const provider = http.createServer((_request, response) => {
     response.writeHead(200, {
@@ -140,10 +148,19 @@ test("auth capture permits a temporary OAuth popup and saves only application st
     variables: {},
   };
   try {
-    const saved = await captureAuth({ config, persona: "oauth-user", clickText: "Sign in with OAuth" });
+    const saved = await captureAuth({
+      config,
+      persona: "oauth-user",
+      clickText: "Sign in with OAuth",
+    });
     const state = JSON.parse(fs.readFileSync(saved, "utf8"));
-    assert.deepEqual(state.cookies.map((cookie: { name: string }) => cookie.name), ["app_session"]);
-    assert.ok(state.origins.every((origin: { origin: string }) => origin.origin === applicationUrl));
+    assert.deepEqual(
+      state.cookies.map((cookie: { name: string }) => cookie.name),
+      ["app_session"],
+    );
+    assert.ok(
+      state.origins.every((origin: { origin: string }) => origin.origin === applicationUrl),
+    );
     if (process.platform !== "win32") {
       assert.equal(fs.statSync(config.paths.auth).mode & 0o777, 0o700);
       assert.equal(fs.statSync(path.dirname(saved)).mode & 0o777, 0o700);

@@ -68,8 +68,7 @@ export function safeName(value: string): string {
 export function isPortablePathComponent(value: string): boolean {
   // Windows strips terminal dots and treats these basenames as devices even
   // when an extension is present (for example, CON.json).
-  return !value.endsWith(".") &&
-    !/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(value);
+  return !value.endsWith(".") && !/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(value);
 }
 
 export function timestampId(): string {
@@ -117,5 +116,8 @@ export function prospectiveRealPath(target: string): string {
 
 export function isWithin(parent: string, candidate: string): boolean {
   const relative = path.relative(parent, candidate);
-  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+  return (
+    relative === "" ||
+    (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+  );
 }

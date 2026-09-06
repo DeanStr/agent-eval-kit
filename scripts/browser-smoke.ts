@@ -40,7 +40,9 @@ try {
   if (!fs.existsSync(path.join(evidence, shot.relPath))) throw new Error("Screenshot missing");
   const blocked = await browser.navigate("https://example.org");
   if (!blocked.includes("BLOCKED")) throw new Error("Off-origin navigation was not contained");
-  console.log("Browser smoke passed: refs, fill, select, click, screenshot, and origin containment.");
+  console.log(
+    "Browser smoke passed: refs, fill, select, click, screenshot, and origin containment.",
+  );
 } finally {
   await browser.stop();
   server.close();

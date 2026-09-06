@@ -42,20 +42,34 @@ function parseCalendarDate(text: string): Date | null {
   if (us) return checkedDate(Number(us[3]), Number(us[1]), Number(us[2]));
 
   const months: Record<string, number> = {
-    jan: 1, january: 1,
-    feb: 2, february: 2,
-    mar: 3, march: 3,
-    apr: 4, april: 4,
+    jan: 1,
+    january: 1,
+    feb: 2,
+    february: 2,
+    mar: 3,
+    march: 3,
+    apr: 4,
+    april: 4,
     may: 5,
-    jun: 6, june: 6,
-    jul: 7, july: 7,
-    aug: 8, august: 8,
-    sep: 9, sept: 9, september: 9,
-    oct: 10, october: 10,
-    nov: 11, november: 11,
-    dec: 12, december: 12,
+    jun: 6,
+    june: 6,
+    jul: 7,
+    july: 7,
+    aug: 8,
+    august: 8,
+    sep: 9,
+    sept: 9,
+    september: 9,
+    oct: 10,
+    october: 10,
+    nov: 11,
+    november: 11,
+    dec: 12,
+    december: 12,
   };
-  const monthFirst = /^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,\s*|\s+)(\d{4})(?:\s+.*)?$/i.exec(t);
+  const monthFirst = /^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,\s*|\s+)(\d{4})(?:\s+.*)?$/i.exec(
+    t,
+  );
   if (monthFirst) {
     const month = months[monthFirst[1].toLowerCase()];
     return month ? checkedDate(Number(monthFirst[3]), month, Number(monthFirst[2])) : null;
@@ -114,7 +128,8 @@ export function normalizeTemporal(type: string, text: string): string | null {
       firstThursday.setHours(0, 0, 0, 0);
       firstThursday.setFullYear(year, 0, 4);
       firstThursday.setDate(firstThursday.getDate() - ((firstThursday.getDay() + 6) % 7) + 3);
-      const lastWeek = 1 + Math.round((lastThursday.getTime() - firstThursday.getTime()) / (7 * 86_400_000));
+      const lastWeek =
+        1 + Math.round((lastThursday.getTime() - firstThursday.getTime()) / (7 * 86_400_000));
       return week <= lastWeek ? t : null;
     }
   }

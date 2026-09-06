@@ -30,7 +30,9 @@ export function supportedNodeVersion(version: string): boolean {
 
 export function doctor(options: DoctorOptions = {}): DoctorCheck[] {
   if (process.platform === "win32") {
-    return [{ name: "evaluation platform", ok: false, detail: NATIVE_WINDOWS_ERROR, required: true }];
+    return [
+      { name: "evaluation platform", ok: false, detail: NATIVE_WINDOWS_ERROR, required: true },
+    ];
   }
   const checks: DoctorCheck[] = [];
   checks.push({
@@ -44,7 +46,9 @@ export function doctor(options: DoctorOptions = {}): DoctorCheck[] {
   checks.push({
     name: "playwright chromium",
     ok: browserInstalled,
-    detail: browserInstalled ? browser : `not installed at ${browser}; run \`pnpm exec playwright install chromium\``,
+    detail: browserInstalled
+      ? browser
+      : `not installed at ${browser}; run \`pnpm exec playwright install chromium\``,
     required: options.requireBrowser === true,
   });
 
@@ -60,7 +64,9 @@ export function doctor(options: DoctorOptions = {}): DoctorCheck[] {
     checks.push({
       name: `${provider} binary`,
       ok: installed,
-      detail: installed ? (version.stdout || version.stderr).trim().split("\n")[0] : version.error?.message ?? `exit ${version.status}`,
+      detail: installed
+        ? (version.stdout || version.stderr).trim().split("\n")[0]
+        : (version.error?.message ?? `exit ${version.status}`),
       required: requireEveryProvider,
     });
     if (!installed) continue;
@@ -90,7 +96,7 @@ export function doctor(options: DoctorOptions = {}): DoctorCheck[] {
         ok,
         detail: parsed.loggedIn
           ? `${parsed.authMethod}${parsed.subscriptionType ? ` (${parsed.subscriptionType})` : ""}`
-          : parseError ?? (auth.stdout + auth.stderr).trim(),
+          : (parseError ?? (auth.stdout + auth.stderr).trim()),
         required: requireEveryProvider,
       });
     } else {

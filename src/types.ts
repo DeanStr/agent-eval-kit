@@ -1,5 +1,15 @@
 import type { TextPairwiseGrader } from "./text/contracts.js";
-import type { CaptureConfig, CaptureCheck, DiagnosticPolicy, BrowserDiagnostic, PairwiseGrader, VotingPolicy, VoteSummary, DistinctnessGrader, ImageRegressionGrader } from "./visual/contracts.js";
+import type {
+  CaptureConfig,
+  CaptureCheck,
+  DiagnosticPolicy,
+  BrowserDiagnostic,
+  PairwiseGrader,
+  VotingPolicy,
+  VoteSummary,
+  DistinctnessGrader,
+  ImageRegressionGrader,
+} from "./visual/contracts.js";
 export const PROVIDERS = ["codex", "claude", "grok", "mock"] as const;
 export type ProviderId = (typeof PROVIDERS)[number];
 
@@ -135,7 +145,16 @@ export interface HybridGrader {
   autoShare: number;
 }
 
-export type Grader = TextPairwiseGrader | CommandGrader | LlmGrader | ManualGrader | HybridGrader | PairwiseGrader | DistinctnessGrader | ImageRegressionGrader | { type: "capture" };
+export type Grader =
+  | TextPairwiseGrader
+  | CommandGrader
+  | LlmGrader
+  | ManualGrader
+  | HybridGrader
+  | PairwiseGrader
+  | DistinctnessGrader
+  | ImageRegressionGrader
+  | { type: "capture" };
 
 export interface RubricItem {
   id: string;
@@ -253,7 +272,15 @@ export interface JudgedItem {
   confidence: "high" | "medium" | "low";
   reasoning: string;
   evidenceRefs: string[];
-  source: "text-pairwise" | "llm" | "command" | "manual" | "pairwise" | "capture" | "image-distinctness" | "image-regression";
+  source:
+    | "text-pairwise"
+    | "llm"
+    | "command"
+    | "manual"
+    | "pairwise"
+    | "capture"
+    | "image-distinctness"
+    | "image-regression";
   votes?: VoteSummary;
   comparisons?: string[];
   /** Populated by scoreArea, using the actual weights and evidence coverage. */
@@ -307,7 +334,13 @@ export interface RunReceipt {
     agent: { provider: ProviderId; model?: string; cliVersion: string };
     judge: { provider: ProviderId; model?: string; cliVersion: string };
   };
-  runtime: { kitVersion: string; node: string; platform: NodeJS.Platform; arch: string; evidence?: { chromium?: string; playwright: string; sharp: Record<string, string> } };
+  runtime: {
+    kitVersion: string;
+    node: string;
+    platform: NodeJS.Platform;
+    arch: string;
+    evidence?: { chromium?: string; playwright: string; sharp: Record<string, string> };
+  };
 }
 
 export interface Defect {

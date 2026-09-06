@@ -18,6 +18,8 @@
   },
   "packageManager": "pnpm@10.33.1",
   "scripts": {
+    "format": "biome format --write .",
+    "format:check": "biome format .",
     "lint": "biome lint --error-on-warnings .",
     "lint:fix": "biome lint --write --error-on-warnings .",
     "build": "tsc -p tsconfig.build.json",

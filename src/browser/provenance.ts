@@ -13,13 +13,28 @@ export function chromiumVersion(headless: boolean): string {
     })().catch(error => { console.error(error.message); process.exitCode = 1; });
   `;
   // Receipts are synchronous; isolate the browser launch in a bounded subprocess.
-  const result = spawnSync(process.execPath, ["--input-type=commonjs", "--eval", probe, require.resolve("playwright"), JSON.stringify(headless)], {
-    encoding: "utf8", timeout: 30000, env: process.env,
-  });
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=commonjs",
+      "--eval",
+      probe,
+      require.resolve("playwright"),
+      JSON.stringify(headless),
+    ],
+    {
+      encoding: "utf8",
+      timeout: 30000,
+      env: process.env,
+    },
+  );
   const version = result.stdout?.trim();
   if (result.error || result.status !== 0 || !version) {
-    const detail = result.error?.message || result.stderr?.trim() || `probe exited with status ${result.status}`;
-    throw new Error(`Unable to determine Chromium version for ${headless ? "headless" : "headed"} capture. Check the browser installation and launch environment (pnpm exec playwright install chromium). ${detail}`);
+    const detail =
+      result.error?.message || result.stderr?.trim() || `probe exited with status ${result.status}`;
+    throw new Error(
+      `Unable to determine Chromium version for ${headless ? "headless" : "headed"} capture. Check the browser installation and launch environment (pnpm exec playwright install chromium). ${detail}`,
+    );
   }
   return version;
 }

@@ -33,7 +33,9 @@ export interface IntegrityOptions {
   allowChangedPaths?: string[];
 }
 
-export function artifactIndexRoot(index: Omit<ArtifactIndex, "rootSha256"> | ArtifactIndex): string {
+export function artifactIndexRoot(
+  index: Omit<ArtifactIndex, "rootSha256"> | ArtifactIndex,
+): string {
   const { rootSha256: _rootSha256, ...payload } = index as ArtifactIndex;
   return sha256(stableJson(payload));
 }
@@ -68,13 +70,28 @@ function included(relative: string, directory: boolean): boolean {
 function roleFor(relative: string): ArtifactIndexEntry["role"] {
   const normalized = portable(relative);
   if (normalized === "receipt.json") return "receipt";
-  if (normalized === "report.json" || normalized === "report.html" || normalized === "manual-checklist.md") return "report";
+  if (
+    normalized === "report.json" ||
+    normalized === "report.html" ||
+    normalized === "manual-checklist.md"
+  )
+    return "report";
   if (normalized === "manual-revisions.ndjson") return "review";
   if (normalized.startsWith("inputs/")) return "input";
   if (normalized.startsWith("lifecycle/")) return "evidence";
   if (normalized.startsWith(".state/")) return "evidence";
-  if (normalized.startsWith("areas/") || normalized.includes("/_judge/") || normalized.includes("/graders/")) return "judgement";
-  if (/^[^/]+\/(?:evidence\.json|outputs\.json|provider-|browser-|workspace-|screenshots(?:\.json|\/)|observations\.json|prompt\.md|.*-context\.json|\.mcp\.json|scenario-output\.schema\.json|\.storage-state\.candidate\.json)/.test(normalized)) return "evidence";
+  if (
+    normalized.startsWith("areas/") ||
+    normalized.includes("/_judge/") ||
+    normalized.includes("/graders/")
+  )
+    return "judgement";
+  if (
+    /^[^/]+\/(?:evidence\.json|outputs\.json|provider-|browser-|workspace-|screenshots(?:\.json|\/)|observations\.json|prompt\.md|.*-context\.json|\.mcp\.json|scenario-output\.schema\.json|\.storage-state\.candidate\.json)/.test(
+      normalized,
+    )
+  )
+    return "evidence";
   return "artifact";
 }
 
@@ -97,18 +114,26 @@ function sha256File(file: string): string {
 function collect(runDir: string): ArtifactIndexEntry[] {
   const entries: ArtifactIndexEntry[] = [];
   const visit = (directory: string): void => {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+    for (const entry of fs
+      .readdirSync(directory, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name))) {
       const absolute = path.join(directory, entry.name);
       const relative = portable(path.relative(runDir, absolute));
       if (!included(relative, entry.isDirectory())) continue;
-      if (entry.isSymbolicLink()) throw new Error(`Artifact index refuses symbolic link: ${relative}`);
+      if (entry.isSymbolicLink())
+        throw new Error(`Artifact index refuses symbolic link: ${relative}`);
       if (entry.isDirectory()) {
         visit(absolute);
         continue;
       }
       if (!entry.isFile()) throw new Error(`Artifact index refuses non-file artifact: ${relative}`);
       const stat = fs.statSync(absolute);
-      entries.push({ path: relative, role: roleFor(relative), bytes: stat.size, sha256: sha256File(absolute) });
+      entries.push({
+        path: relative,
+        role: roleFor(relative),
+        bytes: stat.size,
+        sha256: sha256File(absolute),
+      });
     }
   };
   visit(runDir);
@@ -143,7 +168,10 @@ export function writeArtifactIndex(runDir: string): ArtifactIndex {
   return index;
 }
 
-export function verifyArtifactIndex(runDir: string, options: IntegrityOptions = {}): IntegrityVerification {
+export function verifyArtifactIndex(
+  runDir: string,
+  options: IntegrityOptions = {},
+): IntegrityVerification {
   const resolved = path.resolve(runDir);
   const file = path.join(resolved, INDEX_FILE);
   if (!fs.existsSync(file)) {
@@ -157,7 +185,10 @@ export function verifyArtifactIndex(runDir: string, options: IntegrityOptions = 
   try {
     index = JSON.parse(fs.readFileSync(file, "utf8")) as ArtifactIndex;
   } catch (error) {
-    return { ok: false, errors: [`Invalid ${INDEX_FILE}: ${error instanceof Error ? error.message : String(error)}`] };
+    return {
+      ok: false,
+      errors: [`Invalid ${INDEX_FILE}: ${error instanceof Error ? error.message : String(error)}`],
+    };
   }
   if (index.schemaVersion !== 1 || index.algorithm !== "sha256" || !Array.isArray(index.entries)) {
     return { ok: false, index, errors: [`Invalid ${INDEX_FILE} schema`] };
@@ -172,7 +203,8 @@ export function verifyArtifactIndex(runDir: string, options: IntegrityOptions = 
     }
     if (paths.has(entry.path)) errors.push(`Duplicate artifact path in index: ${entry.path}`);
     paths.add(entry.path);
-    const changeAllowed = allowedChangedRoles.has(entry.role) || allowedChangedPaths.has(entry.path);
+    const changeAllowed =
+      allowedChangedRoles.has(entry.role) || allowedChangedPaths.has(entry.path);
     const absolute = path.join(resolved, ...entry.path.split("/"));
     if (!fs.existsSync(absolute)) {
       if (!changeAllowed) errors.push(`Missing artifact: ${entry.path}`);
@@ -185,16 +217,19 @@ export function verifyArtifactIndex(runDir: string, options: IntegrityOptions = 
     }
     if (!changeAllowed) {
       if (entry.bytes !== stat.size) errors.push(`Artifact size changed: ${entry.path}`);
-      else if (entry.sha256 !== sha256File(absolute)) errors.push(`Artifact checksum changed: ${entry.path}`);
+      else if (entry.sha256 !== sha256File(absolute))
+        errors.push(`Artifact checksum changed: ${entry.path}`);
     }
   }
-  if (index.rootSha256 !== artifactIndexRoot(index)) errors.push("Artifact index root checksum is invalid");
+  if (index.rootSha256 !== artifactIndexRoot(index))
+    errors.push("Artifact index root checksum is invalid");
 
   try {
     const current = collect(resolved).map((entry) => entry.path);
     for (const artifact of current) {
       if (paths.has(artifact)) continue;
-      const allowed = options.allowUnindexed === true ||
+      const allowed =
+        options.allowUnindexed === true ||
         allowedChangedPaths.has(artifact) ||
         (typeof options.allowUnindexed === "function" && options.allowUnindexed(artifact));
       if (!allowed) errors.push(`Unindexed artifact: ${artifact}`);
@@ -205,8 +240,14 @@ export function verifyArtifactIndex(runDir: string, options: IntegrityOptions = 
   return { ok: errors.length === 0, index, errors };
 }
 
-export function assertArtifactIntegrity(runDir: string, options: IntegrityOptions = {}): ArtifactIndex | undefined {
+export function assertArtifactIntegrity(
+  runDir: string,
+  options: IntegrityOptions = {},
+): ArtifactIndex | undefined {
   const verification = verifyArtifactIndex(runDir, options);
-  if (!verification.ok) throw new Error(`Artifact integrity verification failed:\n  - ${verification.errors.join("\n  - ")}`);
+  if (!verification.ok)
+    throw new Error(
+      `Artifact integrity verification failed:\n  - ${verification.errors.join("\n  - ")}`,
+    );
   return verification.index;
 }

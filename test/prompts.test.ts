@@ -24,15 +24,17 @@ test("repository scenario prompts expose the task but not evaluator rubric or ab
     description: "",
     sourceFile: "/private/evals/core.yaml",
     scenarios: [],
-    rubric: [{
-      id: "SECRET-RUBRIC",
-      criterion: "hidden evaluator judgment",
-      weight: 1,
-      tags: [],
-      scenarios: [],
-      grader: { type: "llm" },
-      passCriteria: "hidden exact threshold",
-    }],
+    rubric: [
+      {
+        id: "SECRET-RUBRIC",
+        criterion: "hidden evaluator judgment",
+        weight: 1,
+        tags: [],
+        scenarios: [],
+        grader: { type: "llm" },
+        passCriteria: "hidden exact threshold",
+      },
+    ],
   };
   const prompt = scenarioPrompt({
     config,
@@ -88,6 +90,9 @@ test("repository scenario prompts expose the task but not evaluator rubric or ab
     screenshotAccess: "mcp",
   });
   assert.match(judgement, /view_screenshot|001-result\.jpg/);
-  assert.match(judgement, /Project-wide evaluator instructions:\s+Treat equivalent workflows as fully satisfying the criterion/);
+  assert.match(
+    judgement,
+    /Project-wide evaluator instructions:\s+Treat equivalent workflows as fully satisfying the criterion/,
+  );
   assert.doesNotMatch(judgement, /private\/target\/source|autoShare|"weight"|"gate"|"tags"/);
 });

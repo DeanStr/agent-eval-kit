@@ -31,7 +31,10 @@ export async function captureAuth(options: {
   clickText?: string;
 }): Promise<string> {
   const { config, persona, clickText } = options;
-  if (persona === "anonymous") throw new Error("anonymous is reserved for unauthenticated browser contexts; capture a named persona instead");
+  if (persona === "anonymous")
+    throw new Error(
+      "anonymous is reserved for unauthenticated browser contexts; capture a named persona instead",
+    );
   if (!config.target.url) throw new Error("aek auth requires a web target with target.url");
   const target = personaAuthPath(config, persona);
   const scratch = path.join(config.paths.auth, ".capture", personaStorageName(persona));
@@ -59,7 +62,11 @@ export async function captureAuth(options: {
       const snapshot = await browser.snapshot();
       const controls = snapshot.split("\n").filter((line) => /^\[e\d+\]/.test(line));
       const needle = clickText.toLowerCase();
-      const label = (line: string) => line.replace(/^\[e\d+\] <[^>]*>\s*/, "").trim().toLowerCase();
+      const label = (line: string) =>
+        line
+          .replace(/^\[e\d+\] <[^>]*>\s*/, "")
+          .trim()
+          .toLowerCase();
       let matches = controls.filter((line) => label(line).startsWith(needle));
       if (!matches.length) matches = controls.filter((line) => label(line).includes(needle));
       if (matches.length !== 1) {

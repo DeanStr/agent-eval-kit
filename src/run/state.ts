@@ -21,29 +21,34 @@ export interface RunState {
   lastError?: string;
 }
 
-const runStateSchema = z.object({
-  schemaVersion: z.literal(1),
-  status: z.enum(["running", "complete", "failed"]),
-  runId: z.string().min(1),
-  pid: z.number().int().nonnegative(),
-  configFile: z.string().min(1),
-  startedAt: z.string().min(1),
-  selectedAreas: z.array(z.string().min(1)),
-  selectedScenarios: z.array(z.string().min(1)).optional(),
-  selectedSplit: z.enum(["development", "evaluation", "all"]).optional(),
-  specHashes: z.record(z.string(), z.string()),
-  inputFingerprint: z.string().min(1),
-  configOverrides: z.object({
-    targetUrl: z.string().optional(),
-    agentProvider: z.enum(["codex", "claude", "grok", "mock"]).optional(),
-    judgeProvider: z.enum(["codex", "claude", "grok", "mock"]).optional(),
-    agentModel: z.string().optional(),
-    judgeModel: z.string().optional(),
-    maxTurns: z.number().int().positive().optional(),
-    headed: z.boolean().optional(),
-  }).strict().optional(),
-  lastError: z.string().optional(),
-}).strict();
+const runStateSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    status: z.enum(["running", "complete", "failed"]),
+    runId: z.string().min(1),
+    pid: z.number().int().nonnegative(),
+    configFile: z.string().min(1),
+    startedAt: z.string().min(1),
+    selectedAreas: z.array(z.string().min(1)),
+    selectedScenarios: z.array(z.string().min(1)).optional(),
+    selectedSplit: z.enum(["development", "evaluation", "all"]).optional(),
+    specHashes: z.record(z.string(), z.string()),
+    inputFingerprint: z.string().min(1),
+    configOverrides: z
+      .object({
+        targetUrl: z.string().optional(),
+        agentProvider: z.enum(["codex", "claude", "grok", "mock"]).optional(),
+        judgeProvider: z.enum(["codex", "claude", "grok", "mock"]).optional(),
+        agentModel: z.string().optional(),
+        judgeModel: z.string().optional(),
+        maxTurns: z.number().int().positive().optional(),
+        headed: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    lastError: z.string().optional(),
+  })
+  .strict();
 
 export function loadRunState(runDir: string): RunState {
   const file = path.join(path.resolve(runDir), "run-state.json");
@@ -52,10 +57,13 @@ export function loadRunState(runDir: string): RunState {
   try {
     parsed = JSON.parse(fs.readFileSync(file, "utf8"));
   } catch (error) {
-    throw new Error(`Invalid run state ${file}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Invalid run state ${file}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
   const result = runStateSchema.safeParse(parsed);
-  if (!result.success) throw new Error(`Invalid run state ${file}: ${z.prettifyError(result.error)}`);
+  if (!result.success)
+    throw new Error(`Invalid run state ${file}: ${z.prettifyError(result.error)}`);
   if (result.data.runId !== path.basename(path.resolve(runDir))) {
     throw new Error(`Invalid run state ${file}: runId does not match its directory`);
   }
@@ -82,7 +90,9 @@ function acquireRunLock(runDir: string): () => void {
     fs.mkdirSync(guard, { mode: 0o700 });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    throw new Error(`Run lock acquisition is in progress: ${guard}. Retry after the other process exits. If acquisition was interrupted, remove this empty directory only after confirming no process is acquiring this run.`);
+    throw new Error(
+      `Run lock acquisition is in progress: ${guard}. Retry after the other process exits. If acquisition was interrupted, remove this empty directory only after confirming no process is acquiring this run.`,
+    );
   }
   try {
     return acquireGuardedRunLock(runDir);
@@ -104,10 +114,14 @@ function acquireGuardedRunLock(runDir: string): () => void {
       try {
         owner = JSON.parse(fs.readFileSync(file, "utf8")) as { pid?: unknown };
       } catch {
-        throw new Error(`Run lock is unreadable: ${file}. Refusing to modify a possibly active run.`);
+        throw new Error(
+          `Run lock is unreadable: ${file}. Refusing to modify a possibly active run.`,
+        );
       }
       if (typeof owner.pid !== "number" || !Number.isInteger(owner.pid) || owner.pid <= 0) {
-        throw new Error(`Run lock has no valid owner PID: ${file}. Refusing to modify a possibly active run.`);
+        throw new Error(
+          `Run lock has no valid owner PID: ${file}. Refusing to modify a possibly active run.`,
+        );
       }
       if (processIsAlive(owner.pid)) {
         throw new Error(`Run is locked by active process ${owner.pid}: ${runDir}`);
@@ -120,7 +134,10 @@ function acquireGuardedRunLock(runDir: string): () => void {
       continue;
     }
     try {
-      fs.writeFileSync(descriptor, `${JSON.stringify({ schemaVersion: 1, pid: process.pid, token })}\n`);
+      fs.writeFileSync(
+        descriptor,
+        `${JSON.stringify({ schemaVersion: 1, pid: process.pid, token })}\n`,
+      );
     } catch (error) {
       fs.closeSync(descriptor);
       fs.unlinkSync(file);
@@ -150,4 +167,3 @@ export async function withRunLock<T>(runDir: string, action: () => T | Promise<T
     release();
   }
 }
-

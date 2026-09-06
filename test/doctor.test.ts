@@ -21,12 +21,18 @@ test("doctor makes unselected providers and an unused browser informational", ()
     const discovered = doctor();
     assert.equal(discovered.find((check) => check.name === "codex binary")?.required, false);
     assert.equal(discovered.find((check) => check.name === "playwright chromium")?.required, false);
-    assert.equal(discovered.find((check) => check.name === "supported subscription provider")?.ok, false);
+    assert.equal(
+      discovered.find((check) => check.name === "supported subscription provider")?.ok,
+      false,
+    );
 
     const selected = doctor({ providers: ["codex"], requireBrowser: false });
     assert.equal(selected.find((check) => check.name === "codex binary")?.required, true);
     assert.equal(selected.find((check) => check.name === "playwright chromium")?.required, false);
-    assert.equal(selected.some((check) => check.name === "supported subscription provider"), false);
+    assert.equal(
+      selected.some((check) => check.name === "supported subscription provider"),
+      false,
+    );
   } finally {
     if (originalPath === undefined) delete process.env.PATH;
     else process.env.PATH = originalPath;
@@ -41,10 +47,13 @@ test("doctor requires Grok subscription auth from the provider's resolved home",
   fs.mkdirSync(bin);
   fs.mkdirSync(grokHome);
   const fakeGrok = path.join(bin, "grok");
-  fs.writeFileSync(fakeGrok, `#!/usr/bin/env node
+  fs.writeFileSync(
+    fakeGrok,
+    `#!/usr/bin/env node
 if (process.argv.includes("--version")) console.log("grok test");
 else if (process.argv.includes("inspect")) console.log("{}");
-`);
+`,
+  );
   fs.chmodSync(fakeGrok, 0o755);
 
   const originalPath = process.env.PATH;

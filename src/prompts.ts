@@ -37,9 +37,15 @@ export function scenarioPrompt(options: {
     scenario.requiresAuth
       ? `AUTH: a saved browser session is expected for this persona. If it has expired, record blocked rather than treating the logged-out view as product absence.`
       : "",
-    options.inputs && Object.keys(options.inputs).length ? `BOUND INPUTS (observed upstream values with provenance):\n${JSON.stringify(options.inputs)}` : "",
-    scenario.outputs ? `REQUIRED OUTPUTS: ${JSON.stringify(scenario.outputs)}. Publish observed values using publish_output with successful earlier tool step references (step:N). Do not invent missing values or expose secrets. Unavailable outputs block downstream checks.` : "",
-    scenario.allowedPersonas ? `ALLOWED PERSONAS: ${scenario.allowedPersonas.join(", ")}. Use switch_persona to change isolated browser identity, including anonymous when declared. Never sign in as another identity inside the current context.` : "",
+    options.inputs && Object.keys(options.inputs).length
+      ? `BOUND INPUTS (observed upstream values with provenance):\n${JSON.stringify(options.inputs)}`
+      : "",
+    scenario.outputs
+      ? `REQUIRED OUTPUTS: ${JSON.stringify(scenario.outputs)}. Publish observed values using publish_output with successful earlier tool step references (step:N). Do not invent missing values or expose secrets. Unavailable outputs block downstream checks.`
+      : "",
+    scenario.allowedPersonas
+      ? `ALLOWED PERSONAS: ${scenario.allowedPersonas.join(", ")}. Use switch_persona to change isolated browser identity, including anonymous when declared. Never sign in as another identity inside the current context.`
+      : "",
     `INSTRUCTIONS:\n${scenario.instructions}`,
     scenario.successSignals.length
       ? `SUCCESS SIGNALS TO SEEK (not assumptions):\n- ${scenario.successSignals.join("\n- ")}`
@@ -51,7 +57,10 @@ export function scenarioPrompt(options: {
     .join("\n\n");
 }
 
-function compactEvidence(evidence: ScenarioEvidence[], attachments: Record<string, string>): unknown[] {
+function compactEvidence(
+  evidence: ScenarioEvidence[],
+  attachments: Record<string, string>,
+): unknown[] {
   return evidence.map((scenario) => ({
     recordRef: `${scenario.scenarioId}/evidence.json`,
     scenarioId: scenario.scenarioId,
@@ -137,7 +146,13 @@ export function judgePrompt(options: {
       null,
       2,
     )}`,
-    `CASE_REQUESTS_JSON:\n${JSON.stringify(caseRequests.map(({ rubricId, caseId, scenarioIds }) => ({ rubricId, caseId, scenarioIds })), null, 2)}`,
+    `CASE_REQUESTS_JSON:\n${JSON.stringify(
+      caseRequests.map(({ rubricId, caseId, scenarioIds }) => ({ rubricId, caseId, scenarioIds })),
+      null,
+      2,
+    )}`,
     `EVIDENCE_JSON:\n${JSON.stringify(compactEvidence(evidence, options.attachments ?? {}), null, 2)}`,
-  ].filter(Boolean).join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }

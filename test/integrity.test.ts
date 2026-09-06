@@ -24,14 +24,17 @@ test("artifact indexes detect changed, missing, and unindexed outputs while allo
   assert.match(verifyArtifactIndex(runDir, { require: true }).errors.join(" "), /root checksum/);
   fs.writeFileSync(indexFile, originalIndex);
 
-  fs.writeFileSync(path.join(runDir, "manual-results.json"), "{\"R1\":{\"verdict\":\"pass\"}}\n");
+  fs.writeFileSync(path.join(runDir, "manual-results.json"), '{"R1":{"verdict":"pass"}}\n');
   assert.equal(verifyArtifactIndex(runDir, { require: true }).ok, true);
 
   fs.writeFileSync(path.join(runDir, "report.json"), "tampered report\n");
   assert.match(verifyArtifactIndex(runDir, { require: true }).errors.join(" "), /checksum changed/);
   writeArtifactIndex(runDir);
   fs.writeFileSync(path.join(runDir, "unexpected.txt"), "not indexed\n");
-  assert.match(verifyArtifactIndex(runDir, { require: true }).errors.join(" "), /Unindexed artifact/);
+  assert.match(
+    verifyArtifactIndex(runDir, { require: true }).errors.join(" "),
+    /Unindexed artifact/,
+  );
 });
 
 test("artifact verification distinguishes optional from required missing indexes", () => {
@@ -67,7 +70,10 @@ test("every retryable scenario support file is classified as evidence", () => {
   }
   const index = writeArtifactIndex(runDir);
   assert.ok(index.entries.length > 0);
-  assert.ok(index.entries.every((entry) => entry.role === "evidence"), JSON.stringify(index.entries, null, 2));
+  assert.ok(
+    index.entries.every((entry) => entry.role === "evidence"),
+    JSON.stringify(index.entries, null, 2),
+  );
 });
 
 test("valid artifact path components containing .tmp- remain integrity protected", () => {
@@ -77,7 +83,10 @@ test("valid artifact path components containing .tmp- remain integrity protected
   const evidence = path.join(scenario, "evidence.json");
   fs.writeFileSync(evidence, "original evidence\n");
   const index = writeArtifactIndex(runDir);
-  assert.deepEqual(index.entries.map((entry) => entry.path), ["checkout.tmp-v2/evidence.json"]);
+  assert.deepEqual(
+    index.entries.map((entry) => entry.path),
+    ["checkout.tmp-v2/evidence.json"],
+  );
   fs.writeFileSync(evidence, "tampered evidence\n");
   assert.match(verifyArtifactIndex(runDir, { require: true }).errors.join(" "), /checksum changed/);
 });
