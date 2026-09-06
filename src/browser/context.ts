@@ -5,7 +5,7 @@ export interface BrowserMcpContext {
   };
   outputs?: Scenario["outputs"];
   checkpoints?: Scenario["checkpoints"];
-  requiredCheckpoints?: string[];
+  requiredCheckpoints: string[];
   persona?: string;
   /** Explicit identity allowlist; anonymous has no storage file. */
   personas?: Record<string, { storageStatePath?: string; candidatePath?: string }>;

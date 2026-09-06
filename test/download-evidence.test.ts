@@ -87,6 +87,7 @@ test("browser download captures real bytes and persona, publishes file output, a
     allowedOrigins: [url],
     evidenceDir: directory,
     persona: "reviewer",
+    requiredCheckpoints: [],
     fixtureFiles: {},
     expectAuthenticated: false,
     headless: true,

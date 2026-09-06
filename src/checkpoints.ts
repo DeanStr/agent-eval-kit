@@ -31,12 +31,20 @@ export function requiredCheckpointNames(rubric: RubricItem[], scenarioId: string
   return [...new Set(rubric.flatMap((item) => selectedCheckpoints(item, scenarioId) ?? []))];
 }
 
+export function validateRequiredCheckpoints(value: unknown): asserts value is string[] {
+  if (!z.array(z.string().min(1)).safeParse(value).success) {
+    throw new Error(
+      "MCP context requiredCheckpoints must be an explicit array of nonempty strings; use [] when no checkpoints are required.",
+    );
+  }
+}
+
 export function checkpointCompletionError(
-  required: string[] | undefined,
+  required: string[],
   directory: string,
   outcome: string,
 ): string | undefined {
-  if (outcome !== "completed" || !required?.length) return undefined;
+  if (outcome !== "completed" || !required.length) return undefined;
   const file = path.join(directory, "checkpoints.json");
   const recorded = fs.existsSync(file)
     ? z

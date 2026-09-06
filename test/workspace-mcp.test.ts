@@ -18,6 +18,7 @@ test("concurrent workspace checkpoint publications retain distinct transcript st
   const contextFile = path.join(root, "context.json");
   const checkpoints = { first: "First check", second: "Second check" };
   writeJson(contextFile, {
+    requiredCheckpoints: [],
     projectRoot: root,
     evidenceDir: evidence,
     checkpoints,
@@ -81,6 +82,7 @@ test("workspace MCP provides bounded read-only evidence and blocks path escapes"
   fs.symlinkSync(path.join(directory, "outside.txt"), path.join(project, "escape.txt"));
   const contextFile = path.join(directory, "context.json");
   const context: WorkspaceMcpContext = {
+    requiredCheckpoints: [],
     projectRoot: project,
     evidenceDir: evidence,
     maxToolCalls: 20,

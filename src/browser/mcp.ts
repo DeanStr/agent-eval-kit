@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import { retainEvidenceFile, MAX_EVIDENCE_FILE_BYTES } from "../evidence/files.js";
-import { registerCheckpointTool, checkpointCompletionError } from "../checkpoints.js";
+import {
+  registerCheckpointTool,
+  checkpointCompletionError,
+  validateRequiredCheckpoints,
+} from "../checkpoints.js";
 import { registerOutputTool } from "../workflow.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -32,6 +36,7 @@ if (!contextFile) {
 }
 
 const context = JSON.parse(fs.readFileSync(path.resolve(contextFile), "utf8")) as BrowserMcpContext;
+validateRequiredCheckpoints(context.requiredCheckpoints);
 fs.mkdirSync(context.evidenceDir, { recursive: true });
 const transcriptFile = path.join(context.evidenceDir, "browser-transcript.ndjson");
 const observationsFile = path.join(context.evidenceDir, "observations.json");
@@ -815,7 +820,7 @@ registerOutputTool(server, {
 server.registerTool(
   "done",
   {
-    description: `Finalize with an honest outcome and evidence-grounded summary. Completed requires successful rubric checkpoints: ${JSON.stringify(context.requiredCheckpoints ?? [])}. A missing checkpoint returns a recoverable error: record it or finish honestly blocked. After successful finalization no further browser calls are allowed; return the structured result.`,
+    description: `Finalize with an honest outcome and evidence-grounded summary. Completed requires successful rubric checkpoints: ${JSON.stringify(context.requiredCheckpoints)}. A missing checkpoint returns a recoverable error: record it or finish honestly blocked. After successful finalization no further browser calls are allowed; return the structured result.`,
     inputSchema: {
       outcome: z.enum(["completed", "blocked", "feature_not_found"]),
       summary: z.string().min(1),
@@ -830,78 +835,40 @@ server.registerTool(
         sessionLost = "Required email authentication was not attempted";
       let finalUrl: string | undefined;
       let originBlock: string | undefined;
-      if (browser) {
-        if (!sessionLost && !evidenceFailure) {
-          try {
-            const shot = await browser.screenshot("final-state", false);
-            retainScreenshotNotes(shot);
-            screenshots.push({
-              persona: activePersona,
-              path: shot.relPath,
-              label: "final-state",
-              step,
-              url: protect(browser.page?.url() ?? ""),
-            });
-            writeJson(screenshotsFile, screenshots);
-          } catch (error) {
-            if (error instanceof OriginBoundaryError) originBlock = protect(error.message);
-            else stopForEvidenceError(error);
+      const checkSessionBoundaries = async () => {
+        if (sessionLost || originBlock || evidenceFailure) return;
+        try {
+          for (const [persona, session] of personaSessions) {
+            const boundary = await session.preflightOrigin();
+            if (boundary) {
+              originBlock = protect(boundary);
+              break;
+            }
+            const expectsAuthentication =
+              (persona === activePersona && authenticationExpected) ||
+              (context.personas !== undefined && persona !== "anonymous");
+            const url = protect(session.page?.url() ?? "");
+            if (expectsAuthentication && isLoginWall(url)) {
+              sessionLost =
+                persona === activePersona
+                  ? `the scenario started with saved authentication but finished on a login wall (${url.slice(0, 180)}). ` +
+                    `The run stopped before logged-out evidence could be mistaken for missing product functionality.`
+                  : `Saved authentication for persona ${persona} finished on a login wall. Refresh it with aek auth --persona ${persona}.`;
+              observations.push(`SESSION LOST: ${sessionLost}`);
+              writeJson(observationsFile, observations);
+              break;
+            }
           }
+        } catch (error) {
+          if (error instanceof OriginBoundaryError) originBlock = protect(error.message);
+          else stopForEvidenceError(error);
         }
-        // screenshot() contains an off-origin page before it fails, so record
-        // the safe URL to which the browser was returned rather than the
-        // external URL that triggered the boundary.
-        finalUrl = protect(browser.page?.url() ?? "");
-        if (authenticationExpected && !sessionLost && finalUrl && isLoginWall(finalUrl)) {
-          sessionLost =
-            `the scenario started with saved authentication but finished on a login wall (${finalUrl.slice(0, 180)}). ` +
-            `The run stopped before logged-out evidence could be mistaken for missing product functionality.`;
-          observations.push(`SESSION LOST: ${sessionLost}`);
-          writeJson(observationsFile, observations);
-        }
-        if (
-          !context.personas &&
-          context.storageStateCandidatePath &&
-          !sessionLost &&
-          !evidenceFailure &&
-          !originBlock
-        ) {
-          await browser.saveStorageState(context.storageStateCandidatePath);
-        }
-      }
-      if (evidenceFailure) {
-        const result = `ERROR: ${evidenceFailure}`;
-        record({
-          step,
-          at: new Date().toISOString(),
-          tool: "done",
-          input: { outcome, summary },
-          result,
-          isError: true,
-        });
-        return { content: [{ type: "text" as const, text: result }], isError: true };
-      }
-      if (context.personas && !sessionLost && !originBlock) {
-        for (const [persona, session] of personaSessions) {
-          const boundary = await session.preflightOrigin();
-          if (boundary) {
-            originBlock = boundary;
-            break;
-          }
-          if (persona !== "anonymous" && isLoginWall(session.page?.url() ?? "")) {
-            sessionLost = `Saved authentication for persona ${persona} finished on a login wall. Refresh it with aek auth --persona ${persona}.`;
-            break;
-          }
-        }
-      }
-      if (context.personas && !sessionLost && !originBlock) {
-        for (const [persona, session] of personaSessions) {
-          const candidate = context.personas[persona]?.candidatePath;
-          if (candidate) await session.saveStorageState(candidate);
-        }
-      }
+      };
+      // Preserve honest blocked outcomes before rejecting incomplete checkpoints.
+      // Rejected completion must not capture final evidence or save auth candidates.
+      await checkSessionBoundaries();
       const checkpointError =
-        !sessionLost && !originBlock
+        !sessionLost && !originBlock && !evidenceFailure
           ? checkpointCompletionError(context.requiredCheckpoints, context.evidenceDir, outcome)
           : undefined;
       if (checkpointError) {
@@ -914,6 +881,48 @@ server.registerTool(
           isError: true,
         });
         return { content: [{ type: "text" as const, text: checkpointError }], isError: true };
+      }
+      if (browser && !sessionLost && !evidenceFailure && !originBlock) {
+        try {
+          const shot = await browser.screenshot("final-state", false);
+          retainScreenshotNotes(shot);
+          screenshots.push({
+            persona: activePersona,
+            path: shot.relPath,
+            label: "final-state",
+            step,
+            url: protect(browser.page?.url() ?? ""),
+          });
+          writeJson(screenshotsFile, screenshots);
+        } catch (error) {
+          if (error instanceof OriginBoundaryError) originBlock = protect(error.message);
+          else stopForEvidenceError(error);
+        }
+      }
+      // Capture may yield to navigation. Recheck every session before saving state.
+      await checkSessionBoundaries();
+      if (browser) finalUrl = protect(browser.page?.url() ?? "");
+      if (evidenceFailure) {
+        const result = `ERROR: ${evidenceFailure}`;
+        record({
+          step,
+          at: new Date().toISOString(),
+          tool: "done",
+          input: { outcome, summary },
+          result,
+          isError: true,
+        });
+        return { content: [{ type: "text" as const, text: result }], isError: true };
+      }
+      if (!sessionLost && !originBlock) {
+        if (context.personas) {
+          for (const [persona, session] of personaSessions) {
+            const candidate = context.personas[persona]?.candidatePath;
+            if (candidate) await session.saveStorageState(candidate);
+          }
+        } else if (browser && context.storageStateCandidatePath) {
+          await browser.saveStorageState(context.storageStateCandidatePath);
+        }
       }
       const state: BrowserResultState = {
         outcome: sessionLost || originBlock ? "blocked" : outcome,

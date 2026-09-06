@@ -254,7 +254,10 @@ console.log(JSON.stringify({ version: 1, outcome: 'completed', summary: 'Sent no
   // Mock evaluations alone would never start an MCP subprocess.
   const evidence = path.join(scratch, "workspace-evidence");
   const contextFile = path.join(scratch, "workspace-context.json");
-  fs.writeFileSync(contextFile, JSON.stringify({ projectRoot: consumer, evidenceDir: evidence }));
+  fs.writeFileSync(
+    contextFile,
+    JSON.stringify({ projectRoot: consumer, evidenceDir: evidence, requiredCheckpoints: [] }),
+  );
   const client = new Client({ name: "aek-package-smoke", version: "1" });
   const transport = new StdioClientTransport({
     command: process.execPath,

@@ -2,7 +2,7 @@ import type { Scenario } from "../types.js";
 export interface WorkspaceMcpContext {
   outputs?: Scenario["outputs"];
   checkpoints?: Scenario["checkpoints"];
-  requiredCheckpoints?: string[];
+  requiredCheckpoints: string[];
   projectRoot: string;
   evidenceDir: string;
   /** Codex has no provider turn limit, so its maxTurns is enforced here. */

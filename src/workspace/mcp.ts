@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-import { registerCheckpointTool, checkpointCompletionError } from "../checkpoints.js";
+import {
+  registerCheckpointTool,
+  checkpointCompletionError,
+  validateRequiredCheckpoints,
+} from "../checkpoints.js";
 import { registerOutputTool } from "../workflow.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -19,6 +23,7 @@ if (!contextFile) {
 const context = JSON.parse(
   fs.readFileSync(path.resolve(contextFile), "utf8"),
 ) as WorkspaceMcpContext;
+validateRequiredCheckpoints(context.requiredCheckpoints);
 const root = fs.realpathSync(context.projectRoot);
 fs.mkdirSync(context.evidenceDir, { recursive: true });
 const transcriptFile = path.join(context.evidenceDir, "workspace-transcript.ndjson");
@@ -295,7 +300,7 @@ registerOutputTool(server, {
 server.registerTool(
   "done",
   {
-    description: `Finish with an honest outcome and evidence-grounded summary. Completed requires successful rubric checkpoints: ${JSON.stringify(context.requiredCheckpoints ?? [])}. If a checkpoint is missing, record it and retry, or finish honestly blocked. Successful finalization is permanent; no further workspace calls are allowed.`,
+    description: `Finish with an honest outcome and evidence-grounded summary. Completed requires successful rubric checkpoints: ${JSON.stringify(context.requiredCheckpoints)}. If a checkpoint is missing, record it and retry, or finish honestly blocked. Successful finalization is permanent; no further workspace calls are allowed.`,
     inputSchema: {
       outcome: z.enum(["completed", "blocked", "feature_not_found"]),
       summary: z.string().min(1),
