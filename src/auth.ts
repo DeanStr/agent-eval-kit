@@ -31,6 +31,7 @@ export async function captureAuth(options: {
   clickText?: string;
 }): Promise<string> {
   const { config, persona, clickText } = options;
+  if (persona === "anonymous") throw new Error("anonymous is reserved for unauthenticated browser contexts; capture a named persona instead");
   if (!config.target.url) throw new Error("aek auth requires a web target with target.url");
   const target = personaAuthPath(config, persona);
   const scratch = path.join(config.paths.auth, ".capture", personaStorageName(persona));

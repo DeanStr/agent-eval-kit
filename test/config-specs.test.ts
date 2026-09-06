@@ -454,7 +454,7 @@ rubric:
   assert.throws(() => loadSpecs(root), /hybrid grader requires manualInstructions/);
 });
 
-test("scenario dependencies must refer to an earlier scenario", () => {
+test("scenario dependencies may refer to a later scenario", () => {
   const root = temporary();
   fs.writeFileSync(
     path.join(root, "bad-order.yaml"),
@@ -474,7 +474,7 @@ rubric:
     passCriteria: It works
 `,
   );
-  assert.throws(() => loadSpecs(root), /S1 must depend only on an earlier scenario; S2 is not earlier/);
+  assert.deepEqual(loadSpecs(root)[0].scenarios[0].dependsOn, ["S2"]);
 });
 
 test("specs reject unknown fields instead of running with misspelled behavior", () => {

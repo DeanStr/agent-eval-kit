@@ -151,10 +151,10 @@ function areaSections(report: RunReport): string {
           const shots = scenario.screenshots
             .map((shot) => {
               const href = `${encodeURIComponent(scenario.scenarioId)}/${shot.path.split("/").map(encodeURIComponent).join("/")}`;
-              return `<figure><a href="${href}"><img loading="lazy" src="${href}" width="320"></a><figcaption>${escapeHtml(shot.label)} (step ${shot.step})</figcaption></figure>`;
+              return `<figure><a href="${href}"><img loading="lazy" src="${href}" width="320"></a><figcaption>${escapeHtml(shot.label)} (step ${shot.step}${shot.persona ? ` · ${escapeHtml(shot.persona)}` : ""})</figcaption></figure>`;
             })
             .join("");
-          return `<details><summary><strong>${escapeHtml(scenario.scenarioId)}</strong> — ${escapeHtml(scenario.outcome)} · ${(scenario.durationMs / 1000).toFixed(1)}s</summary><p>${escapeHtml(scenario.summary)}</p>${scenario.captureChecks?.length ? `<ul>${scenario.captureChecks.map(check => `<li>${escapeHtml(check.name)}: ${check.pass ? "pass" : "fail"}${check.actual === undefined ? "" : ` (${check.actual})`}</li>`).join("")}</ul>` : ""}${scenario.error ? `<p class="low">${escapeHtml(scenario.error)}</p>` : ""}<ul>${scenario.observations.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul><div class="shots">${shots}</div></details>`;
+          return `<details><summary><strong>${escapeHtml(scenario.scenarioId)}</strong> — ${escapeHtml(scenario.outcome)} · ${(scenario.durationMs / 1000).toFixed(1)}s</summary><p>${escapeHtml(scenario.summary)}</p>${Object.keys(scenario.inputs ?? {}).length || Object.keys(scenario.outputs ?? {}).length ? `<details><summary>Workflow inputs and outputs</summary><pre>${escapeHtml(JSON.stringify({ inputs: scenario.inputs, outputs: scenario.outputs }, null, 2))}</pre></details>` : ""}${scenario.captureChecks?.length ? `<ul>${scenario.captureChecks.map(check => `<li>${escapeHtml(check.name)}: ${check.pass ? "pass" : "fail"}${check.actual === undefined ? "" : ` (${check.actual})`}</li>`).join("")}</ul>` : ""}${scenario.error ? `<p class="low">${escapeHtml(scenario.error)}</p>` : ""}<ul>${scenario.observations.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul><div class="shots">${shots}</div></details>`;
         })
         .join("");
       const caseRows = area.caseResults

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { registerOutputTool } from "../workflow.js";
 import fs from "node:fs";
 import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -24,11 +25,13 @@ const screenshotsFile = path.join(context.evidenceDir, "screenshots.json");
 const resultFile = path.join(context.evidenceDir, "browser-result.json");
 
 let browser: BrowserSession | undefined;
+let activePersona = context.persona ?? "anonymous";
+const personaSessions = new Map<string, BrowserSession>();
 let step = 0;
 let lastShotUrl: string | undefined;
 const observations: string[] = [];
 const screenshots: ScreenshotRef[] = [];
-const authenticationExpected = context.expectAuthenticated === true;
+let authenticationExpected = context.expectAuthenticated === true;
 let loggedOutStreak = 0;
 let sessionLost: string | undefined;
 
@@ -62,23 +65,30 @@ function isLoginWall(url: string): boolean {
 }
 
 function record(entry: TranscriptEntry): void {
-  fs.appendFileSync(transcriptFile, `${JSON.stringify(entry)}\n`);
+  fs.appendFileSync(transcriptFile, `${JSON.stringify({ ...entry, persona: activePersona })}\n`);
 }
 
 async function getBrowser(): Promise<BrowserSession> {
   if (browser) return browser;
-  browser = new BrowserSession(
+  const personaState = context.personas?.[activePersona];
+  if (context.personas && activePersona !== "anonymous" && (!personaState?.storageStatePath || !fs.existsSync(personaState.storageStatePath))) {
+    sessionLost = `No saved browser session for persona ${activePersona}. Run aek auth --persona ${activePersona}.`;
+    throw new Error(sessionLost);
+  }
+  const started = new BrowserSession(
     context.evidenceDir,
     context.headless,
     context.targetUrl,
-    context.storageStatePath,
+    context.personas ? context.personas[activePersona]?.storageStatePath : context.storageStatePath,
     context.allowedOrigins,
     context.viewport,
     context.actionTimeoutMs,
     "same-origin",
-    { lossless: context.screenshotFormat === "png" },
+    { lossless: context.screenshotFormat === "png", namespace: context.personas ? Object.keys(context.personas).indexOf(activePersona) + 1 : undefined },
   );
-  await browser.start();
+  await started.start();
+  browser = started;
+  personaSessions.set(activePersona, browser);
   return browser;
 }
 
@@ -90,14 +100,31 @@ async function autoCapture(tool: string): Promise<void> {
   try {
     const slug = url.replace(/^https?:\/\/[^/]+/, "").replace(/[^a-z0-9]+/gi, "-") || "root";
     const shot = await browser.screenshot(`auto-${slug}`.slice(0, 55), false);
-    screenshots.push({ path: shot.relPath, label: `auto: ${url}`, step, url });
+    screenshots.push({ persona: activePersona, path: shot.relPath, label: `auto: ${url}`, step, url });
     writeJson(screenshotsFile, screenshots);
   } catch {
     // Automatic evidence is best-effort; the requested action already worked.
   }
 }
 
-async function callTool(
+// MCP permits overlapping requests; identity and evidence must advance atomically.
+let toolQueue: Promise<void> = Promise.resolve();
+function serializeTool<T>(action: () => Promise<T>): Promise<T> {
+  const result = toolQueue.then(action);
+  // A rejected call still reaches its caller; it must not poison later requests.
+  toolQueue = result.then(() => {}, () => {});
+  return result;
+}
+
+function callTool(
+  tool: string,
+  input: Record<string, unknown>,
+  action: (session: BrowserSession) => Promise<string>,
+) {
+  return serializeTool(() => executeTool(tool, input, action));
+}
+
+async function executeTool(
   tool: string,
   input: Record<string, unknown>,
   action: (session: BrowserSession) => Promise<string>,
@@ -148,7 +175,7 @@ async function callTool(
     }
     record({ step, at: new Date().toISOString(), tool, input, result: clip(result), isError });
     if (!isError) await autoCapture(tool);
-    return { content: [{ type: "text" as const, text: result }], ...(isError ? { isError: true } : {}) };
+    return { content: [{ type: "text" as const, text: `${result}\nEvidence step: ${step}` }], ...(isError ? { isError: true } : {}) };
   } catch (error) {
     let result = `ERROR: ${error instanceof Error ? error.message : String(error)}`;
     // A navigation can destroy the action's execution context and make the
@@ -182,6 +209,54 @@ function preflight(tool: string, input: Record<string, unknown>) {
 }
 
 const server = new McpServer({ name: "agent-eval-browser", version: "0.1.0" });
+
+server.registerTool("switch_persona", {
+  description: "Switch to a declared saved persona in an isolated browser context, or anonymous. Old element refs become invalid. Navigate to the desired page after switching.",
+  inputSchema: { persona: z.string().min(1) },
+}, ({ persona }) => serializeTool(async () => {
+  const input = { persona };
+  const blocked = preflight("switch_persona", input);
+  if (blocked) return blocked;
+  try {
+    if (!context.personas || !Object.hasOwn(context.personas, persona)) throw new Error(`Undeclared persona ${persona}. Declare it in allowedPersonas.`);
+    const state = context.personas[persona];
+    if (!personaSessions.has(persona) && persona !== "anonymous" && (!state.storageStatePath || !fs.existsSync(state.storageStatePath))) {
+      sessionLost = `No saved browser session for persona ${persona}. Run aek auth --persona ${persona} before starting a new run.`;
+      throw new Error(sessionLost);
+    }
+    const from = activePersona;
+    if (browser) {
+      const boundary = await browser.preflightOrigin();
+      if (boundary) { sessionLost = boundary; throw new Error(boundary); }
+      if (authenticationExpected && isLoginWall(browser.page?.url() ?? "")) {
+        sessionLost = `Saved authentication for persona ${from} reached a login wall. Refresh it with aek auth --persona ${from}; switching personas cannot bypass an expired session.`;
+        throw new Error(sessionLost);
+      }
+    }
+    browser?.invalidateReferences();
+    const next = personaSessions.get(persona);
+    next?.invalidateReferences();
+    activePersona = persona;
+    browser = next;
+    authenticationExpected = persona !== "anonymous";
+    loggedOutStreak = 0;
+    lastShotUrl = undefined;
+    try { await getBrowser(); }
+    catch (error) {
+      activePersona = from;
+      browser = personaSessions.get(from);
+      authenticationExpected = from !== "anonymous";
+      throw error;
+    }
+    const result = `Switched persona from ${from} to ${persona}. Browser contexts are isolated; take a fresh snapshot or navigate.`;
+    record({ step, at: new Date().toISOString(), tool: "switch_persona", input: { from, persona }, result });
+    return { content: [{ type: "text" as const, text: result }] };
+  } catch (error) {
+    const result = `${sessionLost ? "BLOCKED" : "ERROR"}: ${error instanceof Error ? error.message : String(error)}`;
+    record({ step, at: new Date().toISOString(), tool: "switch_persona", input, result, isError: true });
+    return { content: [{ type: "text" as const, text: result }], isError: true };
+  }
+}));
 
 server.registerTool(
   "navigate",
@@ -299,7 +374,7 @@ server.registerTool(
     description: "Save visual evidence and return the image. Capture every meaningful before/after or result state.",
     inputSchema: { label: z.string(), fullPage: z.boolean().default(false) },
   },
-  async ({ label, fullPage }) => {
+  ({ label, fullPage }) => serializeTool(async () => {
     const input = { label, fullPage };
     const blocked = preflight("screenshot", input);
     if (blocked) return blocked;
@@ -307,6 +382,7 @@ server.registerTool(
       const session = await getBrowser();
       const shot = await session.screenshot(label, fullPage);
       const ref: ScreenshotRef = {
+        persona: activePersona,
         path: shot.relPath,
         label,
         step,
@@ -327,7 +403,7 @@ server.registerTool(
       record({ step, at: new Date().toISOString(), tool: "screenshot", input, result, isError: true });
       return { content: [{ type: "text" as const, text: result }], isError: true };
     }
-  },
+  }),
 );
 
 server.registerTool(
@@ -336,7 +412,7 @@ server.registerTool(
     description: "Record a concise factual observation for the independent judge.",
     inputSchema: { note: z.string().min(1) },
   },
-  async ({ note }) => {
+  ({ note }) => serializeTool(async () => {
     const input = { note };
     const blocked = preflight("observe", input);
     if (blocked) return blocked;
@@ -344,8 +420,12 @@ server.registerTool(
     writeJson(observationsFile, observations);
     record({ step, at: new Date().toISOString(), tool: "observe", input, result: "Observation recorded." });
     return { content: [{ type: "text" as const, text: "Observation recorded." }] };
-  },
+  }),
 );
+
+registerOutputTool(server, { outputs: context.outputs, directory: context.evidenceDir, transcriptFile,
+  call: (input, action) => callTool("publish_output", input, async () => action()),
+});
 
 server.registerTool(
   "done",
@@ -356,14 +436,14 @@ server.registerTool(
       summary: z.string().min(1),
     },
   },
-  async ({ outcome, summary }) => {
+  ({ outcome, summary }) => serializeTool(async () => {
     step += 1;
     let finalUrl: string | undefined;
     let originBlock: string | undefined;
     if (browser) {
       try {
         const shot = await browser.screenshot("final-state", false);
-        screenshots.push({ path: shot.relPath, label: "final-state", step, url: browser.page?.url() });
+        screenshots.push({ persona: activePersona, path: shot.relPath, label: "final-state", step, url: browser.page?.url() });
         writeJson(screenshotsFile, screenshots);
       } catch (error) {
         if (error instanceof OriginBoundaryError) originBlock = error.message;
@@ -380,8 +460,24 @@ server.registerTool(
         observations.push(`SESSION LOST: ${sessionLost}`);
         writeJson(observationsFile, observations);
       }
-      if (context.storageStateCandidatePath && !sessionLost && !originBlock) {
+      if (!context.personas && context.storageStateCandidatePath && !sessionLost && !originBlock) {
         await browser.saveStorageState(context.storageStateCandidatePath);
+      }
+    }
+    if (context.personas && !sessionLost && !originBlock) {
+      for (const [persona, session] of personaSessions) {
+        const boundary = await session.preflightOrigin();
+        if (boundary) { originBlock = boundary; break; }
+        if (persona !== "anonymous" && isLoginWall(session.page?.url() ?? "")) {
+          sessionLost = `Saved authentication for persona ${persona} finished on a login wall. Refresh it with aek auth --persona ${persona}.`;
+          break;
+        }
+      }
+    }
+    if (context.personas && !sessionLost && !originBlock) {
+      for (const [persona, session] of personaSessions) {
+        const candidate = context.personas[persona]?.candidatePath;
+        if (candidate) await session.saveStorageState(candidate);
       }
     }
     const state: BrowserResultState = {
@@ -399,11 +495,11 @@ server.registerTool(
         : "Scenario evidence finalized. Return the required structured result now.";
     record({ step, at: new Date().toISOString(), tool: "done", input: { outcome, summary }, result });
     return { content: [{ type: "text" as const, text: result }] };
-  },
+  }),
 );
 
 async function shutdown(): Promise<void> {
-  await browser?.stop().catch(() => {});
+  await Promise.all([...new Set([...personaSessions.values(), ...(browser ? [browser] : [])])].map(session => session.stop()));
 }
 process.on("SIGINT", () => void shutdown().finally(() => process.exit(0)));
 process.on("SIGTERM", () => void shutdown().finally(() => process.exit(0)));

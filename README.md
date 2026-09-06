@@ -242,7 +242,7 @@ rubric:
     evidence: Before/after screenshots with product, quantity, and total.
 ```
 
-IDs are globally unique and must remain distinct under case folding so the same kit is safe on case-insensitive filesystems. Scenario IDs also cannot use names reserved by the top-level run artifact layout, such as `inputs`, `areas`, or `report.json`. Rubric `scenarios` must refer to scenarios in the same area. Scenario dependencies validate ordering and gate dependent execution; scenarios execute in file order. Browser scenarios in the same dependency chain share isolated temporary storage state. An existing captured persona state takes precedence; merely naming an uncaptured persona never creates trusted authentication state, and its chain remains run-local.
+IDs are globally unique and must remain distinct under case folding so the same kit is safe on case-insensitive filesystems. Scenario IDs also cannot use names reserved by the top-level run artifact layout, such as `inputs`, `areas`, or `report.json`. Rubric `scenarios` must refer to scenarios in the same area. Scenario dependencies gate dependent execution across the selected suite; prerequisites execute first, with file order breaking ties. Browser scenarios in the same dependency chain share isolated temporary storage state. An existing captured persona state takes precedence; merely naming an uncaptured persona never creates trusted authentication state, and its chain remains run-local.
 
 ### Case matrices, strata, and splits
 
@@ -270,6 +270,8 @@ Case variables override same-named project variables for that execution. Object 
 Run a split with `aek run --split development` or `aek run --split evaluation`. The CLI defaults to `development`, protecting reserved evaluation cases from routine tuning; `--split all` is an explicit diagnostic option. Scenarios or cases without an explicit split are shared and run in either selection, so existing suites remain compatible. An LLM or hybrid rubric referencing a matrix scenario is evaluated across the selected cases, with a separate automatic diagnostic verdict for every stable rubric/case pair. Its aggregate full `pass` requires every applicable case to pass. A proposed full pass with any unavailable case becomes `cannot_judge`; mixed fully observed outcomes become `partial`. Command and manual-only rubrics remain rubric-level checks.
 
 If a split leaves an area with no applicable rubric items, that area is omitted from the execution and receipt rather than reported as zero coverage. A selection with no applicable rubric items fails before a run directory is created or a provider starts.
+
+For suite-wide dependencies, typed output/input bindings, and isolated saved-persona switching, see [scenario workflows and personas](docs/workflows.md).
 
 When dependent scenarios both use a matrix, reuse the same case IDs, strata, and split in each scenario; their per-step variables may differ. AEK maps `VERIFY--annual` to `CREATE--annual` and validates missing or inconsistent dependency cases before a provider starts. The chosen split is recorded in the run receipt; changing the split or any spec bytes changes the evaluator fingerprint, so evaluation baselines fail closed rather than silently drifting.
 

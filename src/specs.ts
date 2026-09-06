@@ -58,6 +58,9 @@ const scenarioSchema = z.object({
   name: z.string().min(1),
   kind: z.enum(["browser", "workspace", "command"]).optional(),
   persona: z.string().min(1).optional(),
+  allowedPersonas: z.array(artifactIdSchema).min(1).max(8).optional(),
+  outputs: z.record(artifactIdSchema, z.object({ type: z.enum(["string", "number", "boolean", "url"]) }).strict()).optional(),
+  inputs: z.record(artifactIdSchema, z.object({ from: artifactIdSchema, output: artifactIdSchema }).strict()).optional(),
   instructions: z.string().min(1),
   successSignals: z.array(z.string().min(1)).default([]),
   dependsOn: z.array(z.string().min(1)).default([]),
@@ -171,6 +174,7 @@ export function loadSpecs(specsPath: string): EvalSpec[] {
   const rubricIds = new Set<string>();
   const foldedRubricIds = new Map<string, string>();
   const problems: string[] = [];
+  const allScenarios = new Map(specs.flatMap(spec => spec.scenarios.map(scenario => [scenario.id, scenario] as const)));
   for (const spec of specs) {
     const foldedArea = foldedAreaIds.get(filesystemKey(spec.id));
     if (areaIds.has(spec.id)) problems.push(`duplicate area id ${spec.id}`);
@@ -178,8 +182,7 @@ export function loadSpecs(specsPath: string): EvalSpec[] {
     areaIds.add(spec.id);
     if (!foldedArea) foldedAreaIds.set(filesystemKey(spec.id), spec.id);
     const localScenarios = new Set(spec.scenarios.map((scenario) => scenario.id));
-    const scenarioOrder = new Map(spec.scenarios.map((scenario, index) => [scenario.id, index]));
-    for (const [scenarioIndex, scenario] of spec.scenarios.entries()) {
+    for (const scenario of spec.scenarios) {
       const scenarioKey = filesystemKey(scenario.id);
       const foldedScenario = foldedScenarioIds.get(scenarioKey);
       if (scenarioIds.has(scenario.id)) problems.push(`duplicate scenario id ${scenario.id}`);
@@ -210,16 +213,12 @@ export function loadSpecs(specsPath: string): EvalSpec[] {
         if (!foldedExecutableIds.has(expandedKey)) foldedExecutableIds.set(expandedKey, expandedId);
       }
       for (const dependency of scenario.dependsOn) {
-        if (!localScenarios.has(dependency)) {
-          problems.push(`${scenario.id} depends on unknown scenario ${dependency} in area ${spec.id}`);
-        } else if (scenarioOrder.get(dependency)! >= scenarioIndex) {
-          problems.push(`${scenario.id} must depend only on an earlier scenario; ${dependency} is not earlier in area ${spec.id}`);
-        }
+        if (!allScenarios.has(dependency)) problems.push(`${scenario.id} depends on unknown scenario ${dependency}`);
       }
     }
     for (const scenario of spec.scenarios) {
       for (const dependency of scenario.dependsOn) {
-        const dependencyScenario = spec.scenarios.find((candidate) => candidate.id === dependency);
+        const dependencyScenario = allScenarios.get(dependency);
         if (!dependencyScenario) continue;
         if (scenario.cases?.length && dependencyScenario.cases?.length) {
           const dependencyCases = new Map(dependencyScenario.cases.map((item) => [item.id, item]));
@@ -279,6 +278,27 @@ export function loadSpecs(specsPath: string): EvalSpec[] {
       }
     }
   }
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  function visit(id: string): void {
+    if (visiting.has(id)) { problems.push(`Scenario dependency cycle includes ${id}`); return; }
+    if (visited.has(id)) return;
+    visiting.add(id);
+    for (const dependency of allScenarios.get(id)?.dependsOn ?? []) visit(dependency);
+    visiting.delete(id);
+    visited.add(id);
+  }
+  for (const scenario of allScenarios.values()) {
+    visit(scenario.id);
+    for (const [name, binding] of Object.entries(scenario.inputs ?? {})) {
+      if (!scenario.dependsOn.includes(binding.from)) problems.push(`${scenario.id}.inputs.${name}: ${binding.from} must be declared in dependsOn`);
+      if (!Object.hasOwn(allScenarios.get(binding.from)?.outputs ?? {}, binding.output)) problems.push(`${scenario.id}.inputs.${name}: unknown output ${binding.from}.${binding.output}`);
+    }
+    if (scenario.allowedPersonas) {
+      if (new Set(scenario.allowedPersonas).size !== scenario.allowedPersonas.length) problems.push(`${scenario.id}: allowedPersonas must be unique`);
+      if (!scenario.allowedPersonas.includes(scenario.persona ?? "anonymous")) problems.push(`${scenario.id}: allowedPersonas must include the starting persona (or anonymous)`);
+    }
+  }
   const requiredWeight = specs.filter((spec) => !spec.optional).reduce((sum, spec) => sum + spec.weight, 0);
   if (Math.abs(requiredWeight - 100) > 0.0001) {
     problems.push(`required area weights must sum to 100; got ${requiredWeight}`);
@@ -296,6 +316,8 @@ export function assertScenarioTargetCompatibility(
     for (const scenario of spec.scenarios) {
       const kind = scenario.kind ?? (target.kind === "web" ? "browser" : "workspace");
       if ((kind === "command") !== Boolean(scenario.collect)) problems.push(`${scenario.id}: command mode requires collect, and collect requires command mode`);
+      if ((scenario.collect || scenario.capture) && (scenario.outputs || scenario.inputs)) problems.push(`${scenario.id}: input/output bindings currently require agent collection`);
+      if (scenario.allowedPersonas && (kind !== "browser" || scenario.capture)) problems.push(`${scenario.id}: allowedPersonas requires agent-driven browser collection`);
       if (scenario.collect && scenario.persona) problems.push(`${scenario.id}: command collectors cannot use browser personas`);
       if (scenario.capture && kind !== "browser") problems.push(`${scenario.id}: capture requires browser mode`);
       if (scenario.capture && scenario.dependsOn.length) problems.push(`${scenario.id}: controlled captures must reset independently and cannot depend on scenarios`);
@@ -303,6 +325,7 @@ export function assertScenarioTargetCompatibility(
         problems.push(`${scenario.id} uses browser mode but target.url is not configured`);
       }
       if (!scenario.requiresAuth) continue;
+      if (scenario.persona === "anonymous") problems.push(`${scenario.id}: anonymous cannot require authentication`);
       if (!scenario.persona) problems.push(`${scenario.id} requires authentication but has no persona`);
       if (kind !== "browser") problems.push(`${scenario.id} requires authentication but resolves to workspace mode`);
     }
@@ -317,8 +340,13 @@ function splitMatches(value: EvalSplit | undefined, selected: EvalSplit | "all")
 }
 
 /** Expand parameterized cases into stable executable scenarios and rubric references. */
-export function materializeSpec(spec: EvalSpec, selectedSplit: EvalSplit | "all" = "all"): EvalSpec {
-  const sourceById = new Map(spec.scenarios.map((scenario) => [scenario.id, scenario]));
+export function materializeSpec(spec: EvalSpec, selectedSplit: EvalSplit | "all" = "all", suite: EvalSpec[] = [spec]): EvalSpec {
+  const sourceById = new Map(suite.flatMap(area => area.scenarios.map((scenario) => [scenario.id, scenario] as const)));
+  const dependencyInstance = (id: string, caseId: string): string => {
+    const dependency = sourceById.get(id);
+    if (!dependency) throw new Error(`Cannot expand dependency ${id}: its scenario is outside the supplied suite. Include the prerequisite area.`);
+    return dependency.cases?.length ? executionId(id, caseId) : id;
+  };
   const expandedBySource = new Map<string, Scenario[]>();
   const scenarios: Scenario[] = [];
   for (const source of spec.scenarios) {
@@ -335,10 +363,10 @@ export function materializeSpec(spec: EvalSpec, selectedSplit: EvalSplit | "all"
             strata: scenarioCase.strata,
             split: scenarioCase.split ?? source.split,
             cases: undefined,
-            dependsOn: source.dependsOn.map((dependency) => {
-              const dependencySource = sourceById.get(dependency)!;
-              return dependencySource.cases?.length ? executionId(dependency, scenarioCase.id) : dependency;
-            }),
+            inputs: source.inputs ? Object.fromEntries(Object.entries(source.inputs).map(([name, binding]) => [name, {
+              ...binding, from: dependencyInstance(binding.from, scenarioCase.id),
+            }])) : undefined,
+            dependsOn: source.dependsOn.map(dependency => dependencyInstance(dependency, scenarioCase.id)),
           }))
       : splitMatches(source.split, selectedSplit)
         ? [{ ...source, sourceScenarioId: source.id, cases: undefined }]
@@ -355,9 +383,29 @@ export function materializeSpec(spec: EvalSpec, selectedSplit: EvalSplit | "all"
 }
 
 export function materializeSpecs(specs: EvalSpec[], selectedSplit: EvalSplit | "all" = "all"): EvalSpec[] {
-  // A split may legitimately remove every scenario referenced by an area's
-  // rubric. That area is outside this execution, not zero-coverage evidence.
-  return specs.map((spec) => materializeSpec(spec, selectedSplit)).filter((spec) => spec.rubric.length > 0);
+  // Plan with source IDs first: resolving dependencies of an unused matrix can
+  // otherwise demand an area that the executable workflow does not need.
+  const active = specs.map(spec => ({ ...spec, scenarios: spec.scenarios.filter(scenario => scenario.cases?.length
+    ? scenario.cases.some(item => splitMatches(item.split ?? scenario.split, selectedSplit))
+    : splitMatches(scenario.split, selectedSplit)) }));
+  const scored = new Set(active.filter(spec => spec.rubric.some(item => !item.scenarios.length ||
+    item.scenarios.some(id => spec.scenarios.some(scenario => scenario.id === id)))).map(spec => spec.id));
+  const byId = new Map(active.flatMap(spec => spec.scenarios.map(scenario => [scenario.id, scenario] as const)));
+  const required = new Set<string>();
+  function include(id: string): void {
+    if (required.has(id)) return;
+    const scenario = byId.get(id);
+    if (!scenario) throw new Error(`Required scenario ${id} is outside the selected areas/split. Include its prerequisite area and matching split.`);
+    required.add(id);
+    scenario.dependsOn.forEach(include);
+  }
+  for (const spec of active) if (scored.has(spec.id)) spec.scenarios.forEach(scenario => include(scenario.id));
+  // Areas without scoring items contribute only prerequisites, never score weight.
+  return active.flatMap(spec => {
+    if (scored.has(spec.id)) return [materializeSpec(spec, selectedSplit, specs)];
+    const scenarios = spec.scenarios.filter(scenario => required.has(scenario.id));
+    return scenarios.length ? [materializeSpec({ ...spec, scenarios, rubric: [] }, selectedSplit, specs)] : [];
+  });
 }
 
 export function assertScenarioSelectors(specs: EvalSpec[], ids: string[] | undefined, split: EvalSplit | "all"): void {

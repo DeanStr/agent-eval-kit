@@ -289,7 +289,7 @@ test("browser state is promoted only after the provider succeeds", async () => {
     input: { url: "https://app.example.test" },
     result: "Allowed page",
   };
-  const writeProvider = (fail: boolean, providerOutput: unknown = structured) => {
+  const writeProvider = (fail: boolean, providerOutput: unknown = structured, badOutputs = false, badTranscript = false) => {
     fs.writeFileSync(fakeClaude, `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
@@ -298,6 +298,8 @@ const directory = path.dirname(args[args.lastIndexOf("--mcp-config") + 1]);
 fs.writeFileSync(path.join(directory, "browser-result.json"), ${JSON.stringify(JSON.stringify(finalized))});
 fs.writeFileSync(path.join(directory, "browser-transcript.ndjson"), ${JSON.stringify(`${JSON.stringify(navigation)}\n`)});
 fs.writeFileSync(path.join(directory, ".storage-state.candidate.json"), ${JSON.stringify(JSON.stringify({ cookies: [{ name: "candidate" }], origins: [] }))});
+${badOutputs ? 'fs.writeFileSync(path.join(directory, "outputs.json"), JSON.stringify({unknown:{value:"bad",evidenceRefs:["step:1"]}}));' : ""}
+${badTranscript ? 'fs.writeFileSync(path.join(directory, "browser-transcript.ndjson"), "not-json");' : ""}
 console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify(providerOutput))},structured_output:${JSON.stringify(providerOutput)}}));
 ${fail ? "process.exit(1);" : ""}
 `);
@@ -345,6 +347,19 @@ ${fail ? "process.exit(1);" : ""}
     assert.match(malformed.summary, /invalid structured output/i);
     assert.match(fs.readFileSync(sharedState, "utf8"), /trusted/);
     assert.equal(fs.existsSync(path.join(malformedDirectory, ".storage-state.candidate.json")), false);
+
+    writeProvider(false, structured, true);
+    const badOutputDirectory = path.join(root, "bad-outputs");
+    const badOutputs = await failedScenario({ config, spec, scenario, fixtures: {}, directory: badOutputDirectory });
+    assert.match(badOutputs.summary, /Invalid scenario outputs/);
+    assert.match(fs.readFileSync(sharedState, "utf8"), /trusted/);
+    assert.equal(fs.existsSync(path.join(badOutputDirectory, ".storage-state.candidate.json")), false);
+
+    writeProvider(false, structured, false, true);
+    const badTranscriptDirectory = path.join(root, "bad-transcript");
+    await assert.rejects(executeScenario({ config, spec, scenario, fixtures: {}, directory: badTranscriptDirectory }), /Invalid NDJSON/);
+    assert.match(fs.readFileSync(sharedState, "utf8"), /trusted/);
+    assert.equal(fs.existsSync(path.join(badTranscriptDirectory, ".storage-state.candidate.json")), false);
 
     writeProvider(false);
     const succeededDirectory = path.join(root, "succeeded");
@@ -450,4 +465,26 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
     else process.env.PATH = originalPath;
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+
+test("persona-switching scenarios block missing initial authentication even without requiresAuth", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-persona-initial-"));
+  try {
+    const { config, spec, scenario } = workspaceFixture(root);
+    config.target = { kind: "web", url: "https://app.example.test", allowedOrigins: ["https://app.example.test"] };
+    scenario.kind = "browser";
+    scenario.persona = "organizer";
+    scenario.allowedPersonas = ["organizer", "reviewer"];
+    scenario.dependsOn = ["CREATE"];
+    scenario.inputs = { record: { from: "CREATE", output: "record" } };
+    const inputs = { record: { value: "record-42", evidenceRefs: ["step:1"], scenarioId: "CREATE", output: "record" } };
+    const directory = path.join(root, "evidence");
+    const result = await executeScenario({ config, spec, scenario, fixtures: {}, directory, inputs });
+    assert.equal(result.outcome, "blocked");
+    assert.deepEqual(result.inputs, inputs);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory, "evidence.json"), "utf8")).inputs, inputs);
+    assert.match(result.summary, /No saved browser session.*organizer/);
+    assert.equal(fs.existsSync(path.join(directory, "provider-run.json")), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

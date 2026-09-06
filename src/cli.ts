@@ -539,7 +539,7 @@ async function main(): Promise<void> {
       if (args.command === "rescore") assertRescoreConfigCompatible(runDir, prior, config);
       const sourceSpecs = loadSpecs(config.paths.specs);
       assertScenarioTargetCompatibility(sourceSpecs, config.target);
-      const receiptSpecs = sourceSpecs.filter((spec) => prior.areas.some((area) => area.id === spec.id));
+      const receiptSpecs = sourceSpecs.filter((spec) => Object.hasOwn(prior.receipt.inputs.specs, spec.id));
       const receiptSelection = prior.receipt.inputs.selection;
       const selectedSplit = receiptSelection.split ?? "all";
       const specs = materializeSpecs(receiptSpecs, selectedSplit);

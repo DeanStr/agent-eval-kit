@@ -419,7 +419,7 @@ export function buildRunReceipt(options: {
   };
   const methodSha256 = sha256(stableJson(method));
   const selection = {
-    areas: specs.map((spec) => spec.id).sort(),
+    areas: materializeSpecs(specs, options.split).filter(spec => spec.rubric.length).map(spec => spec.id).sort(),
     scenarios: options.scenarioIds ? [...new Set(options.scenarioIds)].sort() : undefined,
     split: options.split && options.split !== "all" ? options.split : undefined,
   };

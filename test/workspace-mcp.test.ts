@@ -60,7 +60,7 @@ test("workspace MCP provides bounded read-only evidence and blocks path escapes"
       const tools = await client.listTools();
     assert.deepEqual(
       tools.tools.map((tool) => tool.name).sort(),
-      ["done", "list_files", "observe", "read_file", "search"],
+      ["done", "list_files", "observe", "publish_output", "read_file", "search"],
     );
     const listed = await client.callTool({ name: "list_files", arguments: {} });
     assert.match(JSON.stringify(listed.content), /src\/hello\.ts/);

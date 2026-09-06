@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { registerOutputTool } from "../workflow.js";
 import fs from "node:fs";
 import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -133,7 +134,7 @@ async function callTool(
   try {
     const result = await action();
     record({ step, at: new Date().toISOString(), tool, input, result: result.slice(0, 8_000) });
-    return { content: [{ type: "text" as const, text: result }] };
+    return { content: [{ type: "text" as const, text: `${result}\nEvidence step: ${step}` }] };
   } catch (error) {
     const result = `ERROR: ${error instanceof Error ? error.message : String(error)}`;
     record({ step, at: new Date().toISOString(), tool, input, result, isError: true });
@@ -255,6 +256,10 @@ server.registerTool(
       return "Observation recorded.";
     }),
 );
+
+registerOutputTool(server, { outputs: context.outputs, directory: context.evidenceDir, transcriptFile,
+  call: (input, action) => callTool("publish_output", input, action),
+});
 
 server.registerTool(
   "done",

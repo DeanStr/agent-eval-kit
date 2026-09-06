@@ -16,10 +16,12 @@ export const BROWSER_TOOL_NAMES = [
   "wait",
   "screenshot",
   "observe",
+  "publish_output",
+  "switch_persona",
   "done",
 ];
 
-export const WORKSPACE_TOOL_NAMES = ["list_files", "read_file", "search", "observe", "done"];
+export const WORKSPACE_TOOL_NAMES = ["list_files", "read_file", "search", "observe", "publish_output", "done"];
 export const EVIDENCE_TOOL_NAMES = ["view_screenshot"];
 
 function mcpLaunch(entry: string, contextFile: string): { command: string; args: string[] } {

@@ -75,6 +75,9 @@ export interface Scenario {
   name: string;
   kind?: ScenarioKind;
   persona?: string;
+  allowedPersonas?: string[];
+  outputs?: Record<string, { type: "string" | "number" | "boolean" | "url" }>;
+  inputs?: Record<string, { from: string; output: string }>;
   instructions: string;
   successSignals: string[];
   dependsOn: string[];
@@ -160,6 +163,7 @@ export interface EvalSpec {
 }
 
 export interface TranscriptEntry {
+  persona?: string;
   step: number;
   at: string;
   tool: string;
@@ -169,6 +173,7 @@ export interface TranscriptEntry {
 }
 
 export interface ScreenshotRef {
+  persona?: string;
   path: string;
   label: string;
   step: number;
@@ -181,7 +186,21 @@ export interface ScreenshotRef {
 /** Raw structured provider telemetry; values are not limited to token counts. */
 export type ProviderUsage = Record<string, unknown>;
 
+export interface ScenarioOutput {
+  value: string | number | boolean;
+  evidenceRefs: string[];
+}
+
+export interface BoundInput extends ScenarioOutput {
+  scenarioId: string;
+  output: string;
+}
+
 export interface ScenarioEvidence {
+  /** Hashes of the prerequisite evidence consumed by this execution. */
+  dependencyEvidence?: Record<string, string>;
+  outputs?: Record<string, ScenarioOutput>;
+  inputs?: Record<string, BoundInput>;
   scenarioId: string;
   scenarioName: string;
   kind: ScenarioKind;

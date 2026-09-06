@@ -1,4 +1,9 @@
+import type { Scenario } from "../types.js";
 export interface BrowserMcpContext {
+  outputs?: Scenario["outputs"];
+  persona?: string;
+  /** Explicit identity allowlist; anonymous has no storage file. */
+  personas?: Record<string, { storageStatePath?: string; candidatePath?: string }>;
   targetUrl: string;
   allowedOrigins: string[];
   evidenceDir: string;

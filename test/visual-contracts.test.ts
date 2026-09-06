@@ -67,7 +67,7 @@ test("controlled screenshot labels are validated before reference resolution for
     imageRegressionSchema.parse({ type: "image-regression", candidate: "frame-999", baseline: "missing", metrics: { entropy: { mean: { min: -0.1 } } } }),
     pairwiseSchema.parse({ type: "pairwise", candidate: "frame-999", references: [{ file: "missing.png" }], policy: "preference" }),
   ];
-  const spec = { scenarios: [{ id: "SCENE", capture }], rubric: [] } as unknown as EvalSpec;
+  const spec = { scenarios: [{ id: "SCENE", capture, dependsOn: [] }], rubric: [] } as unknown as EvalSpec;
   for (const grader of graders) {
     spec.rubric = [{ id: "CHECK", scenarios: ["SCENE"], grader } as EvalSpec["rubric"][number]];
     await assert.rejects(validateVisualInputs(config, [spec]), /invalid controlled screenshot label frame-999/);

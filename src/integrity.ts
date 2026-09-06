@@ -74,7 +74,7 @@ function roleFor(relative: string): ArtifactIndexEntry["role"] {
   if (normalized.startsWith("lifecycle/")) return "evidence";
   if (normalized.startsWith(".state/")) return "evidence";
   if (normalized.startsWith("areas/") || normalized.includes("/_judge/") || normalized.includes("/graders/")) return "judgement";
-  if (/^[^/]+\/(?:evidence\.json|provider-|browser-|workspace-|screenshots(?:\.json|\/)|observations\.json|prompt\.md|.*-context\.json|\.mcp\.json|scenario-output\.schema\.json|\.storage-state\.candidate\.json)/.test(normalized)) return "evidence";
+  if (/^[^/]+\/(?:evidence\.json|outputs\.json|provider-|browser-|workspace-|screenshots(?:\.json|\/)|observations\.json|prompt\.md|.*-context\.json|\.mcp\.json|scenario-output\.schema\.json|\.storage-state\.candidate\.json)/.test(normalized)) return "evidence";
   return "artifact";
 }
 

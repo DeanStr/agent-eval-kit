@@ -37,6 +37,7 @@ export class BrowserSession {
   private context!: BrowserContext;
   page!: Page;
   private refCounter = 0;
+  private referencesValid = true;
   private shotCounter = 0;
   private diagnosticBudget = { count: 0 };
   /** Only Chromium's pristine page may bypass top-level origin enforcement. */
@@ -61,8 +62,9 @@ export class BrowserSession {
     private readonly viewport: { width: number; height: number } = { width: 1280, height: 800 },
     private readonly actionTimeoutMs = 10_000,
     private readonly popupPolicy: "same-origin" | "authentication" = "same-origin",
-    private readonly captureOptions?: { lossless?: boolean; software?: boolean; disableAnimations?: boolean },
+    private readonly captureOptions?: { lossless?: boolean; software?: boolean; disableAnimations?: boolean; namespace?: number },
   ) {
+    this.refCounter = (captureOptions?.namespace ?? 0) * 1_000_000;
     const session = this;
     this.interaction = {
       get page() { return session.page; },
@@ -88,13 +90,12 @@ export class BrowserSession {
     assertEvaluationPlatform();
     this.browser = await chromium.launch({ headless: this.headless, args: this.captureOptions?.software ? ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] : [] });
     try {
-      const useState = this.storageStatePath && fs.existsSync(this.storageStatePath);
       this.context = await this.browser.newContext({
         viewport: this.viewport,
         // Consistent UA so clones don't serve mobile layouts.
         userAgent:
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 agent-eval-kit/0.1",
-        ...(useState ? { storageState: this.storageStatePath } : {}),
+        ...(this.storageStatePath ? { storageState: this.storageStatePath } : {}),
       });
       fs.mkdirSync(this.evidenceDir, { recursive: true });
       writeJson(path.join(this.evidenceDir, "browser-provenance.json"), { chromium: this.browser.version(), viewport: this.viewport, deviceScaleFactor: 1, software: this.captureOptions?.software ?? false });
@@ -344,6 +345,12 @@ export class BrowserSession {
     writeJson(filePath, filtered, { mode: 0o600 });
   }
 
+  invalidateReferences(): void {
+    this.referencesValid = false;
+    this.refFrames.clear();
+    this.frameEditors.clear();
+  }
+
   async stop(): Promise<void> {
     await this.browser?.close().catch(() => {});
   }
@@ -413,6 +420,7 @@ export class BrowserSession {
       elementList = (elementList ? elementList + "\n" : "") + editorLines.join("\n");
     }
 
+    this.referencesValid = true;
     return [
       this.drainNotes() + (originMsg ? originMsg + "\n" : "") + `URL: ${url}`,
       `TITLE: ${title}`,
@@ -557,7 +565,7 @@ export class BrowserSession {
     const frame = this.refFrames.get(ref);
     // A previously allowed frame can navigate between snapshot and action.
     // Resolve it only while its complete frame ancestry remains allowed.
-    if (frame && !(await this.isAllowedFrame(frame))) {
+    if (!this.referencesValid || (frame && !(await this.isAllowedFrame(frame)))) {
       return this.page.mainFrame().locator('[data-aek-ref=""]').first();
     }
     return (frame ?? this.page.mainFrame()).locator(`[data-aek-ref="${ref}"]`).first();
@@ -623,7 +631,7 @@ export class BrowserSession {
     this.shotCounter += 1;
     const safe = label.replace(/[^a-z0-9-_]+/gi, "-").slice(0, 60) || "shot";
     // Forward slashes always: these appear in report.html href/src attributes.
-    const relPath = `screenshots/${String(this.shotCounter).padStart(3, "0")}-${safe}.${this.captureOptions?.lossless ? "png" : "jpg"}`;
+    const relPath = `screenshots/${this.captureOptions?.namespace ? `p${this.captureOptions.namespace}-` : ""}${String(this.shotCounter).padStart(3, "0")}-${safe}.${this.captureOptions?.lossless ? "png" : "jpg"}`;
     const abs = path.join(this.evidenceDir, ...relPath.split("/"));
 
     // Hard ceiling: the Messages API rejects any image over 2000px on a side

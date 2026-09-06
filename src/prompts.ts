@@ -7,6 +7,7 @@ export function scenarioPrompt(options: {
   scenario: Scenario;
   kind: "browser" | "workspace";
   fixtures: unknown;
+  inputs?: Record<string, import("./types.js").BoundInput>;
 }): string {
   const { config, spec, scenario, kind, fixtures } = options;
   const variables = { ...config.variables, ...(scenario.caseVariables ?? {}) };
@@ -36,6 +37,9 @@ export function scenarioPrompt(options: {
     scenario.requiresAuth
       ? `AUTH: a saved browser session is expected for this persona. If it has expired, record blocked rather than treating the logged-out view as product absence.`
       : "",
+    options.inputs && Object.keys(options.inputs).length ? `BOUND INPUTS (observed upstream values with provenance):\n${JSON.stringify(options.inputs)}` : "",
+    scenario.outputs ? `REQUIRED OUTPUTS: ${JSON.stringify(scenario.outputs)}. Publish observed values using publish_output with successful earlier tool step references (step:N). Do not invent missing values or expose secrets. Unavailable outputs block downstream checks.` : "",
+    scenario.allowedPersonas ? `ALLOWED PERSONAS: ${scenario.allowedPersonas.join(", ")}. Use switch_persona to change isolated browser identity, including anonymous when declared. Never sign in as another identity inside the current context.` : "",
     `INSTRUCTIONS:\n${scenario.instructions}`,
     scenario.successSignals.length
       ? `SUCCESS SIGNALS TO SEEK (not assumptions):\n- ${scenario.successSignals.join("\n- ")}`
@@ -64,6 +68,8 @@ function compactEvidence(evidence: ScenarioEvidence[], attachments: Record<strin
       text,
     })),
     collectorEvidenceRefs: scenario.evidenceRefs,
+    inputs: scenario.inputs,
+    outputs: scenario.outputs,
     screenshots: scenario.screenshots.map((shot) => {
       const ref = `${scenario.scenarioId}/${shot.path}`;
       return {
@@ -78,6 +84,7 @@ function compactEvidence(evidence: ScenarioEvidence[], attachments: Record<strin
     transcript: scenario.transcript.map((entry) => ({
       ref: `${scenario.scenarioId}/${scenario.kind}-transcript.ndjson#step-${entry.step}`,
       step: entry.step,
+      persona: entry.persona,
       tool: entry.tool,
       input: entry.input,
       result: entry.result.slice(0, 2_000),

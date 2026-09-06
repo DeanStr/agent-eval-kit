@@ -76,7 +76,11 @@ const receipt = z.object({
   target: receiptTarget, providers: z.object({ agent: receiptProvider, judge: receiptProvider }),
   runtime: z.object({ kitVersion: id, node: id, platform: id, arch: id, evidence: z.object({ chromium: text.optional(), playwright: id, sharp: record(text) }).optional() }),
 });
+const scenarioOutput = z.object({ value: z.union([text, z.number().finite(), z.boolean()]), evidenceRefs: strings });
 const evidence = z.object({
+  dependencyEvidence: record(id).optional(),
+  outputs: record(scenarioOutput).optional(),
+  inputs: record(scenarioOutput.extend({ scenarioId: id, output: id })).optional(),
   scenarioId: id, scenarioName: text, kind: z.enum(["browser", "workspace", "command"]), persona: text.optional(),
   sourceScenarioId: text.optional(), caseId: text.optional(), strata: strings.optional(), split: split.optional(),
   outcome: z.enum(["completed", "blocked", "feature_not_found", "agent_error"]),
@@ -84,8 +88,8 @@ const evidence = z.object({
   collector: z.enum(["controlled", "command"]).optional(),
   captureChecks: z.array(z.object({ name: id, pass: z.boolean(), actual: z.number().optional(), expected: z.unknown().optional() })).optional(),
   diagnostics: z.array(browserDiagnosticSchema).optional(),
-  transcript: z.array(z.object({ step: count, at: text, tool: text, input: record(z.unknown()), result: text, isError: z.boolean().optional() })),
-  screenshots: z.array(z.object({ path: text, label: text, step: count, url: text.optional(), timeSeconds: z.number().nonnegative().optional(), source: text.optional(), extraction: text.optional() })),
+  transcript: z.array(z.object({ persona: text.optional(), step: count, at: text, tool: text, input: record(z.unknown()), result: text, isError: z.boolean().optional() })),
+  screenshots: z.array(z.object({ persona: text.optional(), path: text, label: text, step: count, url: text.optional(), timeSeconds: z.number().nonnegative().optional(), source: text.optional(), extraction: text.optional() })),
   artifacts: record(text), provider, model: text.optional(), providerSessionId: text.optional(), usage: record(z.unknown()).optional(),
   startedAt: text, finishedAt: text, durationMs: z.number().nonnegative(), finalUrl: text.optional(), error: text.optional(),
 });

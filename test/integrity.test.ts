@@ -58,6 +58,7 @@ test("every retryable scenario support file is classified as evidence", () => {
     ".mcp.json",
     "scenario-output.schema.json",
     "observations.json",
+    "outputs.json",
     "screenshots.json",
     ".storage-state.candidate.json",
     "screenshots/final.jpg",

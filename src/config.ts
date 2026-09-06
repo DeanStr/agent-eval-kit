@@ -28,7 +28,7 @@ function hasSensitiveUrlParameters(value: string): boolean {
   return false;
 }
 
-const httpUrlSchema = z.string().url()
+export const httpUrlSchema = z.string().url()
   .refine((value) => {
     const parsed = new URL(value);
     return ["http:", "https:"].includes(parsed.protocol) && !parsed.username && !parsed.password;
