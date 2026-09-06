@@ -68,8 +68,16 @@ function compactBaselineReport(report: RunReport): RunReport {
     receipt: { ...report.receipt, target: receiptTarget },
     areas: report.areas.map((area) => ({
       ...area,
-      items: area.items.map(({ comparisons: _comparisons, ...item }) => ({
+      items: area.items.map(({ comparisons: _comparisons, adjudication, ...item }) => ({
         ...item,
+        ...(adjudication
+          ? {
+              adjudicationReceipt: {
+                verdict: adjudication.verdict,
+                revisionHash: adjudication.revisionHash,
+              },
+            }
+          : {}),
         reasoning: "Promoted baseline comparison snapshot.",
         evidenceRefs: [],
       })),

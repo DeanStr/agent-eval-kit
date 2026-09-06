@@ -1,4 +1,5 @@
 import { rubricWasReached } from "./checkpoints.js";
+import { assertItemAdjudication } from "./adjudication.js";
 import type {
   AreaResult,
   EvalConfig,
@@ -84,14 +85,27 @@ export function scoreArea(options: {
   // Rescores also rebuild aggregates under the current configured shares.
   const normalizedJudgements = judgements.map((item) => {
     const rubric = spec.rubric.find((candidate) => candidate.id === item.id);
-    if (rubric?.grader.type !== "hybrid") return { ...item };
+    if (!rubric)
+      throw new Error(
+        `Judgement ${item.id} refers to unknown rubric in area ${spec.id}; use matching evaluation definitions`,
+      );
+    assertItemAdjudication(item, rubric, spec.id);
+    if (rubric.grader.type !== "hybrid")
+      return { ...item, verdict: item.adjudication?.verdict ?? item.verdict };
     const components =
       item.components ??
       (item.source === "manual" ? { manual: item.verdict } : { automatic: item.verdict });
     return {
       ...item,
       components,
-      verdict: hybridAggregateVerdict(components, rubric.grader.autoShare),
+      verdict: hybridAggregateVerdict(
+        item.adjudication
+          ? { ...components, automatic: item.adjudication.verdict }
+          : rubricWasReached(rubric, evidence)
+            ? components
+            : { ...components, automatic: "cannot_judge" },
+        rubric.grader.autoShare,
+      ),
     };
   });
   const byId = new Map(normalizedJudgements.map((item) => [item.id, item]));
@@ -125,7 +139,7 @@ export function scoreArea(options: {
         earned = rubric.weight * points;
       }
     } else if (rubric.grader.type === "hybrid") {
-      const automaticVerdict = item?.components?.automatic;
+      const automaticVerdict = item?.adjudication?.verdict ?? item?.components?.automatic;
       const manualVerdict = item?.components?.manual;
       const automaticPoints = automaticVerdict
         ? verdictPoints(automaticVerdict, config.scoring.partialCredit)
@@ -139,7 +153,7 @@ export function scoreArea(options: {
         autoWeight > 0 &&
         automaticPoints !== null &&
         automaticPoints !== undefined &&
-        backingWasReached
+        (backingWasReached || item?.adjudication !== undefined)
       ) {
         judgeable += autoWeight;
         earned += autoWeight * automaticPoints;
@@ -162,10 +176,8 @@ export function scoreArea(options: {
     } else {
       const points = item ? verdictPoints(item.verdict, config.scoring.partialCredit) : null;
       if (points === null || points === undefined) {
-        // Automated graders that cannot judge reduce coverage. They cannot be
-        // completed through the manual-review workflow unless configured as
-        // manual or hybrid.
-      } else if (item?.source !== "manual" && !backingWasReached) {
+        // Unresolved automatic abstentions and withdrawn adjudications reduce coverage.
+      } else if (!item?.adjudication && item?.source !== "manual" && !backingWasReached) {
         unproven.push(rubric.id);
       } else {
         judgeable = rubric.weight;

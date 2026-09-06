@@ -2,6 +2,7 @@ import { omitUndefined } from "./invariants.js";
 import fs from "node:fs";
 import path from "node:path";
 import { runReportSchema } from "./artifact-schemas.js";
+import { assertReportAdjudications } from "./adjudication.js";
 import { scoreRatios } from "./score-slice.js";
 import { readJson, safeName, writeJson } from "./io.js";
 import type {
@@ -459,6 +460,7 @@ function loadReport(input: string, allowPartial: boolean): { file: string; repor
   if (!parsed.success) {
     throw new Error(`Invalid Agent Eval Kit report: ${file}: ${parsed.error.message}`);
   }
+  assertReportAdjudications(report);
   if (!reportContainsSelectedAreas(report, allowPartial)) {
     throw new Error(
       `Invalid Agent Eval Kit report: ${file}: selected areas do not match reported areas`,

@@ -707,3 +707,133 @@ test("CLI campaign regression gate writes completion rates before exiting 2", (t
   const html = fs.readFileSync(path.join(output, "campaign-comparison.html"), "utf8");
   assert.match(html, /Completion rate.*100% → 33.333%/);
 });
+
+test("CLI adjudicates automatic abstentions with explicit review, rescore retention, and private public exports", (t) => {
+  const root = temporary();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  writeProject(root);
+  const specFile = path.join(root, "specs/core.yaml");
+  const spec = YAML.parse(fs.readFileSync(specFile, "utf8"));
+  spec.rubric[0].grader = {
+    type: "command",
+    methodFiles: [],
+    output: "json",
+    command: `${JSON.stringify(process.execPath)} -e 'console.log(JSON.stringify({verdict:"cannot_judge",reasoning:"Evidence unavailable"}))'`,
+  };
+  fs.writeFileSync(specFile, YAML.stringify(spec));
+  const run = runCli(root, ["run", "--split", "all"]);
+  assert.equal(run.status, 2, run.stderr);
+  const runDir = path.join(root, "runs", fs.readdirSync(path.join(root, "runs"))[0]!);
+  const reportFile = path.join(runDir, "report.json");
+  const original = JSON.parse(fs.readFileSync(reportFile, "utf8"));
+  assert.equal(original.overallCoveragePct, 0);
+  const inputFile = path.join(root, "decisions.json");
+  fs.writeFileSync(path.join(root, "proof.txt"), "Private authenticated observation");
+  const decision = {
+    areaId: "core",
+    itemId: "R1",
+    previousRevision: null as string | null,
+    verdict: "partial",
+    rationale: "Private review rationale",
+    evidence: [
+      {
+        kind: "human",
+        path: "proof.txt",
+        description: "Private verification",
+        observedAt: "2026-01-01T00:00:00Z",
+      },
+    ],
+  };
+  fs.writeFileSync(inputFile, JSON.stringify({ schemaVersion: 1, decisions: [decision] }));
+  const args = ["adjudicate", "--run", runDir, "--input", inputFile];
+  const missingReviewer = runCli(root, args);
+  assert.equal(missingReviewer.status, 1);
+  assert.match(missingReviewer.stderr, /requires --input.*--reviewer/);
+  const stateFile = path.join(runDir, "run-state.json");
+  const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+  fs.writeFileSync(stateFile, JSON.stringify({ ...state, status: "failed" }));
+  const failedRun = runCli(root, [...args, "--reviewer", "reviewer-private"]);
+  assert.equal(failedRun.status, 1);
+  assert.match(failedRun.stderr, /Only complete runs can be adjudicated/);
+  fs.writeFileSync(stateFile, JSON.stringify(state));
+  const reviewed = runCli(root, [
+    ...args,
+    "--reviewer",
+    "reviewer-private",
+    "--fail-under-score",
+    "100",
+  ]);
+  assert.equal(reviewed.status, 2, reviewed.stderr);
+  assert.match(reviewed.stdout, /Adjudicated: 50% \/ 100% coverage/);
+  const report = JSON.parse(fs.readFileSync(reportFile, "utf8"));
+  assert.deepEqual(report.areas[0].items[0].adjudication.original, original.areas[0].items[0]);
+  const configFile = path.join(root, "evalkit.yaml");
+  fs.writeFileSync(
+    configFile,
+    fs.readFileSync(configFile, "utf8").replace("partialCredit: 0.5", "partialCredit: 0.25"),
+  );
+  const rescore = runCli(root, ["rescore", "--run", runDir]);
+  assert.equal(rescore.status, 2, rescore.stderr);
+  const rescored = JSON.parse(fs.readFileSync(reportFile, "utf8"));
+  assert.equal(rescored.overallScorePct, 25);
+  assert.deepEqual(rescored.areas[0].items[0].adjudication, report.areas[0].items[0].adjudication);
+  const finalize = runCli(root, ["finalize", "--run", runDir]);
+  assert.equal(finalize.status, 2, finalize.stderr);
+  decision.previousRevision = report.areas[0].items[0].adjudication.revisionHash;
+  decision.verdict = "pass";
+  fs.writeFileSync(inputFile, JSON.stringify({ schemaVersion: 1, decisions: [decision] }));
+  const corrected = runCli(root, [
+    ...args,
+    "--reviewer",
+    "reviewer-private",
+    "--fail-under-score",
+    "100",
+    "--fail-under-coverage",
+    "100",
+  ]);
+  assert.equal(corrected.status, 0, corrected.stderr);
+  const verified = runCli(root, ["verify", "--run", runDir]);
+  assert.equal(verified.status, 0, verified.stderr);
+  const output = path.join(root, "public");
+  const exported = runCli(root, ["export", "--public", "--run", runDir, "--output", output]);
+  assert.equal(exported.status, 0, exported.stderr);
+  const publicText = fs.readFileSync(path.join(output, "public-report.json"), "utf8");
+  assert.doesNotMatch(
+    publicText,
+    /reviewer-private|Private review|proof.txt|Private authenticated/,
+  );
+  assert.equal(JSON.parse(publicText).areas[0].items[0].adjudication.verdict, "pass");
+  const promoted = runCli(root, [
+    "baseline",
+    "promote",
+    "--run",
+    runDir,
+    "--name",
+    "reviewed",
+    "--reviewer",
+    "publisher",
+  ]);
+  assert.equal(promoted.status, 0, promoted.stderr);
+  const compared = runCli(root, [
+    "compare",
+    "--baseline-name",
+    "reviewed",
+    "--candidate",
+    runDir,
+    "--output",
+    path.join(root, "comparison"),
+  ]);
+  assert.equal(compared.status, 0, compared.stderr);
+  const baselineRoot = path.join(root, "evals", "baselines", "reviewed");
+  const pointer = JSON.parse(fs.readFileSync(path.join(baselineRoot, "current.json"), "utf8"));
+  const baselineText = fs.readFileSync(
+    path.join(baselineRoot, pointer.snapshotId, "report.json"),
+    "utf8",
+  );
+  assert.doesNotMatch(
+    baselineText,
+    /reviewer-private|Private review|proof.txt|Private authenticated/,
+  );
+  assert.equal(JSON.parse(baselineText).areas[0].items[0].adjudication, undefined);
+  assert.equal(JSON.parse(baselineText).areas[0].items[0].adjudicationReceipt.verdict, "pass");
+});

@@ -213,6 +213,15 @@ function publicReport(report: RunReport, artifactRootSha256: string, sourceRepor
         verdict: area.unproven.includes(item.id) ? "cannot_judge" : item.verdict,
         confidence: item.confidence,
         source: item.source,
+        ...(item.adjudication
+          ? {
+              adjudication: {
+                verdict: item.adjudication.verdict,
+                originalAutomaticVerdict: "cannot_judge",
+                revisionHash: item.adjudication.revisionHash,
+              },
+            }
+          : {}),
         components:
           area.unproven.includes(item.id) && item.components
             ? { ...item.components, automatic: "cannot_judge" as const }
@@ -233,6 +242,7 @@ function publicReport(report: RunReport, artifactRootSha256: string, sourceRepor
       "scenario transcripts, observations, evidence references, screenshots, and provider events",
       "fixture values and case variables",
       "absolute paths, target URL, authentication state, defects, notes, and grader reasoning",
+      "adjudication reviewer identities, rationales, original result snapshots, and supporting evidence",
     ],
   };
 }

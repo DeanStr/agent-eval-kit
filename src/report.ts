@@ -3,10 +3,11 @@ import { scoringConfigPath, scoringDefinitionFiles } from "./run/inputs.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { verifyArtifactIndex, writeArtifactIndex } from "./integrity.js";
-import { readJson, sha256, stableJson, writeJson } from "./io.js";
+import { assertArtifactIntegrity, verifyArtifactIndex, writeArtifactIndex } from "./integrity.js";
+import { isWithin, readJson, sha256, stableJson, writeJson } from "./io.js";
 import { buildReport, hybridAggregateVerdict, scoreArea } from "./scoring.js";
-import type { EvalConfig, EvalSpec, RunReport, Verdict } from "./types.js";
+import { automaticAbstained, prepareAdjudications } from "./adjudication.js";
+import type { EvalConfig, EvalSpec, JudgedItem, RunReport, Verdict } from "./types.js";
 
 const escapeHtml = (value: string) =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -50,12 +51,15 @@ const REPORT_UPDATE_FILES = new Set([
   "manual-checklist.md",
   "manual-results.json",
   "manual-revisions.ndjson",
+  "adjudication-checklist.md",
+  "adjudications.ndjson",
   "receipt.json",
   "report.html",
   "report.json",
 ]);
 const reportUpdatePath = (file: string) =>
   REPORT_UPDATE_FILES.has(file) ||
+  /^adjudication-evidence\/[a-f0-9]{64}$/.test(file) ||
   file === scoringConfigPath ||
   /^scoring-definitions\/specs\/[A-Za-z0-9][A-Za-z0-9._-]*\.yaml$/.test(file);
 const MANUAL_PLACEHOLDER = "pass | partial | fail | not_found";
@@ -117,6 +121,48 @@ export function writeManualFiles(
   writeJson(existingFile, results);
 }
 
+function writeAdjudicationChecklist(runDir: string, report: RunReport, specs: EvalSpec[]): void {
+  const lines = [
+    "# Human adjudication of automatic abstentions",
+    "",
+    "Review the entire automatic criterion. Hybrid manual shares still use `aek finalize`.",
+    "Create a decision JSON outside the run directory, then run:",
+    "`aek adjudicate --run <run-dir> --input <decisions.json> --reviewer <name>`",
+    "",
+    "Each decision requires areaId, itemId, previousRevision, verdict, rationale, and evidence.",
+    "Use previousRevision: null for a first decision, or the current revision hash for a correction.",
+    "See docs/adjudication.md for the input format and evidence requirements.",
+    "",
+  ];
+  for (const area of report.areas) {
+    const spec = specs.find((candidate) => candidate.id === area.id);
+    if (!spec) throw new Error(`Cannot write adjudication checklist: no spec for ${area.id}`);
+    for (const item of area.items) {
+      const rubric = spec.rubric.find((candidate) => candidate.id === item.id);
+      if (!rubric)
+        throw new Error(`Cannot write adjudication checklist: no rubric for ${area.id}/${item.id}`);
+      if (!automaticAbstained(item, rubric) && !item.adjudication) continue;
+      lines.push(
+        `## ${area.id}/${item.id}`,
+        "",
+        rubric.criterion,
+        `Pass criteria: ${rubric.passCriteria}`,
+        `Original automatic result: cannot_judge — ${(item.adjudication?.original ?? item).reasoning}`,
+        `Current human decision: ${item.adjudication?.verdict ?? "none"}`,
+        `previousRevision: ${item.adjudication?.revisionHash ?? "null"}`,
+        "",
+      );
+    }
+  }
+  fs.writeFileSync(path.join(runDir, "adjudication-checklist.md"), `${lines.join("\n")}\n`);
+}
+
+function adjudicationHtml(item: JudgedItem): string {
+  const record = item.adjudication;
+  if (!record) return "";
+  return `<details open><summary><strong>Human adjudication: ${escapeHtml(record.verdict)}</strong></summary><p>${escapeHtml(record.reviewer)} · ${escapeHtml(record.reviewedAt)}</p><p>${escapeHtml(record.rationale)}</p><p>Original automatic result: <strong>cannot_judge</strong> (${escapeHtml(record.original.confidence)} confidence) — ${escapeHtml(record.original.reasoning)}</p><ul>${record.evidence.map((entry) => `<li>${entry.kind === "human" ? "New human evidence" : "Original collected artifact"}: <a download="${escapeHtml(entry.filename ?? path.posix.basename(entry.path))}" href="${entry.path.split("/").map(encodeURIComponent).join("/")}">${escapeHtml(entry.description)}</a>${entry.observedAt ? ` · observed ${escapeHtml(entry.observedAt)}` : ""}<br><code>${entry.sha256}</code></li>`).join("")}</ul><small>Revision: <code>${record.revisionHash}</code> · <a href="adjudications.ndjson" download>Full audit history</a></small><p>Adjudication changes rubric scoring. Scenario outcomes, defects, and automatic case/stratum results retain their original observations.</p></details>`;
+}
+
 function tableRows(report: RunReport): string {
   return report.areas
     .map(
@@ -170,7 +216,7 @@ function areaSections(report: RunReport): string {
               )
               .join(
                 " · ",
-              )}<br><small>${item.evidenceRefs.map(escapeHtml).join(", ")}</small></td></tr>`,
+              )}<br><small>${item.evidenceRefs.map(escapeHtml).join(", ")}</small>${adjudicationHtml(item)}</td></tr>`,
         )
         .join("");
       const scenarios = area.scenarios
@@ -232,6 +278,7 @@ export function writeReportArtifacts(runDir: string, report: RunReport, specs: E
   writeJson(path.join(runDir, "receipt.json"), report.receipt);
   writeHtml(runDir, report);
   writeManualFiles(runDir, report, specs);
+  writeAdjudicationChecklist(runDir, report, specs);
   writeArtifactIndex(runDir);
 }
 
@@ -508,18 +555,23 @@ function publishReportUpdateTransaction(options: {
     writeJson(path.join(staging, "receipt.json"), options.report.receipt);
     writeHtml(staging, options.report);
     writeManualFiles(staging, options.report, options.specs, runDir);
+    writeAdjudicationChecklist(staging, options.report, options.specs);
     if (options.revisionText !== undefined) {
       fs.writeFileSync(path.join(staging, "manual-revisions.ndjson"), options.revisionText);
     }
     for (const [relative, bytes] of Object.entries(options.effectiveFiles ?? {})) {
-      if (!reportUpdatePath(relative))
-        throw new Error(`Invalid scoring snapshot path: ${relative}`);
+      if (!reportUpdatePath(relative)) throw new Error(`Invalid report update path: ${relative}`);
       const file = path.join(staging, relative);
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, bytes);
     }
     const files = [
-      ...fs.readdirSync(staging).filter((name) => REPORT_UPDATE_FILES.has(name)),
+      ...fs
+        .readdirSync(staging)
+        .filter(
+          (name) =>
+            REPORT_UPDATE_FILES.has(name) && !Object.hasOwn(options.effectiveFiles ?? {}, name),
+        ),
       ...Object.keys(options.effectiveFiles ?? {}),
     ]
       .sort()
@@ -551,6 +603,7 @@ export function writeReportArtifactsRecoverably(
   report: RunReport,
   specs: EvalSpec[],
   effectiveDefinitions?: { config: EvalConfig; specs: EvalSpec[] },
+  adjudicationFiles?: Record<string, Buffer>,
 ): void {
   const effectiveFiles = effectiveDefinitions
     ? scoringDefinitionFiles(
@@ -570,13 +623,61 @@ export function writeReportArtifactsRecoverably(
       runDir,
       report,
       specs,
-      effectiveFiles,
+      effectiveFiles: { ...effectiveFiles, ...adjudicationFiles },
       manual: fs.existsSync(manualFile)
         ? readJson<Record<string, ManualResultEntry>>(manualFile)
         : {},
       revisionText: fs.existsSync(revisionFile) ? fs.readFileSync(revisionFile, "utf8") : undefined,
     }),
   );
+}
+
+export function adjudicateReport(options: {
+  runDir: string;
+  report: RunReport;
+  specs: EvalSpec[];
+  config: EvalConfig;
+  inputFile: string;
+  reviewer: string;
+}): RunReport {
+  if (isWithin(fs.realpathSync(options.runDir), fs.realpathSync(options.inputFile)))
+    throw new Error(
+      "Adjudication input must be outside the run directory; move the decision file and retry",
+    );
+  const index = assertArtifactIntegrity(options.runDir, { require: true })!;
+  if (stableJson(readJson(path.join(options.runDir, "report.json"))) !== stableJson(options.report))
+    throw new Error("Adjudication requires the current indexed report");
+  const prepared = prepareAdjudications({ ...options, index });
+  const areas = options.report.areas.map((area) => {
+    const spec = options.specs.find((candidate) => candidate.id === area.id);
+    if (!spec) throw new Error(`Cannot adjudicate report: no spec for ${area.id}`);
+    return scoreArea({
+      spec,
+      judgements: requireDefined(prepared.items.get(area.id), `adjudicated items for ${area.id}`),
+      evidence: area.scenarios,
+      config: options.config,
+      defects: area.defects,
+      notes: area.notes,
+      caseResults: area.caseResults,
+    });
+  });
+  const report: RunReport = {
+    ...buildReport({
+      runId: options.report.runId,
+      startedAt: options.report.startedAt,
+      config: options.config,
+      areas,
+      receipt: options.report.receipt,
+    }),
+    project: options.report.project,
+    target: options.report.target,
+    kitVersion: options.report.kitVersion,
+    providers: options.report.providers,
+  };
+  if (assertArtifactIntegrity(options.runDir, { require: true })!.rootSha256 !== index.rootSha256)
+    throw new Error("Run artifacts changed during adjudication; review the current report again");
+  writeReportArtifactsRecoverably(options.runDir, report, options.specs, undefined, prepared.files);
+  return report;
 }
 
 export function finalizeReport(options: {
@@ -630,18 +731,15 @@ export function finalizeReport(options: {
       }
       const prior = byId.get(rubric.id);
       if (rubric.grader.type === "hybrid") {
-        const automatic: Verdict = area.unproven.includes(rubric.id)
-          ? "cannot_judge"
-          : rubric.grader.autoShare === 0
-            ? (prior?.components?.automatic ?? "cannot_judge")
-            : prior!.components!.automatic!;
-        const components = { automatic, manual: manualVerdict };
+        const automatic = prior?.components?.automatic;
+        const components = { ...prior?.components, manual: manualVerdict };
         const verdict = hybridAggregateVerdict(components, rubric.grader.autoShare);
         byId.set(rubric.id, {
+          ...prior,
           id: rubric.id,
           verdict,
           confidence: prior?.confidence ?? "low",
-          reasoning: `Automatic: ${automatic} — ${prior?.reasoning ?? "no judgeable automatic evidence"} Manual by ${entry.reviewer} at ${entry.reviewedAt}: ${manualVerdict} — ${entry.notes ?? "no notes"}`,
+          reasoning: `Automatic: ${automatic ?? "not collected"} — ${prior?.reasoning ?? "no judgeable automatic evidence"} Manual by ${entry.reviewer} at ${entry.reviewedAt}: ${manualVerdict} — ${entry.notes ?? "no notes"}`,
           evidenceRefs: [...(prior?.evidenceRefs ?? []), `manual-revision:${entry.revisionHash}`],
           source: "manual",
           components,

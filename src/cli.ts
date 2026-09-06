@@ -34,6 +34,7 @@ import { doctor } from "./doctor.js";
 import { assertArtifactIntegrity } from "./integrity.js";
 import { isWithin, prospectiveRealPath, readJson, sha256, stableJson } from "./io.js";
 import {
+  adjudicateReport,
   finalizeReport,
   recoverInterruptedReportUpdate,
   writeReportArtifactsRecoverably,
@@ -112,6 +113,7 @@ const booleanFlags = new Set([
 
 function validateCliShape(args: Args): void {
   const knownCommands = new Set([
+    "adjudicate",
     "auth",
     "baseline",
     "campaign",
@@ -186,6 +188,9 @@ function validateCliShape(args: Args): void {
       break;
     case "finalize":
       allowed = ["run", "config", "reviewer", "fail-under-score", "fail-under-coverage"];
+      break;
+    case "adjudicate":
+      allowed = ["run", "config", "input", "reviewer", "fail-under-score", "fail-under-coverage"];
       break;
     case "compare":
       allowed = [
@@ -311,6 +316,8 @@ Usage: aek <command> [flags]
   rescore --run directory          Reapply current scoring/specs without an agent call
   finalize --run directory         Merge manual results and append review provenance
       [--reviewer name]
+  adjudicate --run directory --input decisions.json --reviewer name
+                                  Resolve automatic abstentions with audited human evidence
   baseline promote --run dir --name name --reviewer name [--include-images]
       [--mode release|milestone] [--reason text]
   baseline list [--config file]    Manage append-only promoted baseline snapshots
@@ -802,7 +809,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (args.command === "rescore" || args.command === "finalize") {
+  if (["rescore", "finalize", "adjudicate"].includes(args.command)) {
     const runDir = path.resolve(
       stringFlag(args, "run") ??
         (() => {
@@ -813,7 +820,7 @@ async function main(): Promise<void> {
       const state = loadRunState(runDir);
       if (state.status !== "complete") {
         throw new Error(
-          `Only complete runs can be ${args.command === "rescore" ? "rescored" : "finalized"}; run status is ${state.status}`,
+          `Only complete runs can be ${args.command === "rescore" ? "rescored" : args.command === "finalize" ? "finalized" : "adjudicated"}; run status is ${state.status}`,
         );
       }
       if (recoverInterruptedReportUpdate(runDir)) {
@@ -835,9 +842,28 @@ async function main(): Promise<void> {
       const receiptSelection = prior.receipt.inputs.selection;
       const selectedSplit = receiptSelection.split ?? "all";
       const specs = materializeSpecs(receiptSpecs, selectedSplit);
-      if (args.command === "finalize") {
+      if (args.command === "finalize" || args.command === "adjudicate") {
         assertFinalizeSpecsUnchanged(prior, receiptSpecs);
         assertFinalizeConfigUnchanged(prior, config, receiptSpecs, selectedSplit);
+        if (args.command === "adjudicate") {
+          const inputFile = stringFlag(args, "input");
+          const reviewer = stringFlag(args, "reviewer")?.trim();
+          if (!inputFile || !reviewer)
+            throw new Error("adjudicate requires --input <decisions.json> and --reviewer <name>");
+          const report = adjudicateReport({
+            runDir,
+            report: prior,
+            specs,
+            config,
+            inputFile,
+            reviewer,
+          });
+          console.log(
+            `Adjudicated: ${report.overallScorePct ?? "n/a"}% / ${report.overallCoveragePct}% coverage; ${report.manualPending} pending manual`,
+          );
+          enforceRunThresholds(args, report);
+          return;
+        }
         const report = finalizeReport(
           omitUndefined({
             runDir,

@@ -585,3 +585,27 @@ test("global tag and stratum diagnostics respect top-level area weights", () => 
     cases: 2,
   });
 });
+
+test("unknown rubric judgements fail before scoring or adjudication validation", () => {
+  for (const source of ["llm", "adjudication"] as const) {
+    assert.throws(
+      () =>
+        scoreArea({
+          spec,
+          config,
+          evidence: [evidence("completed")],
+          judgements: [
+            {
+              id: "UNKNOWN",
+              verdict: "pass",
+              confidence: "high",
+              reasoning: "Unknown criterion",
+              evidenceRefs: [],
+              source,
+            },
+          ],
+        }),
+      /Judgement UNKNOWN refers to unknown rubric in area area/,
+    );
+  }
+});

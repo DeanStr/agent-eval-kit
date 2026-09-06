@@ -451,13 +451,21 @@ aek finalize --run .agent-eval/runs/<timestamp> --reviewer dean
 
 Finalization appends a hashed entry to `manual-revisions.ndjson` for every changed manual or hybrid result. Each revision records its reviewer, timestamp, verdict, notes, and the previous revision hash. Re-running finalize without a change does not create a duplicate revision. Unknown rubric IDs and invalid completed verdicts are rejected. If `--reviewer` is omitted, AEK uses the reviewer saved in the entry or the local operating-system username; if none is available, finalization requires `--reviewer` instead of recording an anonymous revision.
 
+For automatic `cannot_judge` results, review `adjudication-checklist.md` and create a decision file outside the run directory:
+
+```bash
+aek adjudicate --run .agent-eval/runs/<timestamp> --input decisions.json --reviewer dean
+```
+
+Adjudication requires a named reviewer, rationale, and supporting evidence. It preserves the original automatic result, distinguishes newly supplied human evidence from collected artifacts, and appends hashed revisions to `adjudications.ndjson`. Hybrid automatic and manual shares remain separate. See [human adjudication](docs/adjudication.md) for the input format, corrections, and scoring behavior.
+
 Every report update also writes `artifact-index.json`, which checksums retained inputs, evidence, screenshots, provider events, judgements, review history, and reports. Verify a run explicitly with:
 
 ```bash
 aek verify --run .agent-eval/runs/<timestamp>
 ```
 
-Resume, compare, rescore, finalize, and baseline promotion verify an existing index before trusting its artifacts. `manual-results.json`, `run-state.json`, `run.log`, temporary files, and generated comparisons are documented mutable exclusions; finalized review revisions and rebuilt reports are sealed into the next index.
+Resume, compare, rescore, finalize, adjudicate, and baseline promotion verify an existing index before trusting its artifacts. `manual-results.json`, `run-state.json`, `run.log`, temporary files, and generated comparisons are documented mutable exclusions; finalized review revisions and rebuilt reports are sealed into the next index.
 
 ## Repeated-run campaigns
 

@@ -84,7 +84,7 @@ export const collectedCommandResultsSchema = z
     "Duplicate collected command IDs",
   );
 
-const item = z.object({
+const originalItem = z.object({
   ...judgement,
   id,
   source: z.enum([
@@ -92,6 +92,7 @@ const item = z.object({
     "llm",
     "command",
     "manual",
+    "adjudication",
     "pairwise",
     "capture",
     "image-distinctness",
@@ -103,6 +104,54 @@ const item = z.object({
   votes: z
     .object({ attempted: count, judgeable: count, counts: record(count), decision: text })
     .optional(),
+});
+const digest = z.string().regex(/^[a-f0-9]{64}$/);
+const reviewText = z.string().trim().min(1);
+export const humanAdjudicationSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    areaId: id,
+    itemId: id,
+    verdict,
+    reviewer: reviewText,
+    reviewedAt: z.iso.datetime({ offset: true }),
+    rationale: reviewText,
+    evidence: z.array(
+      z.discriminatedUnion("kind", [
+        z
+          .object({
+            kind: z.literal("collected"),
+            path: id,
+            description: reviewText,
+            sha256: digest,
+            bytes: count,
+          })
+          .strict(),
+        z
+          .object({
+            kind: z.literal("human"),
+            path: z.string().regex(/^adjudication-evidence\/[a-f0-9]{64}$/),
+            description: reviewText,
+            sha256: digest,
+            bytes: count,
+            filename: id,
+            observedAt: z.iso.datetime({ offset: true }),
+          })
+          .strict(),
+      ]),
+    ),
+    original: originalItem.strict(),
+    originalSha256: digest,
+    criterionSha256: digest,
+    basisArtifactRootSha256: digest,
+    supersedes: digest.nullable(),
+    previousHash: digest.nullable(),
+    revisionHash: digest,
+  })
+  .strict();
+const item = originalItem.extend({
+  adjudication: humanAdjudicationSchema.optional(),
+  adjudicationReceipt: z.object({ verdict, revisionHash: digest }).strict().optional(),
 });
 const uniqueItems = z
   .array(item)

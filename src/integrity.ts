@@ -74,10 +74,16 @@ function roleFor(relative: string): ArtifactIndexEntry["role"] {
   if (
     normalized === "report.json" ||
     normalized === "report.html" ||
-    normalized === "manual-checklist.md"
+    normalized === "manual-checklist.md" ||
+    normalized === "adjudication-checklist.md"
   )
     return "report";
-  if (normalized === "manual-revisions.ndjson") return "review";
+  if (
+    normalized === "manual-revisions.ndjson" ||
+    normalized === "adjudications.ndjson" ||
+    normalized.startsWith("adjudication-evidence/")
+  )
+    return "review";
   if (normalized.startsWith("inputs/")) return "input";
   if (normalized.startsWith("lifecycle/")) return "evidence";
   if (normalized.startsWith(".state/")) return "evidence";

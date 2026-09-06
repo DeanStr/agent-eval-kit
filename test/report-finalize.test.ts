@@ -234,7 +234,7 @@ test("finalizing an unproven hybrid result scores only its manual share", () => 
       "finalized.areas[0].items[0]",
     ).components,
     {
-      automatic: "cannot_judge",
+      automatic: "fail",
       manual: "pass",
     },
   );

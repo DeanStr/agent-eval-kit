@@ -319,6 +319,7 @@ export interface JudgedItem {
     | "llm"
     | "command"
     | "manual"
+    | "adjudication"
     | "pairwise"
     | "capture"
     | "image-distinctness"
@@ -331,6 +332,36 @@ export interface JudgedItem {
     automatic?: Verdict;
     manual?: Verdict;
   };
+  /** Human resolution of an automatic abstention; original evidence stays intact. */
+  adjudication?: HumanAdjudication;
+  /** Redacted provenance for promoted comparison snapshots; cannot be rescored. */
+  adjudicationReceipt?: Pick<HumanAdjudication, "verdict" | "revisionHash">;
+}
+
+export interface AdjudicationEvidence extends ArtifactReceipt {
+  kind: "collected" | "human";
+  path: string;
+  description: string;
+  filename?: string;
+  observedAt?: string;
+}
+
+export interface HumanAdjudication {
+  schemaVersion: 1;
+  areaId: string;
+  itemId: string;
+  verdict: Verdict;
+  reviewer: string;
+  reviewedAt: string;
+  rationale: string;
+  evidence: AdjudicationEvidence[];
+  original: Omit<JudgedItem, "adjudication">;
+  originalSha256: string;
+  criterionSha256: string;
+  basisArtifactRootSha256: string;
+  supersedes: string | null;
+  previousHash: string | null;
+  revisionHash: string;
 }
 
 export interface GateResult {
