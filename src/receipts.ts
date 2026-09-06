@@ -43,7 +43,7 @@ function commandText(command: string, args: string[], cwd?: string): string | un
   return (result.stdout || result.stderr).trim().split(/\r?\n/)[0]?.slice(0, 300) || undefined;
 }
 
-function providerVersion(provider: ProviderId): string {
+export function providerVersion(provider: ProviderId): string {
   if (provider === "mock") return `agent-eval-kit mock ${KIT_VERSION}`;
   const version = commandText(provider, ["--version"]);
   if (!version) {
@@ -359,7 +359,7 @@ function gitRevision(root: string, excludedPaths: string[]): RunReceipt["target"
   return { commit, dirty: true, worktreeSha256: sha256(stableJson(worktree)) };
 }
 
-function fixtureReceipts(
+export function fixtureReceipts(
   file: string | undefined,
   fixtures: unknown,
 ): RunReceipt["inputs"]["fixtures"] {
@@ -379,6 +379,54 @@ function fixtureReceipts(
   return { manifest: fileReceipt(file), files };
 }
 
+/** Full-value hashes for comparison; scoring is the only mutable config section. */
+export function configCompatibility(config: EvalConfig): Record<string, string> {
+  const { scoring: _scoring, judge, ...rest } = config;
+  return Object.fromEntries([
+    ...Object.entries(rest)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => [`config.${key}`, sha256(stableJson(value))]),
+    ...Object.entries({ ...judge, model: judge.model ?? null })
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => [`judge.${key}`, sha256(stableJson(value))]),
+  ]);
+}
+
+export function requiresModelJudging(specs: EvalSpec[], split?: EvalSplit | "all"): boolean {
+  return materializeSpecs(specs, split).some((spec) =>
+    spec.rubric.some(
+      (item) =>
+        ["llm", "pairwise", "text-pairwise"].includes(item.grader.type) ||
+        (item.grader.type === "hybrid" && item.grader.autoShare > 0),
+    ),
+  );
+}
+
+export function judgingProviderReceipt(
+  config: EvalConfig,
+  specs: EvalSpec[],
+  split?: EvalSplit | "all",
+): RunReceipt["providers"]["judge"] {
+  return {
+    provider: config.judge.provider,
+    ...omitUndefined({ model: config.judge.model }),
+    cliVersion: requiresModelJudging(specs, split)
+      ? providerVersion(config.judge.provider)
+      : "not invoked (deterministic judging)",
+  };
+}
+
+export function currentJudgingRuntime(): NonNullable<RunReceipt["runtime"]["judging"]> {
+  const require = createRequire(import.meta.url);
+  return {
+    node: process.version,
+    kitVersion: KIT_VERSION,
+    platform: process.platform,
+    arch: process.arch,
+    sharp: require("sharp").versions as Record<string, string>,
+  };
+}
+
 export function buildRunReceipt(options: {
   config: EvalConfig;
   specs: EvalSpec[];
@@ -388,9 +436,29 @@ export function buildRunReceipt(options: {
   ignoredTargetPaths?: string[];
   /** Preserve the inputs that produced existing evidence during an offline rescore. */
   evidenceProvenance?: RunReceipt;
+  collectionOnly?: boolean;
 }): RunReceipt {
   const { config, specs, fixtures } = options;
+  const selectedScenarios = materializeSpecs(specs, options.split)
+    .flatMap((spec) => spec.scenarios)
+    .filter(
+      (scenario) =>
+        !options.scenarioIds?.length ||
+        options.scenarioIds.includes(scenario.id) ||
+        Boolean(
+          scenario.sourceScenarioId && options.scenarioIds.includes(scenario.sourceScenarioId),
+        ),
+    );
+  const usesAgent = selectedScenarios.some((scenario) => !scenario.capture && !scenario.collect);
   if (options.evidenceProvenance) {
+    if (!options.evidenceProvenance.inputs.configCompatibility)
+      throw new Error("Saved config compatibility hashes are missing; start a new evaluation");
+    if (!options.evidenceProvenance.inputs.collectionMethodSha256)
+      throw new Error("Saved collection method hash is missing; collect fresh evidence");
+    if (!options.evidenceProvenance.runtime.judging)
+      throw new Error(
+        "Saved judging runtime is missing; run a new evaluation instead of reconstructing provenance",
+      );
     for (const kind of ["sources", "methods"] as const) {
       const saved =
         kind === "sources"
@@ -436,20 +504,30 @@ export function buildRunReceipt(options: {
     options.evidenceProvenance?.providers ??
     (() => {
       const versions = new Map<ProviderId, string>();
-      for (const provider of new Set([config.agent.provider, config.judge.provider])) {
+      const required = options.collectionOnly
+        ? usesAgent
+          ? [config.agent.provider]
+          : []
+        : [config.agent.provider];
+      for (const provider of new Set(required)) {
         versions.set(provider, providerVersion(provider));
       }
       return {
         agent: {
           provider: config.agent.provider,
           ...(config.agent.model === undefined ? {} : { model: config.agent.model }),
-          cliVersion: versions.get(config.agent.provider)!,
+          cliVersion:
+            options.collectionOnly && !usesAgent
+              ? "not invoked (deterministic collection)"
+              : versions.get(config.agent.provider)!,
         },
-        judge: {
-          provider: config.judge.provider,
-          ...(config.judge.model === undefined ? {} : { model: config.judge.model }),
-          cliVersion: versions.get(config.judge.provider)!,
-        },
+        judge: options.collectionOnly
+          ? {
+              provider: config.judge.provider,
+              ...omitUndefined({ model: config.judge.model }),
+              cliVersion: "not invoked (collection only)",
+            }
+          : judgingProviderReceipt(config, specs, options.split),
       };
     })();
   const graderMethods = graderMethodReceipts(
@@ -511,16 +589,6 @@ export function buildRunReceipt(options: {
     options.evidenceProvenance?.runtime.evidence ??
     (() => {
       const require = createRequire(import.meta.url);
-      const selectedScenarios = materializeSpecs(specs, options.split)
-        .flatMap((spec) => spec.scenarios)
-        .filter(
-          (scenario) =>
-            !options.scenarioIds?.length ||
-            options.scenarioIds.includes(scenario.id) ||
-            Boolean(
-              scenario.sourceScenarioId && options.scenarioIds.includes(scenario.sourceScenarioId),
-            ),
-        );
       const usesBrowser = selectedScenarios.some(
         (scenario) =>
           (scenario.kind ?? (config.target.kind === "web" ? "browser" : "workspace")) ===
@@ -540,16 +608,7 @@ export function buildRunReceipt(options: {
     graderMethods,
     evidenceRuntime,
     visualMethodVersion:
-      config.browser.diagnostics ||
-      specs.some(
-        (spec) =>
-          spec.scenarios.some((scenario) => scenario.capture) ||
-          spec.rubric.some((item) =>
-            ["capture", "pairwise", "image-distinctness", "image-regression"].includes(
-              item.grader.type,
-            ),
-          ),
-      )
+      config.browser.diagnostics || selectedScenarios.some((scenario) => scenario.capture)
         ? VISUAL_METHOD_VERSION
         : undefined,
     kitVersion: KIT_VERSION,
@@ -564,7 +623,43 @@ export function buildRunReceipt(options: {
     instructions: config.instructions,
     providerVersions: providers,
   };
-  const methodSha256 = sha256(stableJson(method));
+  const {
+    judge: _judge,
+    scoring: _scoring,
+    providerVersions: _versions,
+    ...collectionMethod
+  } = method;
+  const collectionMethodSha256 = options.evidenceProvenance
+    ? options.evidenceProvenance.inputs.collectionMethodSha256!
+    : sha256(
+        stableJson({
+          ...collectionMethod,
+          agentVersion: usesAgent ? providers.agent : "not invoked",
+        }),
+      );
+  const judgingRuntime = options.evidenceProvenance
+    ? options.evidenceProvenance.runtime.judging!
+    : currentJudgingRuntime();
+  const methodSha256 = sha256(
+    stableJson({
+      collectionMethodSha256,
+      // Postprocessing never invokes a judge. Retain its full-value identity even
+      // when the saved config representation has redacted provider settings.
+      judge: Object.fromEntries(
+        Object.entries(
+          options.evidenceProvenance
+            ? options.evidenceProvenance.inputs.configCompatibility!
+            : configCompatibility(config),
+        ).filter(([key]) => key.startsWith("judge.")),
+      ),
+      judgeVersion: providers.judge,
+      scoring: config.scoring,
+      kitVersion: KIT_VERSION,
+      visualMethodVersion: VISUAL_METHOD_VERSION,
+      textMethodVersion: TEXT_METHOD_VERSION,
+      judgingRuntime,
+    }),
+  );
   const selection = omitUndefined({
     areas: materializeSpecs(specs, options.split)
       .filter((spec) => spec.rubric.length)
@@ -615,19 +710,29 @@ export function buildRunReceipt(options: {
     })();
   return {
     schemaVersion: 1,
+    ...omitUndefined({ collection: options.evidenceProvenance?.collection }),
     evaluationFingerprint,
     inputFingerprint: sha256(
       stableJson({
         evaluationFingerprint,
         configSha256: configReceipt.sha256,
+        ...omitUndefined({ collection: options.evidenceProvenance?.collection }),
         collectorSources,
         textCandidates: Object.keys(textCandidates).length ? textCandidates : undefined,
         target,
       }),
     ),
-    inputs: {
+    inputs: omitUndefined({
       config: configReceipt,
+      configRepresentation: options.evidenceProvenance
+        ? options.evidenceProvenance.inputs.configRepresentation
+        : "resolved",
+      configCompatibility: options.evidenceProvenance
+        ? options.evidenceProvenance.inputs.configCompatibility
+        : configCompatibility(config),
+      scoringConfig: options.evidenceProvenance?.inputs.scoringConfig,
       methodSha256,
+      collectionMethodSha256,
       visual,
       textCandidates,
       textReferences,
@@ -637,15 +742,21 @@ export function buildRunReceipt(options: {
       specs: specReceipts,
       ...(fixtureReceipt === undefined ? {} : { fixtures: fixtureReceipt }),
       selection,
-    },
+    }),
     target,
     providers,
     runtime: {
+      // Top-level runtime describes collection; judging has its own runtime.
+      ...(options.evidenceProvenance
+        ? options.evidenceProvenance.runtime
+        : {
+            kitVersion: KIT_VERSION,
+            node: process.version,
+            platform: process.platform,
+            arch: process.arch,
+          }),
+      judging: judgingRuntime,
       evidence: evidenceRuntime,
-      kitVersion: KIT_VERSION,
-      node: process.version,
-      platform: process.platform,
-      arch: process.arch,
     },
   };
 }

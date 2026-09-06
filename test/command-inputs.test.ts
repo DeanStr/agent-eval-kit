@@ -101,6 +101,7 @@ test("checker and snapshot mutation are rejected before launch, and self-modific
       }
       await assert.rejects(
         judgeArea({
+          commands: { mode: "execute" },
           config,
           spec: requireDefined(specs[0], "specs[0]"),
           evidence: [],

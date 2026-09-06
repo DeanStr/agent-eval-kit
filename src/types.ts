@@ -76,6 +76,12 @@ export interface EvalConfig {
     partialCredit: number;
     minimumCoverage: number;
   };
+  promotion?: {
+    minimumCoverage: number;
+    minimumScore?: number;
+    split: EvalSplit | "all";
+    includeOptional: boolean;
+  };
   variables: Record<string, unknown>;
   instructions?: string;
 }
@@ -304,12 +310,17 @@ export interface ArtifactReceipt {
 }
 
 export interface RunReceipt {
+  collection?: { runId: string; artifactRootSha256: string; definitionsSha256: string };
   schemaVersion: 1;
   evaluationFingerprint: string;
   inputFingerprint: string;
   inputs: {
     config: ArtifactReceipt;
+    configRepresentation?: "resolved" | "redacted";
+    configCompatibility?: Record<string, string>;
+    scoringConfig?: ArtifactReceipt;
     methodSha256: string;
+    collectionMethodSha256?: string;
     visual?: Record<string, ArtifactReceipt>;
     textCandidates?: Record<string, ArtifactReceipt>;
     textReferences?: Record<string, ArtifactReceipt>;
@@ -335,6 +346,13 @@ export interface RunReceipt {
     judge: { provider: ProviderId; model?: string; cliVersion: string };
   };
   runtime: {
+    judging?: {
+      node: string;
+      kitVersion: string;
+      platform: NodeJS.Platform;
+      arch: string;
+      sharp: Record<string, string>;
+    };
     kitVersion: string;
     node: string;
     platform: NodeJS.Platform;

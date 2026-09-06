@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { requireDefined, omitUndefined } from "./invariants.js";
 import fs from "node:fs";
-import { validateEvaluationInputs } from "./run/inputs.js";
+import { loadSealedDefinitions, validateEvaluationInputs } from "./run/inputs.js";
 import path from "node:path";
 import YAML from "yaml";
 import { captureAuth } from "./auth.js";
@@ -29,7 +29,7 @@ import {
   loadComparisonInput,
   writeComparisonArtifacts,
 } from "./compare.js";
-import { loadConfig, type ConfigOverrides } from "./config.js";
+import { loadConfig, loadResolvedConfig, type ConfigOverrides } from "./config.js";
 import { doctor } from "./doctor.js";
 import { assertArtifactIntegrity } from "./integrity.js";
 import { isWithin, prospectiveRealPath, readJson, sha256, stableJson } from "./io.js";
@@ -38,7 +38,9 @@ import {
   recoverInterruptedReportUpdate,
   writeReportArtifactsRecoverably,
 } from "./report.js";
-import { buildRunReceipt } from "./receipts.js";
+import { buildRunReceipt, configCompatibility } from "./receipts.js";
+import { PromotionPolicyError } from "./promotion.js";
+import { judgeCollected } from "./judge-run.js";
 import { runEvaluation } from "./runner.js";
 import { loadRunState, withRunLock } from "./run/state.js";
 import { buildReport, scoreArea } from "./scoring.js";
@@ -48,6 +50,7 @@ import {
   loadFixtures,
   loadSpecFile,
   loadSpecs,
+  loadSelectedSpecs,
   materializeSpecs,
   selectSpecs,
 } from "./specs.js";
@@ -119,6 +122,8 @@ function validateCliShape(args: Args): void {
     "privacy",
     "rescore",
     "run",
+    "collect",
+    "judge",
     "validate",
     "verify",
   ]);
@@ -196,7 +201,7 @@ function validateCliShape(args: Args): void {
     case "baseline":
       allowed =
         args.positionals[0] === "promote"
-          ? ["run", "name", "reviewer", "config", "include-images"]
+          ? ["run", "name", "reviewer", "config", "include-images", "mode", "reason"]
           : ["config"];
       break;
     case "campaign":
@@ -207,6 +212,23 @@ function validateCliShape(args: Args): void {
       break;
     case "run":
       allowed = runFlags;
+      break;
+    case "collect":
+      allowed = runFlags.filter(
+        (flag) =>
+          !["judge", "judge-model", "fail-under-score", "fail-under-coverage"].includes(flag),
+      );
+      break;
+    case "judge":
+      allowed = [
+        "evidence",
+        "resume",
+        "config",
+        "judge",
+        "judge-model",
+        "fail-under-score",
+        "fail-under-coverage",
+      ];
       break;
   }
   allowed.push("help");
@@ -279,10 +301,15 @@ Usage: aek <command> [flags]
   privacy lint --path target       Scan a file or directory for likely private data
   auth --persona name              Capture a browser login session
       [--at /login] [--click "Demo login"]
+  collect [run selection flags]   Seal evidence and executable checks without a judge
+  judge --evidence directory       Judge a sealed collection in a new run
+        [--config file] [--judge provider] [--judge-model id]
+        [--resume judging-run] [--fail-under-score pct] [--fail-under-coverage pct]
   rescore --run directory          Reapply current scoring/specs without an agent call
   finalize --run directory         Merge manual results and append review provenance
       [--reviewer name]
   baseline promote --run dir --name name --reviewer name [--include-images]
+      [--mode release|milestone] [--reason text]
   baseline list [--config file]    Manage append-only promoted baseline snapshots
   compare --baseline run --candidate run
                                     Write JSON and HTML baseline comparison
@@ -353,6 +380,7 @@ function configFor(
   args: Args,
   fallbackFile = "evalkit.yaml",
   inheritedOverrides: ConfigOverrides = {},
+  resolved = false,
 ): { file: string; config: EvalConfig; overrides: ConfigOverrides } {
   const file = path.resolve(stringFlag(args, "config") ?? fallbackFile);
   const overrides: ConfigOverrides = { ...inheritedOverrides };
@@ -369,7 +397,7 @@ function configFor(
   if (judgeModel !== undefined) overrides.judgeModel = judgeModel;
   if (maxTurns !== undefined) overrides.maxTurns = maxTurns;
   if (args.flags.headed) overrides.headed = true;
-  return { file, config: loadConfig(file, overrides), overrides };
+  return { file, config: (resolved ? loadResolvedConfig : loadConfig)(file, overrides), overrides };
 }
 
 function init(directory: string, kind: string = "web"): void {
@@ -394,32 +422,18 @@ function enforceRunThresholds(args: Args, report: RunReport): void {
 
 function loadRunConfig(args: Args, runDir: string) {
   const state = loadRunState(runDir);
-  const file = path.resolve(stringFlag(args, "config") ?? state.configFile);
-  return { file, config: loadConfig(file, state.configOverrides), state };
-}
-
-function originalScoring(runDir: string): EvalConfig["scoring"] {
-  const snapshot = path.join(runDir, "inputs", "config.resolved.yaml");
-  if (!fs.existsSync(snapshot))
-    throw new Error(`Original resolved config snapshot is missing: ${snapshot}`);
-  const parsed = YAML.parse(fs.readFileSync(snapshot, "utf8")) as {
-    scoring?: Partial<EvalConfig["scoring"]>;
+  const explicitFile = stringFlag(args, "config");
+  const file = path.resolve(explicitFile ?? state.configFile);
+  const resolved =
+    !explicitFile &&
+    state.mode === "judge" &&
+    state.evidenceSource !== undefined &&
+    file === path.join(state.evidenceSource, "inputs", "config.resolved.yaml");
+  return {
+    file,
+    config: (resolved ? loadResolvedConfig : loadConfig)(file, state.configOverrides),
+    state,
   };
-  const partialCredit = parsed?.scoring?.partialCredit;
-  const minimumCoverage = parsed?.scoring?.minimumCoverage;
-  if (
-    typeof partialCredit !== "number" ||
-    !Number.isFinite(partialCredit) ||
-    partialCredit < 0 ||
-    partialCredit > 1 ||
-    typeof minimumCoverage !== "number" ||
-    !Number.isFinite(minimumCoverage) ||
-    minimumCoverage < 0 ||
-    minimumCoverage > 100
-  ) {
-    throw new Error(`Original resolved config snapshot has invalid scoring settings: ${snapshot}`);
-  }
-  return { partialCredit, minimumCoverage };
 }
 
 function assertFinalizeSpecsUnchanged(
@@ -497,7 +511,26 @@ function assertRescoreSpecsCompatible(
   }
 }
 
-function assertRescoreConfigCompatible(
+function assertOriginalScoringValid(snapshot: string): void {
+  const parsed = YAML.parse(fs.readFileSync(snapshot, "utf8")) as {
+    scoring?: Partial<EvalConfig["scoring"]>;
+  };
+  const partialCredit = parsed?.scoring?.partialCredit;
+  const minimumCoverage = parsed?.scoring?.minimumCoverage;
+  if (
+    typeof partialCredit !== "number" ||
+    !Number.isFinite(partialCredit) ||
+    partialCredit < 0 ||
+    partialCredit > 1 ||
+    typeof minimumCoverage !== "number" ||
+    !Number.isFinite(minimumCoverage) ||
+    minimumCoverage < 0 ||
+    minimumCoverage > 100
+  )
+    throw new Error(`Original resolved config snapshot has invalid scoring settings: ${snapshot}`);
+}
+
+function assertEvidenceConfigCompatible(
   runDir: string,
   report: RunReport,
   config: EvalConfig,
@@ -505,10 +538,15 @@ function assertRescoreConfigCompatible(
   const snapshot = path.join(runDir, "inputs", "config.resolved.yaml");
   if (!fs.existsSync(snapshot))
     throw new Error(`Original resolved config snapshot is missing: ${snapshot}`);
-  const collectionConfig = { ...config, scoring: originalScoring(runDir) };
-  if (sha256(stableJson(collectionConfig)) !== report.receipt.inputs.config.sha256) {
+  assertOriginalScoringValid(snapshot);
+  if (!report.receipt.inputs.configCompatibility)
+    throw new Error("Saved config compatibility hashes are missing; start a new evaluation");
+  if (
+    stableJson(configCompatibility(config)) !==
+    stableJson(report.receipt.inputs.configCompatibility)
+  ) {
     throw new Error(
-      "Resolved config changed outside scoring. Rescore permits only scoring settings and compatible spec weighting metadata; start a new run for target, provider, browser, fixture, variable, instruction, or path changes.",
+      "Resolved config changed outside scoring. Reusing evidence permits only scoring settings and compatible spec weighting metadata; start a new run for target, provider, browser, fixture, variable, instruction, or path changes.",
     );
   }
 }
@@ -636,6 +674,11 @@ async function main(): Promise<void> {
         (() => {
           throw new Error("baseline promote requires --reviewer <name>");
         })();
+      if (loadRunState(runDir).mode === "judge" && stringFlag(args, "config") === undefined) {
+        throw new Error(
+          "Detached-run promotion requires --config <current-project-config> to select the current promotion policy and suite.",
+        );
+      }
       const { config } = loadRunConfig(args, runDir);
       const promoted = promoteBaseline({
         config,
@@ -643,6 +686,8 @@ async function main(): Promise<void> {
         name,
         reviewer,
         includeImages: Boolean(args.flags["include-images"]),
+        mode: (stringFlag(args, "mode") ?? "release") as "release" | "milestone",
+        ...omitUndefined({ reason: stringFlag(args, "reason") }),
       });
       console.log(
         `Promoted ${promoted.report.runId} as ${name} snapshot ${promoted.promotion.snapshotId}`,
@@ -772,10 +817,14 @@ async function main(): Promise<void> {
         console.log(`Recovered interrupted report update in ${runDir}`);
       }
       assertArtifactIntegrity(runDir, { require: true });
-      const { config } = loadRunConfig(args, runDir);
+      const sealed = state.mode === "judge" && stringFlag(args, "config") === undefined;
       const prior = loadComparisonInput(path.join(runDir, "report.json")).report;
-      if (args.command === "rescore") assertRescoreConfigCompatible(runDir, prior, config);
-      const sourceSpecs = loadSpecs(config.paths.specs);
+      const definitions = sealed ? loadSealedDefinitions(runDir, prior.receipt) : undefined;
+      const config = definitions ? definitions.config : loadRunConfig(args, runDir).config;
+      // Sealed config is already integrity-checked and may contain redacted secrets.
+      // Compare current project config only when the caller chose to load it.
+      if (!sealed) assertEvidenceConfigCompatible(runDir, prior, config);
+      const sourceSpecs = definitions ? definitions.specs : loadSpecs(config.paths.specs);
       assertScenarioTargetCompatibility(sourceSpecs, config.target);
       const receiptSpecs = sourceSpecs.filter((spec) =>
         Object.hasOwn(prior.receipt.inputs.specs, spec.id),
@@ -832,7 +881,12 @@ async function main(): Promise<void> {
         areas,
         receipt,
       });
-      writeReportArtifactsRecoverably(runDir, report, specs);
+      writeReportArtifactsRecoverably(
+        runDir,
+        report,
+        specs,
+        state.mode === "judge" ? { config, specs: receiptSpecs } : undefined,
+      );
       console.log(
         `Rescored: ${report.overallScorePct ?? "n/a"}% / ${report.overallCoveragePct}% coverage`,
       );
@@ -841,7 +895,56 @@ async function main(): Promise<void> {
     return;
   }
 
-  const resumeFlag = args.command === "run" ? stringFlag(args, "resume") : undefined;
+  if (args.command === "judge") {
+    const resumeDir = stringFlag(args, "resume");
+    const saved = resumeDir ? loadRunState(path.resolve(resumeDir)) : undefined;
+    if (saved && saved.mode !== "judge") throw new Error("judge --resume requires a judging run");
+    const evidenceDir = stringFlag(args, "evidence") ?? saved?.evidenceSource;
+    if (!evidenceDir)
+      throw new Error("judge requires --evidence <collection> or --resume <judging-run>");
+    const sourceDir = fs.realpathSync(evidenceDir);
+    // Verify before reading any definitions from the evidence bundle.
+    assertArtifactIntegrity(sourceDir, { require: true });
+    const explicitConfig = Boolean(
+      stringFlag(args, "config") ||
+        (saved && saved.configFile !== path.join(sourceDir, "inputs", "config.resolved.yaml")),
+    );
+    const { file, config, overrides } = configFor(
+      args,
+      saved?.configFile ?? path.join(sourceDir, "inputs", "config.resolved.yaml"),
+      saved?.configOverrides,
+      !explicitConfig,
+    );
+    const collectionState = loadRunState(sourceDir);
+    const specs = selectSpecs(
+      explicitConfig
+        ? loadSpecs(config.paths.specs)
+        : loadSelectedSpecs(
+            path.join(sourceDir, "inputs", "specs"),
+            collectionState.selectedSplit ?? "all",
+          ),
+      collectionState.selectedAreas,
+      true,
+    );
+    const result = await judgeCollected({
+      evidenceDir: sourceDir,
+      config,
+      configFile: file,
+      specs,
+      fixtures: explicitConfig ? loadFixtures(config.paths.fixtures) : {},
+      explicitConfig,
+      configOverrides: overrides,
+      ...omitUndefined({ resumeDir }),
+      onProgress: (message) => console.log(message),
+    });
+    console.log(`Artifacts: ${result.runDir}`);
+    enforceRunThresholds(args, result.report);
+    return;
+  }
+
+  const resumeFlag = ["run", "collect"].includes(args.command)
+    ? stringFlag(args, "resume")
+    : undefined;
   const resumeState = resumeFlag ? loadRunState(path.resolve(resumeFlag)) : undefined;
   const { file, config, overrides } = configFor(
     args,
@@ -897,7 +1000,7 @@ async function main(): Promise<void> {
     console.log(`Saved ${persona} browser session to ${saved}`);
     return;
   }
-  if (args.command !== "run" && args.command !== "campaign")
+  if (args.command !== "run" && args.command !== "campaign" && args.command !== "collect")
     throw new Error(`Unknown command ${args.command}\n\n${help}`);
 
   const selected = selectSpecs(
@@ -1001,6 +1104,7 @@ async function main(): Promise<void> {
       dryRun: Boolean(args.flags["dry-run"]),
     }),
     fixtures,
+    collectOnly: args.command === "collect",
   });
   if (result.report) {
     console.log(`Artifacts: ${result.runDir}`);
@@ -1008,9 +1112,11 @@ async function main(): Promise<void> {
   }
 }
 
-const execute =
-  process.argv[2] === "run" || process.argv[2] === "campaign" ? () => withCliSignals(main) : main;
+const execute = ["run", "campaign", "collect", "judge"].includes(process.argv[2] ?? "")
+  ? () => withCliSignals(main)
+  : main;
 execute().catch((error) => {
   console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
-  if (process.exitCode !== 130 && process.exitCode !== 143) process.exitCode = 1;
+  if (process.exitCode !== 130 && process.exitCode !== 143)
+    process.exitCode = error instanceof PromotionPolicyError ? 2 : 1;
 });

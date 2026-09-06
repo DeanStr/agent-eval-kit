@@ -169,7 +169,7 @@ console.log(JSON.stringify({ verdict: result.status === 0 && result.stdout.trim(
   function evaluate(total: number, expectedExit: number) {
     fs.writeFileSync(path.join(root, "cart.mjs"), `console.log(${total});\n`);
     const before = fs.existsSync(runs) ? fs.readdirSync(runs) : [];
-    cli(root, ["run"], expectedExit);
+    cli(root, ["run", "--split", "all"], expectedExit);
     const added = fs.readdirSync(runs).filter((id) => !before.includes(id));
     assert.equal(added.length, 1);
     const run = path.join(runs, requireDefined(added[0], "added[0]"));

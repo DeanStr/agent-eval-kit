@@ -26,7 +26,9 @@ scenarios:
       seed: 1337
       setup: { dataset: quarterly }
       readySelector: canvas
-      timeoutSeconds: 60
+      timeoutSeconds: 300
+      readinessTimeoutSeconds: 60
+      screenshotTimeoutSeconds: 120
       passes: 2
       frames: 4
       stepSeconds: 1
@@ -55,6 +57,21 @@ window.__AEK_EVAL__ = {
 ```
 
 Each pass starts a new browser/context, restores the same captured persona if configured, calls reset → setSeed → configure, and collects frames after waitUntilStable and a two-frame compositor barrier. Case variables override same-named setup fields. Finite CSS animations are disabled for screenshots; application time advances only through the adapter. Controlled scenarios cannot depend on other scenarios: their state must be established by reset/configure. Existing authentication rules still apply.
+
+`timeoutSeconds` covers the whole controlled scenario, including every pass and
+image processing. `readinessTimeoutSeconds` (default 60) bounds each pass's navigation,
+ready selector and adapter discovery together, and each frame's stability/compositor
+wait. `screenshotTimeoutSeconds` (default 120) independently bounds each screenshot;
+it does not inherit `browser.actionTimeoutMs`. All stages remain bounded by the
+whole-scenario deadline. Increase `timeoutSeconds` as well when expensive captures
+need a longer overall budget. Timeout errors identify the active stage.
+
+Adapters may also expose `getDiagnostics()`. When present it must be callable and
+return a JSON object no larger than 1 MiB. AEK records it after each captured frame
+under `pass-XX/adapter-diagnostics.json`, retaining frame labels and logical times.
+It is optional instrumented evidence and does not contribute checks or require
+repeatability. A failing or invalid supplied hook aborts capture; it is never silently
+ignored. Already collected diagnostics remain in failed capture artifacts.
 
 The timeout covers the whole controlled scenario. Missing methods, missing/non-numeric required metrics, invalid images, renderer mismatches, timeouts, and cancellation are execution errors. Failed numeric thresholds and repeatability checks remain observed product/check failures. Adapter metrics are explicitly marked as instrumented evidence; they are not independent proof that the app's implementation is correct.
 
@@ -412,6 +429,10 @@ references:
 ```
 
 Missing images and ambiguous labels fail before collection. Each run snapshots the resolved reference bytes into `inputs/visual`; those hashes participate in evaluator compatibility and resume. A changed reference or baseline image therefore requires a new run. Snapshot images remain available if the external original is later removed. Public exports continue to exclude all image pixels, findings, reference paths and prompts.
+
+For expensive visual collection, use `aek collect` followed by `aek judge --evidence`.
+See [separate evidence and judging workflows](evidence-workflows.md). Each judging run
+retains a source collection receipt and can use a new judge or rubric over fixed pixels.
 
 ## Repeated rubric judging
 

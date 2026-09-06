@@ -1,4 +1,5 @@
 import { requireDefined, omitUndefinedDeep } from "./invariants.js";
+import { collectedCommandResultsSchema } from "./artifact-schemas.js";
 import { assertGraderMethods } from "./judging/command-inputs.js";
 import { judgeTextPairwise } from "./text/pairwise.js";
 import {
@@ -49,7 +50,7 @@ function commandCwd(item: RubricItem, config: EvalConfig, runDir: string): strin
   return path.resolve(config.project.root, item.grader.cwd);
 }
 
-async function runCommandGrader(options: {
+export async function runCommandGrader(options: {
   item: RubricItem;
   config: EvalConfig;
   runDir: string;
@@ -480,14 +481,43 @@ export async function judgeArea(options: {
   onProgress?: (message: string) => void;
   onVoteComplete?: () => void;
   onCommandGraderComplete?: (item: RubricItem) => void;
+  /** Execution is explicit; malformed collected results must never run project commands. */
+  commands: { mode: "execute" } | { mode: "collected"; results: unknown };
 }): Promise<{ items: JudgedItem[]; cases: JudgedCase[]; defects: Defect[]; notes: string }> {
   const commandItems = options.spec.rubric.filter((item) => item.grader.type === "command");
   const llmItems = options.spec.rubric.filter(
     (item) =>
       item.grader.type === "llm" || (item.grader.type === "hybrid" && item.grader.autoShare > 0),
   );
+  if (!options.commands || !["execute", "collected"].includes(options.commands.mode))
+    throw new Error("Command mode must be execute or collected");
+  let collected: JudgedItem[] | undefined;
+  if (options.commands.mode === "collected") {
+    const parsed = collectedCommandResultsSchema.safeParse(options.commands.results);
+    if (!parsed.success)
+      throw new Error(
+        `Invalid collected command results: ${parsed.error.message}; collect fresh evidence`,
+      );
+    collected = parsed.data;
+    if (
+      collected.length !== commandItems.length ||
+      collected.some((result) => !commandItems.some((item) => item.id === result.id))
+    )
+      throw new Error(
+        "Collected command IDs must exactly match the rubric; collect fresh evidence",
+      );
+  }
   const commandResults: JudgedItem[] = [];
   for (const item of commandItems) {
+    if (collected) {
+      const matches = collected.filter((result) => result.id === item.id);
+      if (matches.length !== 1)
+        throw new Error(
+          `Missing or duplicate collected command result: ${item.id}; collect fresh evidence`,
+        );
+      commandResults.push(requireDefined(matches[0], `collected command result ${item.id}`));
+      continue;
+    }
     options.onProgress?.(`command grader ${item.id}`);
     let result: JudgedItem;
     try {

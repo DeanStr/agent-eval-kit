@@ -127,6 +127,7 @@ if (path.basename(process.argv[1]) === 'codex') {
   const evidenceList = [evidence];
   const grade = (name: string) =>
     judgeArea({
+      commands: { mode: "execute" },
       config,
       spec,
       evidence: evidenceList,

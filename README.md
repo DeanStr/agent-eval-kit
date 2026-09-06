@@ -15,6 +15,7 @@ It supports:
 - controlled visual capture, independent motion/repeatability tolerances, image-health and scoped distinctness checks, opt-in image-statistic baseline gates, blind pairwise image graders, and resumable repeated judging;
 - direct text comparisons for writing style and taste, with anonymous A/B votes, optional target voice, and verified passage citations;
 - command collectors for exported artifacts with snapshotted sources, validated image manifests, and extraction provenance; named capture checkpoints for irregular temporal sampling;
+- immutable collect-then-judge bundles, explicit release/milestone promotion policies;
 - incremental artifacts, fingerprint-checked resume, reproducibility receipts, tamper-evident output indexes, offline rescore, auditable manual finalization, coverage thresholds, and diagnostic tags;
 - parameterized case matrices, diagnostic strata, and fingerprinted development/evaluation splits;
 - repeated-run campaigns with rubric/case/stratum stability, whole-run bootstrap intervals, and paired case-level campaign comparisons;
@@ -131,6 +132,16 @@ aek run --split evaluation
 Artifacts go to `.agent-eval/runs/<timestamp>/`. Open `report.html` for the evidence-backed report and keep `report.json` as the stable machine-readable result.
 
 `aek init` includes an onboarding guide and, for command/artifact starters, a checker or collector script. It stages the complete starter kit and publishes it without overwriting existing files. It preflights every destination and rolls back files it published if initialization fails, so a conflict cannot leave a half-created kit.
+
+For expensive captures or judge calibration, collect once and create separate judged runs:
+
+```bash
+aek collect --split all
+aek judge --evidence .agent-eval/runs/<collection-id> --judge claude
+```
+
+See [collecting and judging separately](docs/evidence-workflows.md) for evidence
+compatibility, rubric changes, recovery, and baseline promotion policies.
 
 ## Configuration
 
@@ -496,6 +507,8 @@ aek baseline promote --run "$BASE_RUN" --name main --reviewer dean
 aek baseline list
 aek compare --baseline-name main --candidate "$CANDIDATE_RUN" --fail-on-regression
 ```
+
+Release promotion (the default) also checks the full declared scenario suite, required gates, and promotion coverage/score policy. The default requires 100% coverage across all splits in required areas. Use an explicitly reviewed `--mode milestone --reason "..."` for an intermediate result; the exception is recorded. See [promotion policy](docs/evidence-workflows.md#baseline-promotion-policy).
 
 Promotion requires a valid `run-state.json` with `status: complete`, then verifies the source artifact index. Every promotion creates a new content-checked snapshot containing the comparison-relevant report fields, source report and artifact-index hashes, evaluator fingerprint, target revision, reviewer, and timestamp. Full scenario evidence and judge reasoning remain in the source run rather than being copied into the baseline. Updating a name moves only its atomic `current.json` pointer; previous snapshots remain available in the baseline directory. The default `evals/baselines` location is evaluator-hidden and suitable for code review and version control.
 

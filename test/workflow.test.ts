@@ -239,6 +239,23 @@ test("split filtering retains transitive setup areas without scoring them", asyn
         ["consumer"],
       );
     }
+    const collectedRun = await runEvaluation({ ...options, collectOnly: true });
+    const { judgeCollected } = await import("../src/judge-run.js");
+    const judgedRun = await judgeCollected({ ...options, evidenceDir: collectedRun.runDir });
+    assert.deepEqual(
+      judgedRun.report.areas.map((area) => area.id),
+      ["consumer"],
+    );
+    for (const id of ["PREPARE", "CREATE", "VERIFY"])
+      assert.ok(fs.existsSync(path.join(judgedRun.runDir, id, "evidence.json")));
+    for (const command of ["rescore", "finalize"]) {
+      const child = spawnSync(
+        process.execPath,
+        ["--import", "tsx", path.resolve("src/cli.ts"), command, "--run", judgedRun.runDir],
+        { encoding: "utf8" },
+      );
+      assert.equal(child.status, 0, `${command}: ${child.stdout}\n${child.stderr}`);
+    }
     const selectedRun = await runEvaluation({
       ...options,
       specs: options.specs.filter((spec) => spec.id !== "unused"),

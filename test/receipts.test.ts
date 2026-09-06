@@ -641,3 +641,32 @@ test("dirty submodule revisions and contents affect target fingerprints", () => 
   const dirtyContents = buildRunReceipt({ config, specs: [spec], fixtures });
   assert.notEqual(dirtyContents.inputFingerprint, changedRevision.inputFingerprint);
 });
+
+test("reusing evidence requires saved collection and judging provenance", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-required-provenance-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const { config, spec, fixtures } = inputs(root);
+  const options = { config, specs: [spec], fixtures };
+  const original = buildRunReceipt(options);
+  const missingMethod = structuredClone(original);
+  delete missingMethod.inputs.collectionMethodSha256;
+  assert.throws(
+    () => buildRunReceipt({ ...options, evidenceProvenance: missingMethod }),
+    /Saved collection method hash is missing/,
+  );
+  const missingRuntime = structuredClone(original);
+  delete missingRuntime.runtime.judging;
+  assert.throws(
+    () => buildRunReceipt({ ...options, evidenceProvenance: missingRuntime }),
+    /Saved judging runtime is missing/,
+  );
+  const saved = structuredClone(original);
+  saved.runtime.judging = {
+    ...original.runtime.judging!,
+    node: "saved-node-version",
+    sharp: { sharp: "saved-sharp-version" },
+  };
+  const rebuilt = buildRunReceipt({ ...options, evidenceProvenance: saved });
+  assert.equal(rebuilt.inputs.collectionMethodSha256, saved.inputs.collectionMethodSha256);
+  assert.deepEqual(rebuilt.runtime.judging, saved.runtime.judging);
+});

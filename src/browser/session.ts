@@ -395,11 +395,11 @@ export class BrowserSession {
     await this.browser?.close().catch(() => {});
   }
 
-  async navigate(url: string): Promise<string> {
+  async navigate(url: string, timeoutMs = 30_000): Promise<string> {
     // Even an attempted first navigation revokes the startup exception. A
     // caller cannot deliberately navigate to about:blank and retain it.
     this.initialBlankAllowed = false;
-    await this.page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await this.page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
     await this.page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => {});
     return this.snapshot();
   }
@@ -668,7 +668,11 @@ export class BrowserSession {
    * captures are clipped to safe dimensions because both the scenario agent
    * and judge consume these images in multi-image requests.
    */
-  async screenshot(label: string, fullPage: boolean): Promise<{ relPath: string; base64: string }> {
+  async screenshot(
+    label: string,
+    fullPage: boolean,
+    timeoutMs?: number,
+  ): Promise<{ relPath: string; base64: string }> {
     // Actions such as fill/select/upload/wait do not otherwise need a fresh
     // snapshot, and client-side handlers can redirect during any of them.
     // Evidence is a security boundary of its own: contain the page and fail
@@ -727,7 +731,10 @@ export class BrowserSession {
     // image evidence obeys the same boundary as text snapshots and actions.
     const restoreFrames = await this.maskDisallowedFrames();
     try {
-      const buf = await this.page.screenshot(options);
+      const buf = await this.page.screenshot({
+        ...options,
+        ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }),
+      });
       try {
         const postCaptureOrigin = await this.enforceOrigin();
         if (postCaptureOrigin) throw new OriginBoundaryError(postCaptureOrigin);

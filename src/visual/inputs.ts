@@ -103,9 +103,12 @@ export async function validateVisualInputs(
   specs: EvalSpec[],
   split: EvalSplit | "all" = "all",
   scenarioIds?: string[],
+  collected = false,
 ): Promise<void> {
-  collectorInputs(config, specs, split, scenarioIds);
-  collectorInputs(config, specs, split, scenarioIds, "methods");
+  if (!collected) {
+    collectorInputs(config, specs, split, scenarioIds);
+    collectorInputs(config, specs, split, scenarioIds, "methods");
+  }
   for (const spec of specs)
     for (const item of spec.rubric) {
       if (

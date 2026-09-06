@@ -47,6 +47,7 @@ test("zero-share hybrids do not invoke the automatic judge or create case result
     ],
   };
   const result = await judgeArea({
+    commands: { mode: "execute" },
     config,
     spec,
     evidence: [],
@@ -98,6 +99,7 @@ test("judge provider launch failures propagate instead of becoming cannot_judge"
   try {
     await assert.rejects(
       judgeArea({
+        commands: { mode: "execute" },
         config,
         spec,
         evidence: [],
@@ -171,6 +173,7 @@ test("command graders enforce explicit output contracts and fail on execution er
 
   const grade = (item: RubricItem) =>
     judgeArea({
+      commands: { mode: "execute" },
       config,
       spec: { ...spec, rubric: [item] },
       evidence: [],
@@ -356,6 +359,7 @@ fs.writeFileSync(output, ${JSON.stringify(JSON.stringify(structured))});
   try {
     await assert.rejects(
       judgeArea({
+        commands: { mode: "execute" },
         config,
         spec,
         evidence: [evidence],
@@ -372,6 +376,7 @@ fs.writeFileSync(output, ${JSON.stringify(JSON.stringify(structured))});
 
     await assert.rejects(
       judgeArea({
+        commands: { mode: "execute" },
         config,
         spec,
         evidence: [{ ...evidence, screenshots: [] }],
@@ -390,6 +395,7 @@ fs.writeFileSync(output, ${JSON.stringify(JSON.stringify(structured))});
     const codexConfig: EvalConfig = { ...config, judge: { ...config.judge, provider: "codex" } };
     await assert.rejects(
       judgeArea({
+        commands: { mode: "execute" },
         config: codexConfig,
         spec,
         evidence: [evidence],
@@ -532,6 +538,7 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
   try {
     const grade = () =>
       judgeArea({
+        commands: { mode: "execute" },
         config,
         spec,
         evidence: [
@@ -694,6 +701,7 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
     };
     const grade = () =>
       judgeArea({
+        commands: { mode: "execute" },
         config,
         spec,
         evidence: [
@@ -817,6 +825,7 @@ console.log(JSON.stringify({type:"result",result:${JSON.stringify(JSON.stringify
   try {
     await assert.rejects(
       judgeArea({
+        commands: { mode: "execute" },
         config,
         spec,
         evidence: [evidence],

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { isPortablePathComponent } from "../io.js";
 
 // Bump when visual measurement/decision semantics change, including defaults.
-export const VISUAL_METHOD_VERSION = 5;
+export const VISUAL_METHOD_VERSION = 6;
 
 const fraction = z.number().min(0).max(1);
 export const votingSchema = z
@@ -166,6 +166,8 @@ export const captureSchema = z
     setup: z.record(z.string(), z.unknown()).default({}),
     readySelector: z.string().min(1).optional(),
     timeoutSeconds: z.number().positive().max(600).default(60),
+    readinessTimeoutSeconds: z.number().positive().max(600).default(60),
+    screenshotTimeoutSeconds: z.number().positive().max(600).default(120),
     passes: z.number().int().min(2).max(10).default(2),
     frames: z.number().int().min(1).max(30).optional(),
     checkpoints: z.array(checkpointSchema).min(1).max(30).optional(),

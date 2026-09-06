@@ -186,6 +186,15 @@ const rawConfigSchema = z
       })
       .strict()
       .default({ partialCredit: 0.5, minimumCoverage: 60 }),
+    promotion: z
+      .object({
+        minimumCoverage: z.number().min(0).max(100).default(100),
+        minimumScore: z.number().min(0).max(100).optional(),
+        split: z.enum(["development", "evaluation", "all"]).default("all"),
+        includeOptional: z.boolean().default(false),
+      })
+      .strict()
+      .optional(),
     variables: z.record(z.string(), z.unknown()).default({}),
     instructions: z.string().optional(),
   })
@@ -232,21 +241,34 @@ export function loadConfig(
   configFile = "evalkit.yaml",
   overrides: ConfigOverrides = {},
 ): EvalConfig {
+  return readConfig(configFile, overrides, false);
+}
+
+/** Read a sealed, already expanded snapshot without consulting the environment. */
+export function loadResolvedConfig(
+  configFile: string,
+  overrides: ConfigOverrides = {},
+): EvalConfig {
+  return readConfig(configFile, overrides, true);
+}
+
+function readConfig(configFile: string, overrides: ConfigOverrides, resolved: boolean): EvalConfig {
   const absoluteConfig = path.resolve(configFile);
   if (!fs.existsSync(absoluteConfig)) {
     throw new Error(`No config file at ${absoluteConfig}. Run \`aek init\` first.`);
   }
-  try {
-    process.loadEnvFile(path.join(path.dirname(absoluteConfig), ".env"));
-  } catch (error) {
-    if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT"))
-      throw error;
-    // A project may supply variables through the real environment instead.
-  }
+  if (!resolved)
+    try {
+      process.loadEnvFile(path.join(path.dirname(absoluteConfig), ".env"));
+    } catch (error) {
+      if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT"))
+        throw error;
+      // A project may supply variables through the real environment instead.
+    }
   const parsedYaml = YAML.parse(fs.readFileSync(absoluteConfig, "utf8"));
   let parsed: z.infer<typeof rawConfigSchema>;
   try {
-    parsed = rawConfigSchema.parse(expandDeep(parsedYaml, absoluteConfig));
+    parsed = rawConfigSchema.parse(resolved ? parsedYaml : expandDeep(parsedYaml, absoluteConfig));
   } catch (error) {
     if (error instanceof z.ZodError) {
       throw new Error(`Invalid ${absoluteConfig}:\n  - ${formatZodError(error)}`);

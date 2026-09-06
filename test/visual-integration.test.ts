@@ -15,6 +15,7 @@ import { promoteBaseline, loadPromotedBaseline } from "../src/baselines.js";
 import { loadComparisonInput } from "../src/compare.js";
 import { visualInputs } from "../src/visual/inputs.js";
 import { startLifecycle } from "../src/lifecycle.js";
+import { judgeCollected } from "../src/judge-run.js";
 import { controlledCapture } from "../src/visual/capture.js";
 import { withCancellation } from "../src/cancellation.js";
 import { BrowserSession } from "../src/browser/session.js";
@@ -29,7 +30,14 @@ const html = `<!doctype html><style>body{margin:0;background:white}#bar{width:30
 let position = 20, count = 0;
 window.__AEK_EVAL__ = {
 reset(){position=20;count=0;document.querySelector('#bar').style.left=position+'px'},
-setSeed(seed){if(seed!==1337)throw Error('unexpected seed')},configure(settings){window.settings=settings;if(settings.offset){position+=settings.offset;document.querySelector('#bar').style.left=position+'px'}if(settings.subtle)document.body.style.background='rgb(100,100,100)'},
+setSeed(seed){if(seed!==1337)throw Error('unexpected seed')},configure(settings){window.settings=settings;
+if(settings.diagnostics==='valid')window.__AEK_EVAL__.getDiagnostics=()=>({build:'fixture-v1',position,count});
+if(settings.diagnostics==='nonfinite')window.__AEK_EVAL__.getDiagnostics=()=>({value:Infinity});
+if(settings.diagnostics==='date')window.__AEK_EVAL__.getDiagnostics=()=>new Date();
+if(settings.diagnostics==='undefined')window.__AEK_EVAL__.getDiagnostics=()=>({value:undefined});
+if(settings.diagnostics==='oversized')window.__AEK_EVAL__.getDiagnostics=()=>({value:'x'.repeat(1024*1024)});
+if(settings.diagnostics==='invalid')window.__AEK_EVAL__.getDiagnostics=()=>['not an object'];
+if(settings.diagnostics==='failure')window.__AEK_EVAL__.getDiagnostics=()=>{throw Error('diagnostic failure')};if(settings.offset){position+=settings.offset;document.querySelector('#bar').style.left=position+'px'}if(settings.subtle)document.body.style.background='rgb(100,100,100)'},
 waitUntilStable(){if(window.settings?.hang)return new Promise(()=>{})},
 advance(seconds){count++;if(window.settings?.subtle){const c=100+count;document.body.style.background='rgb('+c+','+c+','+c+')';return}position+=seconds*10;document.querySelector('#bar').style.left=position+'px'},
 getMetrics(){return {errors:window.settings?.broken?count:0}}
@@ -151,6 +159,7 @@ test("controlled collection, blind votes, interrupted resume and image baselines
     configFile: value.configFile,
     specs: value.specs,
     fixtures: {},
+    split: "all" as const,
   };
   fs.writeFileSync(value.fail, "fail once");
   await assert.rejects(runEvaluation(options), /Pairwise judge execution failed/);
@@ -596,6 +605,8 @@ test("generic visual checks run without a model and baseline statistics use pinn
     runDir: initial.runDir,
     name: "approved",
     reviewer: "fixture",
+    mode: "milestone",
+    reason: "Reviewed deterministic-only fixture",
     includeImages: true,
   });
   spec.rubric.push({
@@ -869,4 +880,112 @@ console.log(JSON.stringify({type:'result',structured_output:result}));
   assert.equal(fs.readFileSync(path.join(runDir, "SCENE/evidence.json"), "utf8"), evidence);
   assert.equal(Number(fs.readFileSync(value.counter, "utf8")), 3, "reuse completed pair vote");
   assert.equal(verifyArtifactIndex(runDir, { require: true }).ok, true);
+});
+
+test("capture retains optional diagnostics without scoring them and rejects invalid or failed hooks", async (t) => {
+  const value = await fixture(t);
+  const scenario = requireDefined(
+    requireDefined(loadSpecs(value.specFile)[0], "visual fixture spec").scenarios[0],
+    "visual fixture scenario",
+  );
+  scenario.capture = captureSchema.parse({ frames: 2, setup: { diagnostics: "valid" } });
+  const directory = path.join(value.root, "diagnostics-valid");
+  const result = await controlledCapture(value.config, scenario, directory);
+  assert.equal(result.outcome, "completed");
+  const saved = JSON.parse(
+    fs.readFileSync(path.join(directory, "pass-01/adapter-diagnostics.json"), "utf8"),
+  );
+  assert.equal(saved.length, 2);
+  assert.equal(saved[0].data.build, "fixture-v1");
+  assert.equal(saved[1].data.count, 1);
+  assert.equal(
+    result.captureChecks?.some((check) => check.name.includes("diagnostic")),
+    false,
+  );
+  for (const mode of ["invalid", "failure", "nonfinite", "date", "undefined", "oversized"]) {
+    scenario.capture = captureSchema.parse({ setup: { diagnostics: mode } });
+    const failedDir = path.join(value.root, `diagnostics-${mode}`);
+    await assert.rejects(
+      controlledCapture(value.config, scenario, failedDir),
+      mode === "failure" ? /diagnostic failure/ : /JSON object/,
+    );
+    const failed = JSON.parse(fs.readFileSync(path.join(failedDir, "evidence.json"), "utf8"));
+    assert.equal(failed.outcome, "agent_error");
+    assert.equal(
+      failed.transcript.some((entry: { tool: string }) => entry.tool === "adapter.getDiagnostics"),
+      false,
+    );
+  }
+});
+
+test("capture readiness and screenshot deadlines fail at their own stages under the overall deadline", async (t) => {
+  const value = await fixture(t);
+  const scenario = requireDefined(
+    requireDefined(loadSpecs(value.specFile)[0], "visual fixture spec").scenarios[0],
+    "visual fixture scenario",
+  );
+  scenario.capture = captureSchema.parse({
+    timeoutSeconds: 15,
+    readinessTimeoutSeconds: 0.1,
+    readySelector: "#never-exists",
+    screenshotTimeoutSeconds: 5,
+  });
+  await assert.rejects(
+    controlledCapture(value.config, scenario, path.join(value.root, "readiness-timeout")),
+    /readiness.*timed out/,
+  );
+  scenario.capture = captureSchema.parse({
+    timeoutSeconds: 15,
+    readinessTimeoutSeconds: 5,
+    screenshotTimeoutSeconds: 0.05,
+  });
+  const original = BrowserSession.prototype.screenshot;
+  t.after(() => {
+    BrowserSession.prototype.screenshot = original;
+  });
+  BrowserSession.prototype.screenshot = async () => new Promise(() => {});
+  await assert.rejects(
+    controlledCapture(value.config, scenario, path.join(value.root, "screenshot-timeout")),
+    /screenshot.*timed out/,
+  );
+});
+
+test("detached visual judging resumes sealed votes without recapturing or changing the source bundle", async (t) => {
+  const value = await fixture(t);
+  const specs = loadSpecs(value.specFile);
+  const collected = await runEvaluation({
+    config: value.config,
+    configFile: value.configFile,
+    specs,
+    fixtures: {},
+    collectOnly: true,
+  });
+  assert.equal(fs.existsSync(value.counter), false, "collection cannot spend a judge invocation");
+  const sourceIndex = fs.readFileSync(path.join(collected.runDir, "artifact-index.json"));
+  const options = {
+    config: value.config,
+    configFile: value.configFile,
+    specs,
+    fixtures: {},
+    evidenceDir: collected.runDir,
+  };
+  fs.writeFileSync(value.fail, "fail second vote");
+  await assert.rejects(judgeCollected(options), /Pairwise judge execution failed/);
+  const failedRun = fs
+    .readdirSync(value.config.paths.runs)
+    .map((name) => path.join(value.config.paths.runs, name))
+    .find((dir) => dir !== collected.runDir)!;
+  const vote = path.join(failedRun, "areas/visual/pairwise/VISUAL/SCENE/1/vote-01/vote.json");
+  const voteBytes = fs.readFileSync(vote);
+  fs.rmSync(value.fail);
+  const resumed = await judgeCollected({ ...options, resumeDir: failedRun });
+  assert.equal(resumed.report.overallScorePct, 100);
+  assert.equal(Number(fs.readFileSync(value.counter, "utf8")), 3);
+  assert.deepEqual(fs.readFileSync(vote), voteBytes);
+  assert.deepEqual(
+    fs.readFileSync(path.join(collected.runDir, "artifact-index.json")),
+    sourceIndex,
+  );
+  assert.ok(verifyArtifactIndex(collected.runDir).ok);
+  assert.ok(verifyArtifactIndex(failedRun).ok);
 });

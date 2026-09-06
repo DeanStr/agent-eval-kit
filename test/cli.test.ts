@@ -284,6 +284,10 @@ test("CLI critical gates preserve run artifacts, and comparison gates preserve c
     "main",
     "--reviewer",
     "ci-test",
+    "--mode",
+    "milestone",
+    "--reason",
+    "Reviewed failing comparison fixture",
   ]);
   assert.equal(promoted.status, 0, promoted.stderr);
   const comparedToNamed = runCli(root, [

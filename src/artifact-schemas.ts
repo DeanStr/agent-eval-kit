@@ -67,6 +67,21 @@ const judgement = {
   reasoning: text,
   evidenceRefs: strings,
 };
+export const collectedCommandResultsSchema = z
+  .array(
+    z
+      .object({
+        ...judgement,
+        id,
+        source: z.literal("command"),
+      })
+      .strict(),
+  )
+  .refine(
+    (values) => new Set(values.map((value) => value.id)).size === values.length,
+    "Duplicate collected command IDs",
+  );
+
 const item = z.object({
   ...judgement,
   id,
@@ -109,12 +124,17 @@ const receiptTarget = z.object({
   git: z.object({ commit: id, dirty: z.boolean(), worktreeSha256: text.optional() }).optional(),
 });
 const receipt = z.object({
+  collection: z.object({ runId: id, artifactRootSha256: id, definitionsSha256: id }).optional(),
   schemaVersion: z.literal(1),
   evaluationFingerprint: id,
   inputFingerprint: id,
   inputs: z.object({
     config: artifact,
+    configRepresentation: z.enum(["resolved", "redacted"]).optional(),
+    configCompatibility: record(id).optional(),
+    scoringConfig: artifact.optional(),
     methodSha256: id,
+    collectionMethodSha256: id.optional(),
     visual: record(artifact).optional(),
     textCandidates: record(artifact).optional(),
     textReferences: record(artifact).optional(),
@@ -134,6 +154,9 @@ const receipt = z.object({
   target: receiptTarget,
   providers: z.object({ agent: receiptProvider, judge: receiptProvider }),
   runtime: z.object({
+    judging: z
+      .object({ node: id, kitVersion: id, platform: id, arch: id, sharp: record(text) })
+      .optional(),
     kitVersion: id,
     node: id,
     platform: id,
@@ -390,3 +413,5 @@ export const campaignReportSchema = z.object({
   runs: z.array(campaignRunSchema),
   limitations: strings,
 });
+
+export { receipt as runReceiptSchema, evidence as scenarioEvidenceSchema };

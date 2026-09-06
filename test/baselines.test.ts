@@ -108,17 +108,40 @@ test("baseline promotion preserves immutable snapshots behind an atomic named po
   } as EvalConfig;
 
   assert.throws(
-    () => promoteBaseline({ config, runDir, name: "main", reviewer: "alice" }),
+    () =>
+      promoteBaseline({
+        config,
+        runDir,
+        name: "main",
+        reviewer: "alice",
+        mode: "milestone",
+        reason: "Reviewed fixture",
+      }),
     /Run state does not exist/,
   );
   writeRunState(runDir, "running");
   assert.throws(
-    () => promoteBaseline({ config, runDir, name: "main", reviewer: "alice" }),
+    () =>
+      promoteBaseline({
+        config,
+        runDir,
+        name: "main",
+        reviewer: "alice",
+        mode: "milestone",
+        reason: "Reviewed fixture",
+      }),
     /Only complete runs can be promoted; run status is running/,
   );
   writeRunState(runDir, "complete");
 
-  const first = promoteBaseline({ config, runDir, name: "main", reviewer: "alice" });
+  const first = promoteBaseline({
+    config,
+    runDir,
+    name: "main",
+    reviewer: "alice",
+    mode: "milestone",
+    reason: "Reviewed fixture",
+  });
   const loadedFirst = loadPromotedBaseline(config, "main");
   assert.equal(loadedFirst.promotion.reviewer, "alice");
   assert.equal(loadedFirst.report.target.url, undefined);
@@ -128,7 +151,14 @@ test("baseline promotion preserves immutable snapshots behind an atomic named po
     const contents = fs.readFileSync(path.join(first.directory, file), "utf8");
     assert.doesNotMatch(contents, /private\.example\.test|report-secret|receipt-secret/);
   }
-  const second = promoteBaseline({ config, runDir, name: "main", reviewer: "bob" });
+  const second = promoteBaseline({
+    config,
+    runDir,
+    name: "main",
+    reviewer: "bob",
+    mode: "milestone",
+    reason: "Reviewed fixture",
+  });
   assert.notEqual(second.directory, first.directory);
   assert.equal(fs.existsSync(first.directory), true);
   assert.equal(

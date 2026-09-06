@@ -70,7 +70,12 @@ export async function controlledCapture(
     durationMs: 0,
   };
   fs.mkdirSync(directory, { recursive: true });
-  const passes: Array<{ frames: string[]; metrics: unknown[]; images: unknown[] }> = [];
+  const passes: Array<{
+    frames: string[];
+    metrics: unknown[];
+    images: unknown[];
+    adapterDiagnostics: unknown[];
+  }> = [];
   let session: BrowserSession | undefined;
   const signal = cancellationSignal();
   let rejectAbort: (cause: unknown) => void = () => {};
@@ -87,12 +92,37 @@ export async function controlledCapture(
     rejectAbort(signal?.reason ?? new Error("Capture interrupted"));
   };
   signal?.addEventListener("abort", abort, { once: true });
+  let stage = "browser startup";
+  const bounded = async <T>(
+    name: string,
+    seconds: number,
+    action: () => Promise<T>,
+  ): Promise<T> => {
+    stage = name;
+    let stageTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        action(),
+        new Promise<never>((_, reject) => {
+          stageTimer = setTimeout(
+            () => reject(new Error(`Controlled capture ${name} timed out after ${seconds}s`)),
+            seconds * 1000,
+          );
+        }),
+      ]);
+    } catch (error) {
+      throw new Error(
+        `Controlled capture ${name} failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    } finally {
+      clearTimeout(stageTimer);
+    }
+  };
   const timer = setTimeout(() => {
     stopped = true;
     rejectAbort(
-      new Error(
-        `Controlled capture timed out after ${capture.timeoutSeconds}s; check readiness and adapter methods`,
-      ),
+      new Error(`Controlled capture timed out after ${capture.timeoutSeconds}s; stage: ${stage}`),
     );
   }, capture.timeoutSeconds * 1000);
   const collect = async () => {
@@ -102,9 +132,10 @@ export async function controlledCapture(
       const passDir = path.join(directory, passName);
       const frames: string[] = [],
         metrics: unknown[] = [],
-        images: unknown[] = [];
+        images: unknown[] = [],
+        adapterDiagnostics: unknown[] = [];
       // Keep partial measurements when a later frame or adapter call fails.
-      passes.push({ frames, metrics, images });
+      passes.push({ frames, metrics, images, adapterDiagnostics });
       session = new BrowserSession(
         passDir,
         config.browser.headless,
@@ -119,16 +150,25 @@ export async function controlledCapture(
       await session.start();
       check();
       const browser = session;
-      const navigation = await browser.navigate(config.target.url!);
-      if (/^(ERROR|BLOCKED):/m.test(navigation)) throw new Error(navigation);
-      if (capture.readySelector)
-        await browser.page.locator(capture.readySelector).waitFor({ state: "visible" });
-      await browser.page.waitForFunction(
-        (hook) => Boolean((globalThis as unknown as Record<string, unknown>)[hook]),
-        capture.hook,
-      );
+      await bounded(`${passName}/readiness`, capture.readinessTimeoutSeconds, async () => {
+        const navigation = await browser.navigate(
+          config.target.url!,
+          capture.readinessTimeoutSeconds * 1000,
+        );
+        if (/^(ERROR|BLOCKED):/m.test(navigation)) throw new Error(navigation);
+        if (capture.readySelector)
+          await browser.page
+            .locator(capture.readySelector)
+            .waitFor({ state: "visible", timeout: capture.readinessTimeoutSeconds * 1000 });
+        await browser.page.waitForFunction(
+          (hook) => Boolean((globalThis as unknown as Record<string, unknown>)[hook]),
+          capture.hook,
+          { timeout: capture.readinessTimeoutSeconds * 1000 },
+        );
+      });
       const invoke = async (method: string, value?: unknown) => {
         check();
+        stage = `${passName}/adapter.${method}`;
         const before = await browser.preflightOrigin();
         if (before) throw new Error(before);
         const result = await browser.page.evaluate(
@@ -138,7 +178,41 @@ export async function controlledCapture(
             )[hook];
             if (typeof api?.[method] !== "function")
               throw new Error(`Required evaluation adapter ${hook}.${method}() is missing`);
-            return await api[method](value);
+            const result = await api[method](value);
+            if (method === "getDiagnostics") {
+              const message =
+                "Adapter getDiagnostics must return a JSON object no larger than 1 MiB";
+              if (!result || typeof result !== "object" || Array.isArray(result))
+                throw new Error(message);
+              const ancestors = new Set<object>();
+              const pending: Array<{ value: unknown; leaving?: boolean }> = [{ value: result }];
+              while (pending.length) {
+                const { value, leaving } = pending.pop()!;
+                if (leaving) {
+                  ancestors.delete(value as object);
+                  continue;
+                }
+                if (value === null || typeof value === "string" || typeof value === "boolean")
+                  continue;
+                if (typeof value === "number" && Number.isFinite(value)) continue;
+                if (typeof value !== "object" || value === null || ancestors.has(value))
+                  throw new Error(message);
+                if (
+                  !Array.isArray(value) &&
+                  Object.getPrototypeOf(value) !== Object.prototype &&
+                  Object.getPrototypeOf(value) !== null
+                )
+                  throw new Error(message);
+                if (Object.getOwnPropertySymbols(value).length) throw new Error(message);
+                ancestors.add(value);
+                pending.push({ value, leaving: true });
+                for (const child of Array.isArray(value) ? value : Object.values(value))
+                  pending.push({ value: child });
+              }
+              if (new TextEncoder().encode(JSON.stringify(result)).length > 1024 * 1024)
+                throw new Error(message);
+            }
+            return result;
           },
           { hook: capture.hook, method, value },
         );
@@ -164,12 +238,18 @@ export async function controlledCapture(
         );
         const delta = timeSeconds - (schedule[frame - 1]?.timeSeconds ?? 0);
         if (delta > 0) await invoke("advance", delta);
-        await invoke("waitUntilStable");
-        await browser.page.evaluate(
-          () =>
-            new Promise<void>((resolve) =>
-              requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-            ),
+        await bounded(
+          `${passName}/${label}/stability`,
+          capture.readinessTimeoutSeconds,
+          async () => {
+            await invoke("waitUntilStable");
+            await browser.page.evaluate(
+              () =>
+                new Promise<void>((resolve) =>
+                  requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+                ),
+            );
+          },
         );
         if (capture.rendererPattern) {
           const renderer = await browser.page.evaluate(() => {
@@ -183,7 +263,11 @@ export async function controlledCapture(
             throw new Error(`Renderer ${renderer} does not match ${capture.rendererPattern}`);
           writeJson(path.join(passDir, "renderer.json"), { renderer });
         }
-        const shot = await browser.screenshot(label, false);
+        const shot = await bounded(
+          `${passName}/${label}/screenshot`,
+          capture.screenshotTimeoutSeconds,
+          () => browser.screenshot(label, false, capture.screenshotTimeoutSeconds * 1000),
+        );
         const file = path.join(passDir, shot.relPath);
         frames.push(file);
         evidence.screenshots.push({
@@ -226,6 +310,17 @@ export async function controlledCapture(
             name: `${passName}/${label}/${check.name}`,
           })),
         );
+        const hasDiagnostics = await browser.page.evaluate((hook) => {
+          const api = (globalThis as unknown as Record<string, Record<string, unknown>>)[hook];
+          if (api && "getDiagnostics" in api && typeof api.getDiagnostics !== "function")
+            throw new Error("Optional adapter getDiagnostics must be a function");
+          return typeof api?.getDiagnostics === "function";
+        }, capture.hook);
+        if (hasDiagnostics) {
+          const diagnostics = await invoke("getDiagnostics");
+          adapterDiagnostics.push({ label, timeSeconds, data: diagnostics });
+          writeJson(path.join(passDir, "adapter-diagnostics.json"), adapterDiagnostics);
+        }
         if (frame) {
           const diff = await compareImages(
             requireDefined(frames[frame - 1], "frames[frame - 1]"),
@@ -304,7 +399,7 @@ export async function controlledCapture(
     await Promise.race([task, aborted]);
     const failed = evidence.captureChecks!.filter((check) => !check.pass);
     evidence.observations = [
-      "Instrumented evidence: reset, seed, setup, stability and metrics are supplied by the project adapter.",
+      "Instrumented evidence: reset, seed, setup, stability, metrics and optional diagnostics are supplied by the project adapter.",
       `${evidence.captureChecks!.length} deterministic checks; ${failed.length} failed.`,
       ...failed.map((check) => `${check.name}: ${JSON.stringify(check)}`),
     ];

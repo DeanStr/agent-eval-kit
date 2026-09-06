@@ -1,4 +1,5 @@
-import { omitUndefined } from "./invariants.js";
+import { omitUndefined, requireDefined } from "./invariants.js";
+import { scoringConfigPath, scoringDefinitionFiles } from "./run/inputs.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -53,6 +54,10 @@ const REPORT_UPDATE_FILES = new Set([
   "report.html",
   "report.json",
 ]);
+const reportUpdatePath = (file: string) =>
+  REPORT_UPDATE_FILES.has(file) ||
+  file === scoringConfigPath ||
+  /^scoring-definitions\/specs\/[A-Za-z0-9][A-Za-z0-9._-]*\.yaml$/.test(file);
 const MANUAL_PLACEHOLDER = "pass | partial | fail | not_found";
 
 export function writeManualFiles(
@@ -216,7 +221,7 @@ export function writeHtml(runDir: string, report: RunReport): void {
   const strata = stratumRows(report);
   const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(report.project)} evaluation</title><style>
 body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;color:#1f2328;max-width:1120px;margin:2rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #d0d7de;padding:.45rem .65rem;text-align:left;vertical-align:top}th{background:#f6f8fa}.headline{font-size:2rem;font-weight:750}.headline span{font-size:1rem;color:#57606a;margin-left:.8rem}.low{color:#cf222e;font-weight:650}.warn{background:#fff8c5;border:1px solid #d4a72c;border-radius:6px;padding:.7rem 1rem}.shots{display:flex;flex-wrap:wrap;gap:12px}figure{margin:0}figcaption,small{color:#57606a;font-size:12px}section{border-top:1px solid #d0d7de;margin-top:2rem;padding-top:1rem}details{margin:.55rem 0}summary{cursor:pointer}code{font-size:.9em}</style></head><body>
-<h1>${escapeHtml(report.project)} evaluation</h1><p>Run ${escapeHtml(report.runId)} · ${escapeHtml(report.startedAt)} → ${escapeHtml(report.finishedAt)}<br>Agent: ${escapeHtml(report.providers.agent.provider)}${report.providers.agent.model ? `/${escapeHtml(report.providers.agent.model)}` : ""} · Judge: ${escapeHtml(report.providers.judge.provider)}${report.providers.judge.model ? `/${escapeHtml(report.providers.judge.model)}` : ""}</p>${gateHeadline}${headline}<p>${report.manualPending} item(s) await manual verification.</p>
+<h1>${escapeHtml(report.project)} evaluation</h1><p>Run ${escapeHtml(report.runId)} · ${escapeHtml(report.startedAt)} → ${escapeHtml(report.finishedAt)}<br>Agent: ${escapeHtml(report.providers.agent.provider)}${report.providers.agent.model ? `/${escapeHtml(report.providers.agent.model)}` : ""} · Judge: ${escapeHtml(report.providers.judge.provider)}${report.providers.judge.model ? `/${escapeHtml(report.providers.judge.model)}` : ""}</p>${report.receipt.collection ? `<p>Evidence from collection ${escapeHtml(report.receipt.collection.runId)}. <a href="receipt.json">View provenance</a>.</p>` : ""}${gateHeadline}${headline}<p>${report.manualPending} item(s) await manual verification.</p>
 <h2>Areas</h2><table><thead><tr><th>Area</th><th>Weight</th><th>Score</th><th>Coverage</th><th>Points</th><th>Manual</th></tr></thead><tbody>${tableRows(report)}</tbody></table>
 <h2>Tags</h2><p>Rubric items may carry multiple tags; each row is an independent diagnostic slice.</p><table><thead><tr><th>Tag</th><th>Score</th><th>Coverage</th><th>Points</th></tr></thead><tbody>${tagRows(report)}</tbody></table>${strata ? `<h2>Strata</h2><p>Case-level automatic diagnostic slices; they do not replace the weighted headline score.</p><table><thead><tr><th>Stratum</th><th>Score</th><th>Coverage</th><th>Cases</th></tr></thead><tbody>${strata}</tbody></table>` : ""}${areaSections(report)}</body></html>`;
   fs.writeFileSync(path.join(runDir, "report.html"), html);
@@ -372,6 +377,7 @@ function reportUpdateTransactionDirectory(runDir: string): string {
 }
 
 function replaceFromTransaction(source: string, destination: string): void {
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
   const temporary = `${destination}.tmp-${process.pid}-${crypto.randomUUID()}`;
   try {
     fs.copyFileSync(source, temporary, fs.constants.COPYFILE_EXCL);
@@ -404,7 +410,7 @@ export function recoverInterruptedReportUpdate(runDir: string): boolean {
       !entry ||
       typeof entry.path !== "string" ||
       typeof entry.sha256 !== "string" ||
-      !REPORT_UPDATE_FILES.has(entry.path) ||
+      !reportUpdatePath(entry.path) ||
       seen.has(entry.path)
     ) {
       throw new Error("Interrupted report update transaction contains an invalid file entry");
@@ -462,6 +468,7 @@ export function recoverInterruptedReportUpdate(runDir: string): boolean {
     const verification = verifyArtifactIndex(resolved, {
       require: true,
       allowChangedPaths: changedPaths,
+      allowUnindexed: (relative) => changedPaths.includes(relative),
     });
     if (!verification.ok) {
       throw new Error(
@@ -485,6 +492,7 @@ function publishReportUpdateTransaction(options: {
   specs: EvalSpec[];
   manual: Record<string, ManualResultEntry>;
   revisionText?: string;
+  effectiveFiles?: Record<string, Buffer>;
 }): void {
   const runDir = path.resolve(options.runDir);
   const transactionDir = reportUpdateTransactionDirectory(runDir);
@@ -503,9 +511,17 @@ function publishReportUpdateTransaction(options: {
     if (options.revisionText !== undefined) {
       fs.writeFileSync(path.join(staging, "manual-revisions.ndjson"), options.revisionText);
     }
-    const files = fs
-      .readdirSync(staging)
-      .filter((name) => REPORT_UPDATE_FILES.has(name))
+    for (const [relative, bytes] of Object.entries(options.effectiveFiles ?? {})) {
+      if (!reportUpdatePath(relative))
+        throw new Error(`Invalid scoring snapshot path: ${relative}`);
+      const file = path.join(staging, relative);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, bytes);
+    }
+    const files = [
+      ...fs.readdirSync(staging).filter((name) => REPORT_UPDATE_FILES.has(name)),
+      ...Object.keys(options.effectiveFiles ?? {}),
+    ]
       .sort()
       .map((name) => ({ path: name, sha256: sha256(fs.readFileSync(path.join(staging, name))) }));
     const indexFile = path.join(runDir, "artifact-index.json");
@@ -534,7 +550,19 @@ export function writeReportArtifactsRecoverably(
   runDir: string,
   report: RunReport,
   specs: EvalSpec[],
+  effectiveDefinitions?: { config: EvalConfig; specs: EvalSpec[] },
 ): void {
+  const effectiveFiles = effectiveDefinitions
+    ? scoringDefinitionFiles(
+        effectiveDefinitions.config,
+        effectiveDefinitions.specs,
+        report.receipt,
+      )
+    : undefined;
+  if (effectiveFiles) {
+    const bytes = requireDefined(effectiveFiles[scoringConfigPath], "effective scoring config");
+    report.receipt.inputs.scoringConfig = { sha256: sha256(bytes), bytes: bytes.length };
+  }
   const manualFile = path.join(runDir, "manual-results.json");
   const revisionFile = path.join(runDir, "manual-revisions.ndjson");
   publishReportUpdateTransaction(
@@ -542,6 +570,7 @@ export function writeReportArtifactsRecoverably(
       runDir,
       report,
       specs,
+      effectiveFiles,
       manual: fs.existsSync(manualFile)
         ? readJson<Record<string, ManualResultEntry>>(manualFile)
         : {},

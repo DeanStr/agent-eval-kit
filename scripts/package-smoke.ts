@@ -116,6 +116,42 @@ try {
   await run(cli, ["verify", "--run", runDir], consumer);
   assert.ok(fs.existsSync(path.join(runDir, "report.html")));
 
+  await run(cli, ["collect", "--split", "all"], consumer);
+  const collectionDir = fs
+    .readdirSync(runsRoot)
+    .map((name) => path.join(runsRoot, name))
+    .find((dir) => fs.existsSync(path.join(dir, "collection.json")))!;
+  const collectionIndex = fs.readFileSync(path.join(collectionDir, "artifact-index.json"));
+  await run(cli, ["judge", "--evidence", collectionDir, "--fail-under-score", "100"], consumer);
+  const judgingDir = fs
+    .readdirSync(runsRoot)
+    .map((name) => path.join(runsRoot, name))
+    .find((dir) => {
+      const state = JSON.parse(fs.readFileSync(path.join(dir, "run-state.json"), "utf8"));
+      return state.mode === "judge";
+    })!;
+  await run(cli, ["verify", "--run", judgingDir], consumer);
+  await run(
+    cli,
+    [
+      "baseline",
+      "promote",
+      "--config",
+      "evalkit.yaml",
+      "--run",
+      judgingDir,
+      "--name",
+      "main",
+      "--reviewer",
+      "package-smoke",
+    ],
+    consumer,
+  );
+  assert.deepEqual(
+    fs.readFileSync(path.join(collectionDir, "artifact-index.json")),
+    collectionIndex,
+  );
+
   // Launch the installed MCP entry point with production dependencies only.
   // Mock evaluations alone would never start an MCP subprocess.
   const evidence = path.join(scratch, "workspace-evidence");
@@ -184,7 +220,7 @@ try {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
   console.log(
-    "Package smoke passed: tarball install, executable bin, init, validate, run, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
+    "Package smoke passed: tarball install, executable bin, init, validate, run, collect, judge, release promotion, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
   );
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });

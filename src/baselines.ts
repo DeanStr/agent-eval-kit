@@ -1,3 +1,4 @@
+import { evaluatePromotion, PromotionPolicyError } from "./promotion.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -21,6 +22,7 @@ export interface BaselinePromotion {
   reviewer: string;
   promotedAt: string;
   promotionSha256: string;
+  policy?: ReturnType<typeof evaluatePromotion>;
   images?: Record<
     string,
     { file: string; sha256: string; bytes: number; scenario: string; label: string }
@@ -118,6 +120,8 @@ export function promoteBaseline(options: {
   name: string;
   reviewer: string;
   includeImages?: boolean;
+  mode?: "release" | "milestone";
+  reason?: string;
 }): PromotedBaseline {
   const runDir = path.resolve(options.runDir);
   const reviewer = options.reviewer.trim();
@@ -131,6 +135,13 @@ export function promoteBaseline(options: {
   const source = loadComparisonInput(runDir);
   if (!source.report.receipt)
     throw new Error("Only reports with evaluation receipts can be promoted");
+  const policy = evaluatePromotion(
+    options.config,
+    source.report,
+    options.mode ?? "release",
+    options.reason,
+  );
+  if (policy.failures.length) throw new PromotionPolicyError(policy.failures);
   const sourceReportBytes = fs.readFileSync(source.file);
   const baselineReport = compactBaselineReport(source.report);
   const reportBytes = Buffer.from(`${JSON.stringify(baselineReport, null, 2)}\n`);
@@ -168,6 +179,7 @@ export function promoteBaseline(options: {
   }
   const promotionPayload: Omit<BaselinePromotion, "promotionSha256"> = {
     schemaVersion: 1,
+    policy,
     ...(options.includeImages ? { images } : {}),
     baselineName: options.name,
     snapshotId,

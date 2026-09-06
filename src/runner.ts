@@ -10,7 +10,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { loadResumableRunReport } from "./compare.js";
 import type { ConfigOverrides } from "./config.js";
-import { judgeArea } from "./graders.js";
+import { sealCollection } from "./collection.js";
+import { judgeArea, runCommandGrader } from "./graders.js";
 import { writeArtifactIndex } from "./integrity.js";
 import { createTimestampedDirectory, sha256, stableJson, writeJson } from "./io.js";
 import { startLifecycle } from "./lifecycle.js";
@@ -33,6 +34,7 @@ import type {
   EvalSplit,
   RunReport,
   ScenarioEvidence,
+  JudgedItem,
 } from "./types.js";
 
 export interface RunOptions {
@@ -46,6 +48,7 @@ export interface RunOptions {
   ignoredTargetPaths?: string[];
   resumeDir?: string;
   dryRun?: boolean;
+  collectOnly?: boolean;
 }
 
 function createRunDir(root: string): string {
@@ -129,6 +132,17 @@ export async function runEvaluation(
 ): Promise<{ runDir: string; report?: RunReport }> {
   assertEvaluationPlatform();
   throwIfCancelled();
+  if (options.resumeDir) {
+    if (!fs.existsSync(path.join(path.resolve(options.resumeDir), "run-state.json")))
+      throw new Error(
+        `Cannot resume ${path.resolve(options.resumeDir)}: run-state.json does not exist`,
+      );
+    const saved = loadRunState(path.resolve(options.resumeDir));
+    if (saved.mode === "collect" && saved.status === "complete")
+      throw new Error("Collection is sealed; use aek judge --evidence or start a new collection");
+    if (saved.mode !== (options.collectOnly ? "collect" : undefined))
+      throw new Error("Run mode differs; resume using the original collect/run command");
+  }
   const { config, fixtures } = options;
   assertScenarioTargetCompatibility(options.specs, config.target);
   const selectedSplit = options.split ?? "development";
@@ -176,6 +190,14 @@ export async function runEvaluation(
     const existingState = fs.existsSync(stateFile) ? loadRunState(runDir) : undefined;
     if (
       options.resumeDir &&
+      existingState?.mode === "collect" &&
+      existingState.status === "complete"
+    )
+      throw new Error("Collection is sealed; use aek judge --evidence or start a new collection");
+    if (options.resumeDir && existingState?.mode !== (options.collectOnly ? "collect" : undefined))
+      throw new Error("Run mode differs; resume using the original collect/run command");
+    if (
+      options.resumeDir &&
       existingState?.status === "running" &&
       processIsAlive(existingState.pid)
     ) {
@@ -203,6 +225,7 @@ export async function runEvaluation(
         ...(options.ignoredTargetPaths === undefined
           ? {}
           : { ignoredTargetPaths: options.ignoredTargetPaths }),
+        ...(options.collectOnly === undefined ? {} : { collectionOnly: options.collectOnly }),
       },
       runDir,
     );
@@ -231,6 +254,7 @@ export async function runEvaluation(
     }
     const state: RunState = existingState ?? {
       schemaVersion: 1,
+      ...(options.collectOnly ? { mode: "collect" as const } : {}),
       status: "running",
       runId: path.basename(runDir),
       pid: process.pid,
@@ -477,7 +501,39 @@ export async function runEvaluation(
         // can resume with intact inputs without repeating successful setup.
         if (evidence.length || spec.rubric.some((item) => item.grader.type === "text-pairwise"))
           writeArtifactIndex(runDir);
+        if (options.collectOnly) {
+          const commands: JudgedItem[] = [];
+          const commandFile = path.join(runDir, "areas", spec.id, "collected-commands.json");
+          const commandRelative = `areas/${spec.id}/collected-commands.json`;
+          if (
+            spec.scenarios.every((scenario) => reusedScenarios.has(scenario.id)) &&
+            reusePriorEvidence &&
+            sealedPaths.has(commandRelative) &&
+            prefixIsFullySealed(`areas/${spec.id}/`)
+          ) {
+            // Completed checks belong to this collected target revision.
+            continue;
+          }
+          for (const item of spec.rubric.filter((item) => item.grader.type === "command")) {
+            try {
+              commands.push(
+                await runCommandGrader({
+                  item,
+                  config,
+                  runDir,
+                  directory: path.join(runDir, "areas", spec.id, "graders"),
+                }),
+              );
+            } finally {
+              refreshTargetReceipt(`command grader ${item.id}`);
+            }
+          }
+          writeJson(commandFile, commands);
+          writeArtifactIndex(runDir);
+          continue;
+        }
         const judged = await judgeArea({
+          commands: { mode: "execute" },
           config,
           spec,
           evidence,
@@ -518,6 +574,23 @@ export async function runEvaluation(
       await lifecycle.stop();
       lifecycle = undefined;
       throwIfCancelled();
+      if (options.collectOnly) {
+        for (const spec of specs.filter((spec) => !spec.rubric.length)) {
+          for (const scenario of spec.scenarios) {
+            if (allEvidence.has(scenario.id)) continue;
+            const evidence = skippedEvidence(spec, scenario.id, config);
+            evidence.summary =
+              "NOT RUN — no selected scoring scenario required this prerequisite. No evidence was gathered.";
+            writeJson(path.join(runDir, scenario.id, "evidence.json"), evidence);
+          }
+          writeJson(path.join(runDir, "areas", spec.id, "collected-commands.json"), []);
+        }
+        sealCollection(runDir, config, sourceSpecs, selectedSplit, options.scenarioIds);
+        state.status = "complete";
+        writeJson(stateFile, state);
+        logger.line(`Sealed evidence: ${runDir}; judge with aek judge --evidence ${runDir}`);
+        return { runDir };
+      }
       const report = persist();
       state.status = "complete";
       writeJson(stateFile, state);
@@ -533,7 +606,7 @@ export async function runEvaluation(
       state.lastError = error instanceof Error ? error.message : String(error);
       writeJson(stateFile, state);
       logger.line(`FATAL ${state.lastError}`);
-      logger.line(`Resume with: aek run --resume ${runDir}`);
+      logger.line(`Resume with: aek ${options.collectOnly ? "collect" : "run"} --resume ${runDir}`);
       throw error;
     } finally {
       await lifecycle?.stop();

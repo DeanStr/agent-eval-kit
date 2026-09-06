@@ -20,6 +20,8 @@ export interface RunState {
   inputFingerprint: string;
   configOverrides?: ConfigOverrides;
   lastError?: string;
+  mode?: "collect" | "judge";
+  evidenceSource?: string;
 }
 
 const runStateSchema = z
@@ -48,6 +50,8 @@ const runStateSchema = z
       .strict()
       .optional(),
     lastError: z.string().optional(),
+    mode: z.enum(["collect", "judge"]).optional(),
+    evidenceSource: z.string().optional(),
   })
   .strict();
 

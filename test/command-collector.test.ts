@@ -167,6 +167,8 @@ test("command evidence reaches LLM and pairwise grading, seals sources, resumes,
     runDir: result.runDir,
     name: "export",
     reviewer: "test",
+    mode: "milestone",
+    reason: "Reviewed mock export fixture",
     includeImages: true,
   });
   assert.ok(Object.values(baseline.promotion.images!).some((image) => image.label === "export"));

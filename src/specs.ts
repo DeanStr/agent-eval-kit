@@ -167,6 +167,8 @@ const reservedScenarioArtifactIds = new Set(
     "areas",
     "artifact-index.json",
     "comparisons",
+    "collection.json",
+    "scoring-definitions",
     "inputs",
     "lifecycle",
     "manual-checklist.md",
@@ -196,6 +198,19 @@ export function loadSpecFile(file: string): EvalSpec {
 }
 
 export function loadSpecs(specsPath: string): EvalSpec[] {
+  return readSpecs(specsPath, true);
+}
+
+/** Selected snapshots keep original weights and validate the collected workflow. */
+export function loadSelectedSpecs(specsPath: string, split: EvalSplit | "all"): EvalSpec[] {
+  return readSpecs(specsPath, false, split);
+}
+
+function readSpecs(
+  specsPath: string,
+  completeSuite: boolean,
+  split: EvalSplit | "all" = "all",
+): EvalSpec[] {
   if (!fs.existsSync(specsPath)) throw new Error(`Specs path does not exist: ${specsPath}`);
   const stat = fs.statSync(specsPath);
   const files = stat.isDirectory()
@@ -208,6 +223,14 @@ export function loadSpecs(specsPath: string): EvalSpec[] {
   if (!files.length) throw new Error(`No .yaml or .yml specs found in ${specsPath}`);
 
   const specs = files.map(loadSpecFile);
+  const workflowIds = completeSuite
+    ? undefined
+    : new Set(
+        materializeSpecs(specs, split).flatMap((spec) =>
+          spec.scenarios.map((scenario) => scenario.sourceScenarioId ?? scenario.id),
+        ),
+      );
+  const inWorkflow = (id: string) => workflowIds === undefined || workflowIds.has(id);
   const areaIds = new Set<string>();
   const foldedAreaIds = new Map<string, string>();
   const scenarioIds = new Set<string>();
@@ -282,11 +305,12 @@ export function loadSpecs(specsPath: string): EvalSpec[] {
         if (!foldedExecutableIds.has(expandedKey)) foldedExecutableIds.set(expandedKey, expandedId);
       }
       for (const dependency of scenario.dependsOn) {
-        if (!allScenarios.has(dependency))
+        if (inWorkflow(scenario.id) && !allScenarios.has(dependency))
           problems.push(`${scenario.id} depends on unknown scenario ${dependency}`);
       }
     }
     for (const scenario of spec.scenarios) {
+      if (!inWorkflow(scenario.id)) continue;
       for (const dependency of scenario.dependsOn) {
         const dependencyScenario = allScenarios.get(dependency);
         if (!dependencyScenario) continue;
@@ -388,8 +412,10 @@ export function loadSpecs(specsPath: string): EvalSpec[] {
     visited.add(id);
   }
   for (const scenario of allScenarios.values()) {
-    visit(scenario.id);
-    for (const [name, binding] of Object.entries(scenario.inputs ?? {})) {
+    if (inWorkflow(scenario.id)) visit(scenario.id);
+    for (const [name, binding] of Object.entries(
+      inWorkflow(scenario.id) ? (scenario.inputs ?? {}) : {},
+    )) {
       if (!scenario.dependsOn.includes(binding.from))
         problems.push(
           `${scenario.id}.inputs.${name}: ${binding.from} must be declared in dependsOn`,
@@ -411,7 +437,7 @@ export function loadSpecs(specsPath: string): EvalSpec[] {
   const requiredWeight = specs
     .filter((spec) => !spec.optional)
     .reduce((sum, spec) => sum + spec.weight, 0);
-  if (Math.abs(requiredWeight - 100) > 0.0001) {
+  if (completeSuite && Math.abs(requiredWeight - 100) > 0.0001) {
     problems.push(`required area weights must sum to 100; got ${requiredWeight}`);
   }
   if (problems.length) throw new Error(`Spec validation failed:\n  - ${problems.join("\n  - ")}`);
