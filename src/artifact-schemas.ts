@@ -405,6 +405,7 @@ export const campaignRunSchema = z.discriminatedUnion("status", [
   z.object({
     ordinal: z.number().int().positive(),
     status: z.literal("failed"),
+    runDir: id.optional(),
     error: text.refine((value) => Boolean(value.trim()), "Failed runs require an error message"),
   }),
   z.object({

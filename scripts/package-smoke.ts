@@ -107,6 +107,10 @@ try {
   assert.equal(imageReport.gates.passed, false);
   await run(cli, ["verify", "--run", imageRun], consumer);
   assert.equal(fs.existsSync(path.join(installed, "docs", "image-comparison.md")), true);
+  assert.equal(fs.existsSync(path.join(installed, "docs", "configuration.md")), true);
+  const campaignHelp = await run(cli, ["campaign", "compare", "--help"], consumer);
+  assert.match(campaignHelp, /--fail-on-regression/);
+  assert.doesNotMatch(campaignHelp, /--resume/);
   const skillDirectory = path.join(consumer, ".agents", "skills");
   await run(cli, ["author", "install", "--directory", skillDirectory], consumer);
   assert.ok(fs.existsSync(path.join(skillDirectory, "aek-author", "references", "plan.md")));
@@ -116,6 +120,18 @@ try {
   await run(cli, ["author", "install", "--directory", skillDirectory], consumer, 1);
   const authorExample = path.join(consumer, "author-example");
   fs.cpSync(path.join(installed, "examples", "authoring"), authorExample, { recursive: true });
+  const executionPlan = JSON.parse(
+    await run(cli, ["campaign", "--repetitions", "2", "--dry-run", "--json"], authorExample),
+  );
+  assert.equal(executionPlan.version, 2);
+  assert.equal(executionPlan.mode, "campaign");
+  assert.equal(executionPlan.repetitions, 2);
+  assert.ok(
+    executionPlan.areas.some((area: { graders: Array<{ type: string }> }) =>
+      area.graders.some((grader) => grader.type === "command"),
+    ),
+  );
+  assert.equal(fs.existsSync(path.join(authorExample, ".agent-eval")), false);
   await run(cli, ["author", "init"], authorExample);
   await run(cli, ["author", "validate", "--require-ready"], authorExample, 2);
   const authorPlanFile = path.join(authorExample, ".aek-authoring", "plan.json");

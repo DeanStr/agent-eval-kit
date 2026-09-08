@@ -1,6 +1,7 @@
 # Command guide
 
-Use `aek --help` to inspect the installed CLI. This guide groups commands by task;
+Use `aek --help` for the command overview and `aek <command> --help` for exact
+options, including subcommands such as `aek campaign compare --help`. This guide groups commands by task;
 see the [documentation index](README.md) for configuration and evidence formats.
 With a local package installation, use `npx aek` (npm) or `pnpm exec aek` (pnpm).
 
@@ -46,7 +47,8 @@ the generated `evals/ONBOARDING.md` before evaluating your project.
 local tooling and saved provider login without model calls. `list` shows the
 suite's definitions. `run --dry-run` validates the selected execution without
 starting a target or provider or creating a run directory; add `--json` for a
-machine-readable scenario plan. These checks do not establish product quality.
+machine-readable execution plan. See [configuration fields](configuration.md)
+for all YAML defaults and limits. These checks do not establish product quality.
 
 New project runs default to `evalkit.yaml` in the current directory. Paths in the
 configuration resolve from `project.root`, which resolves from the config file.
@@ -69,6 +71,48 @@ Direct text evaluation also supports `--text-cases area/dataset/case,...` or
 `--changed-since <prior-run-directory>`. See [text selection](text-evaluation.md)
 for restrictions and coverage semantics. Unknown flags and unexpected positional
 arguments fail; boolean flags such as `--headed` take no value.
+
+## Execution previews
+
+`run`, `collect`, and `campaign` accept `--dry-run`, with optional `--json`.
+Previews validate the selected inputs without starting services, running evaluator
+commands, making model calls, or creating output directories. `--changed-since`
+also checks local provider versions to compare the prior evaluation method; ordinary
+previews need no provider installation.
+`--resume` cannot be combined with a preview.
+
+The version-2 JSON object contains:
+
+| Field | Meaning |
+| --- | --- |
+| `version`, `mode`, `project`, `suite`, `split`, `repetitions` | Plan identity and repetition count. |
+| `target` | Target kind/URL, setup/start commands, readiness, external-server policy. Environment names are shown without their values. |
+| `services` | Required Chromium, provider roles/purposes, saved personas, and email-auth personas. `version-only` providers are needed for provenance even when no model calls are planned; `browser.collectionPlanned` distinguishes capture from a version probe. Custom command services cannot be inferred. |
+| `executionOrder` | Per-repetition collector and grading phases, with prerequisites before dependents. |
+| `areas[].scenarios` | Selected collectors, dependencies, bindings, required checkpoints, authentication, command/capture settings, declared image/file outputs, and any blockage known from filtering. |
+| `areas[].skippedScenarios` | Scenarios omitted by selection or not reached from scored areas. |
+| `areas[].graders` | All applicable graders, weights, gates, commands/method files, manual/deferred status, and text-case selection. |
+| `areas[].exclusions` | Declared out-of-scope criteria and reasons. |
+| `areas[].judgeGroups` | Per-repetition invocation ranges; ordinary rubric items share an area judge call. |
+| `judgeCalls` | Total and per-repetition conditional minimum/maximum judge invocations. |
+
+The ranges assume a fresh run with every required observation available. Image
+comparisons multiply scenarios by references; text comparisons multiply selected
+cases by references; ordinary repeated judges batch their area's criteria. Campaign
+ranges multiply by repetitions. Adaptive voting selects a count within the range;
+blocked scenarios, missing evidence, or execution failures can reduce it below the
+conditional minimum. These are invocation counts, not token, price, or duration
+estimates. Mock invocations use no model quota.
+
+Scenario filtering does not automatically include filtered prerequisites: the plan
+marks their selected dependents `blocked-by-selection`. Include prerequisites in
+`--scenarios` to exercise the workflow. Runtime authentication, readiness, and
+product outcomes remain unknown until execution. Unselected text cases remain in
+the plan and reduce coverage; their previous judgments are not reused.
+
+`collect` plans command checks but defers scoring/model/manual graders until judging.
+Campaign plans describe the same execution repeated sequentially. The separate
+`aek image compare --dry-run --json` command keeps its image-specific preview format.
 
 ## Execute, recover, and review
 
@@ -104,6 +148,7 @@ See [authentication](../README.md#authentication) and [email](email.md).
 | --- | --- |
 | `aek compare --baseline <good-run> --candidate <new-run> --fail-on-regression` | Compare compatible completed runs and fail on regressions. |
 | `aek campaign --repetitions 5` | Execute the same evaluation sequentially and report stability. |
+| `aek campaign --resume <campaign-directory>` | Continue unstarted repetitions using verified original options and results. |
 | `aek campaign compare --baseline <old-campaign> --candidate <new-campaign>` | Compare repeated-run results. |
 | `aek baseline promote --run <run-directory> --name main --reviewer YOUR_NAME` | Save an immutable baseline under the configured promotion policy. |
 | `aek baseline list` | List promoted baselines. |
@@ -122,6 +167,57 @@ Release baseline promotion defaults to the complete required suite, split `all`,
 split requirement. See [promotion policy](evidence-workflows.md#baseline-promotion-policy)
 before promoting. Promoting a text reference is a separate workflow from accepting
 a scored release baseline.
+
+## Campaign recovery
+
+```sh
+aek campaign --repetitions 5 --split all --fail-under-score 85 --fail-under-coverage 90
+# If interrupted, use the campaign directory printed at startup:
+aek campaign --resume /path/to/campaign
+```
+
+Campaigns save checksummed `campaign-state.json` before each attempt and after
+recording its outcome. Recovery restores the config path, suite/provider overrides,
+area/scenario/split selection, repetition count, and acceptance thresholds. Supply
+only `--resume`; changing those options requires a new campaign.
+
+Completed and failed attempts retain their original ordinal and evidence. Resume
+starts only repetitions that never started; it does not retry a failed attempt or
+replace it with a success. An interrupted attempt counts as failed. A run that
+finished and sealed its report just before campaign publication stopped is recovered
+as complete after integrity verification. Completed campaigns can be reopened
+without executing more repetitions; retained failures still produce exit 1.
+
+Recovery requires unchanged target/evaluator/fixture/provider inputs relative to
+the last checkpoint, or target changes already sealed in the interrupted attempt's
+intact receipt. Later target edits are rejected. Evaluator and candidate source
+inputs must remain fixed throughout the campaign; a checker that changes them
+stops the campaign with a retained checkpoint error. Recovery verifies completed reports against their recorded artifact
+roots, and verifies retained indexed evidence for failed attempts. Changed or
+corrupt evidence fails before more work starts. A campaign lock rejects concurrent
+resumes. Missing run state alongside execution artifacts, or a missing active run
+directory, requires restoration before recovery can proceed; the journal stays
+unchanged. Interruptions before run-state initialization can still be recorded as
+failed attempts when only initialization files remain (input snapshots, lock files,
+or a temporary first state write). The same stale-owner rules as run locks apply.
+Do not resume while orphaned processes from a forcibly killed evaluation are still running.
+
+Before checkpointing a failed attempt, the campaign verifies previously indexed
+evidence and records a separate snapshot in `failed-artifacts/<ordinal>.json` within
+the campaign directory. A refreshed receipt must match the current inputs and run
+state. Managed-server logs may grow only by appending to their previously indexed
+bytes; edits to those bytes or to completed evidence fail. Interrupted report
+rewrites remain diagnostic data. The original run index stays unchanged, so these
+reports do not become trusted results for ordinary run recovery. A campaign resume
+verifies its separate snapshot, including the original run index. `aek verify --run`
+still checks the run's execution index and may report unfinished writes in that
+failed run.
+
+The state journal is authoritative; interrupted `campaign.json`/HTML publication
+is rebuilt from it. Keep the campaign directory, source run directories, config,
+and evaluation inputs. Campaigns created without a recovery journal cannot resume;
+start a new campaign. Lifecycle preparation still runs once per new repetition,
+and application/database reset remains project-owned.
 
 ## Exit statuses
 

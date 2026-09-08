@@ -1,3 +1,4 @@
+import { buildExecutionPlan, formatExecutionPlan } from "./execution-plan.js";
 import { specSourceBytes } from "./specs.js";
 import { assertSavedWorkflowEvidence, bindInputs, validateWorkflowSelection } from "./workflow.js";
 import { withRunLock, loadRunState, processIsAlive, type RunState } from "./run/state.js";
@@ -53,6 +54,8 @@ export interface RunOptions {
   dryRunJson?: boolean;
   collectOnly?: boolean;
   textCaseIds?: string[];
+  previewRepetitions?: number;
+  onRunCreated?: (runDir: string) => void;
 }
 
 function createRunDir(root: string): string {
@@ -129,23 +132,8 @@ function dependencyBlockedEvidence(
   };
 }
 
-export async function runEvaluation(
-  options: RunOptions,
-): Promise<{ runDir: string; report?: RunReport }> {
-  assertEvaluationPlatform();
-  throwIfCancelled();
-  if (options.resumeDir) {
-    if (!fs.existsSync(path.join(path.resolve(options.resumeDir), "run-state.json")))
-      throw new Error(
-        `Cannot resume ${path.resolve(options.resumeDir)}: run-state.json does not exist`,
-      );
-    const saved = loadRunState(path.resolve(options.resumeDir));
-    if (saved.mode === "collect" && saved.status === "complete")
-      throw new Error("Collection is sealed; use aek judge --evidence or start a new collection");
-    if (saved.mode !== (options.collectOnly ? "collect" : undefined))
-      throw new Error("Run mode differs; resume using the original collect/run command");
-  }
-  const { config, fixtures } = options;
+export async function prepareEvaluation(options: RunOptions): Promise<EvalSpec[]> {
+  const { config } = options;
   assertScenarioTargetCompatibility(options.specs, config.target);
   assertEmailConfiguration(options.specs, config);
   const selectedSplit = options.split ?? "development";
@@ -169,57 +157,41 @@ export async function runEvaluation(
       if (!known.has(id)) throw new Error(`Unknown text case selector ${id}`);
   }
   validateWorkflowSelection(specs);
-  const sourceSpecs = options.specs;
   assertScenarioSelectors(specs, options.scenarioIds, selectedSplit);
-  await validateEvaluationInputs(config, sourceSpecs, selectedSplit, options.scenarioIds);
+  await validateEvaluationInputs(config, options.specs, selectedSplit, options.scenarioIds);
+  return specs;
+}
+
+export async function runEvaluation(
+  options: RunOptions,
+): Promise<{ runDir: string; report?: RunReport }> {
+  assertEvaluationPlatform();
+  throwIfCancelled();
+  if (options.resumeDir) {
+    if (!fs.existsSync(path.join(path.resolve(options.resumeDir), "run-state.json")))
+      throw new Error(
+        `Cannot resume ${path.resolve(options.resumeDir)}: run-state.json does not exist`,
+      );
+    const saved = loadRunState(path.resolve(options.resumeDir));
+    if (saved.mode === "collect" && saved.status === "complete")
+      throw new Error("Collection is sealed; use aek judge --evidence or start a new collection");
+    if (saved.mode !== (options.collectOnly ? "collect" : undefined))
+      throw new Error("Run mode differs; resume using the original collect/run command");
+  }
+  const { config, fixtures } = options;
+  const selectedSplit = options.split ?? "development";
+  const sourceSpecs = options.specs;
+  const specs = await prepareEvaluation(options);
   if (options.dryRun) {
-    const isSelected = (scenario: EvalSpec["scenarios"][number]) =>
-      !options.scenarioIds?.length ||
-      options.scenarioIds.includes(scenario.id) ||
-      Boolean(scenario.sourceScenarioId && options.scenarioIds.includes(scenario.sourceScenarioId));
-    if (options.dryRunJson) {
-      console.log(
-        JSON.stringify({
-          version: 1,
-          areas: specs.map((spec) => ({
-            id: spec.id,
-            scenarios: spec.scenarios.filter(isSelected).map((scenario) => ({ id: scenario.id })),
-          })),
-        }),
-      );
-      return { runDir: "(dry-run)" };
-    }
-    for (const spec of specs) {
-      console.log(
-        `${spec.id} (${spec.weight}${spec.optional ? ", optional" : ""}) — ${spec.title}`,
-      );
-      for (const scenario of spec.scenarios) {
-        const selected = isSelected(scenario);
-        console.log(
-          `  ${selected ? ">" : "~"} ${scenario.id} [${scenario.kind ?? (config.target.kind === "web" ? "browser" : "workspace")}] ${scenario.name}`,
-        );
-      }
-      for (const [dataset, cases] of Object.entries(spec.datasets ?? {}))
-        for (const c of cases) {
-          const id = `${spec.id}/${dataset}/${c.id}`;
-          console.log(
-            `  ${options.textCaseIds === undefined || options.textCaseIds.includes(id) ? ">" : "~"} ${id} [text] ${c.name ?? c.id}`,
-          );
-        }
-      for (const item of spec.exclusions ?? [])
-        console.log(`    ${item.id} w${item.weight} EXCLUDED: ${item.reason}`);
-      for (const rubric of spec.rubric) {
-        console.log(
-          `    ${rubric.id} w${rubric.weight} ${rubric.grader.type}${rubric.gate ? " GATE" : ""} [${rubric.tags.join(", ")}]`,
-        );
-      }
-    }
+    const plan = buildExecutionPlan(options, specs);
+    console.log(options.dryRunJson ? JSON.stringify(plan) : formatExecutionPlan(plan));
     return { runDir: "(dry-run)" };
   }
 
   const runDir = options.resumeDir
     ? path.resolve(options.resumeDir)
     : createRunDir(config.paths.runs);
+  options.onRunCreated?.(runDir);
   const stateFile = path.join(runDir, "run-state.json");
   if (options.resumeDir && !fs.existsSync(stateFile)) {
     throw new Error(`Cannot resume ${runDir}: run-state.json does not exist`);

@@ -464,7 +464,7 @@ judge:
     minimumConfidence: 0.55
 ```
 
-The collector runs once. Each vote uses a fresh judge context over the same sealed evidence, with an independent decision for each rubric and case. Existing confidence labels map to high=1, medium=0.7, low=0.3 for the configured cutoff. Missing/low-confidence judgements count as abstentions. Aggregate passes still require every applicable case to pass. Omitting `judge.voting` preserves single-judge behavior. Hybrid manual shares remain unchanged.
+The collector runs once. Each vote uses a fresh judge context over the same sealed evidence, with an independent decision for each rubric and case. Existing confidence labels map to high=1, medium=0.7, low=0.3 for the configured cutoff. Explicit abstentions and otherwise valid judgments below `minimumConfidence` count as abstentions. Missing, duplicate, or unexpected required judgments are execution errors and abort the run. Aggregate passes still require every applicable case to pass. Omitting `judge.voting` preserves single-judge behavior. Hybrid manual shares remain unchanged.
 
 `judge.concurrency` (1–8, default 1) bounds concurrent pairwise rubric workers. Votes and references within each worker remain sequential. Failed workers stop queued work, and active workers drain before the run lock is released.
 

@@ -276,11 +276,13 @@ For a deployed web app, omit `setup` and `start`; `ready` is optional but useful
 
 Interrupting `run` or `campaign` with Ctrl+C (`SIGINT`) or `SIGTERM` stops active provider, grader, setup, readiness, and managed target processes before returning exit status 130 or 143. The interrupted run is marked failed and its lock is released. Campaigns retain the interrupted repetition and do not start further repetitions. Timeout cleanup waits for the entire process group, including descendants that outlive the original command.
 
-`aek run --dry-run --json` validates inputs and prints a version-1 JSON plan:
-`{ "version": 1, "areas": [{ "id": "area", "scenarios": [{ "id": "scenario" }] }] }`.
-Scenario lists contain only the selected executable cases after split and case
-expansion. This starts no target or provider and creates no run. Coordinators
-can use the plan to validate arguments and choose required services before setup.
+`aek run --dry-run --json` validates inputs and prints a version-2 execution plan,
+including collectors, graders, dependency order, required services, and conditional
+judge-call ranges. `collect` and `campaign` support the same preview flags. No target
+or provider starts and no output directory is created. See [execution previews](docs/cli.md#execution-previews).
+
+See the [configuration reference](docs/configuration.md) for every config field,
+default, limit, and override rule.
 
 ## Specs
 
@@ -568,6 +570,11 @@ Coding-agent results are stochastic, so AEK can execute the same resolved evalua
 aek campaign --repetitions 5
 aek campaign --repetitions 5 --areas checkout --output .agent-eval/campaigns/checkout
 ```
+
+Resume an interrupted campaign with `aek campaign --resume <campaign-directory>`.
+Recovery restores the original options and thresholds, verifies retained artifacts,
+and continues only repetitions that never started. Failed or interrupted attempts
+remain in the results. See [campaign recovery](docs/cli.md#campaign-recovery).
 
 Each repetition remains a normal independently receipted run. `campaign.json` and `campaign.html` report completion failures, score and coverage mean/median/range/standard deviation, deterministic 95% percentile-bootstrap intervals using the complete run as the resampling unit, critical-gate pass rate, and rubric, case, and stratum verdict stability. Aggregate metrics are withheld if evaluator or strict target-input fingerprints differ. Campaigns are deliberately sequential to avoid subscription concurrency and rate-limit surprises. Intervals are descriptive and small repetition counts remain unstable. A campaign does not reset a deployed target's database: use idempotent scenarios, isolated test tenants, or a lifecycle setup command that restores state between runs.
 

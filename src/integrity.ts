@@ -27,6 +27,8 @@ export interface IntegrityVerification {
 }
 
 export interface IntegrityOptions {
+  /** A separately anchored checkpoint; leaves the run's own index authoritative for execution. */
+  index?: ArtifactIndex;
   require?: boolean;
   allowUnindexed?: boolean | ((relativePath: string) => boolean);
   allowChangedRoles?: ArtifactIndexEntry["role"][];
@@ -153,15 +155,30 @@ function validRelativePath(value: string): boolean {
   return normalized === value && normalized !== ".." && !normalized.startsWith("../");
 }
 
-export function writeArtifactIndex(runDir: string): ArtifactIndex {
+export function createArtifactIndex(
+  runDir: string,
+  options: { includeRunIndex?: boolean } = {},
+): ArtifactIndex {
   const resolved = path.resolve(runDir);
   const entries = collect(resolved);
+  if (options.includeRunIndex) {
+    const file = path.join(resolved, INDEX_FILE);
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile()) throw new Error(`Run artifact index is not a regular file: ${file}`);
+    entries.push({
+      path: INDEX_FILE,
+      role: "artifact",
+      bytes: stat.size,
+      sha256: sha256File(file),
+    });
+    entries.sort((left, right) => left.path.localeCompare(right.path));
+  }
   const payload: Omit<ArtifactIndex, "rootSha256"> = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
     algorithm: "sha256",
     exclusions: [
-      "artifact-index.json (self)",
+      ...(options.includeRunIndex ? [] : ["artifact-index.json (self)"]),
       "manual-results.json (editable review input)",
       ".run.lock (exclusive execution lock)",
       "run-state.json and run.log (mutable lifecycle state)",
@@ -171,6 +188,12 @@ export function writeArtifactIndex(runDir: string): ArtifactIndex {
     entries,
   };
   const index: ArtifactIndex = { ...payload, rootSha256: artifactIndexRoot(payload) };
+  return index;
+}
+
+export function writeArtifactIndex(runDir: string): ArtifactIndex {
+  const resolved = path.resolve(runDir);
+  const index = createArtifactIndex(resolved);
   writeJson(path.join(resolved, INDEX_FILE), index);
   return index;
 }
@@ -181,7 +204,7 @@ export function verifyArtifactIndex(
 ): IntegrityVerification {
   const resolved = path.resolve(runDir);
   const file = path.join(resolved, INDEX_FILE);
-  if (!fs.existsSync(file)) {
+  if (options.index === undefined && !fs.existsSync(file)) {
     return options.require
       ? { ok: false, errors: [`Missing ${INDEX_FILE} in ${resolved}`] }
       : { ok: true, errors: [] };
@@ -190,14 +213,22 @@ export function verifyArtifactIndex(
   const errors: string[] = [];
   let index: ArtifactIndex;
   try {
-    index = JSON.parse(fs.readFileSync(file, "utf8")) as ArtifactIndex;
+    index =
+      options.index === undefined
+        ? (JSON.parse(fs.readFileSync(file, "utf8")) as ArtifactIndex)
+        : options.index;
   } catch (error) {
     return {
       ok: false,
       errors: [`Invalid ${INDEX_FILE}: ${error instanceof Error ? error.message : String(error)}`],
     };
   }
-  if (index.schemaVersion !== 1 || index.algorithm !== "sha256" || !Array.isArray(index.entries)) {
+  if (
+    !index ||
+    index.schemaVersion !== 1 ||
+    index.algorithm !== "sha256" ||
+    !Array.isArray(index.entries)
+  ) {
     return { ok: false, index, errors: [`Invalid ${INDEX_FILE} schema`] };
   }
   const paths = new Set<string>();

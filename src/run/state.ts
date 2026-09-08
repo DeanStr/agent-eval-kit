@@ -25,6 +25,19 @@ export interface RunState {
   evidenceSource?: string;
 }
 
+export const configOverridesSchema = z
+  .object({
+    suite: z.string().optional(),
+    targetUrl: z.string().optional(),
+    agentProvider: z.enum(["codex", "claude", "grok", "mock"]).optional(),
+    judgeProvider: z.enum(["codex", "claude", "grok", "mock"]).optional(),
+    agentModel: z.string().optional(),
+    judgeModel: z.string().optional(),
+    maxTurns: z.number().int().positive().optional(),
+    headed: z.boolean().optional(),
+  })
+  .strict();
+
 const runStateSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -39,19 +52,7 @@ const runStateSchema = z
     selectedSplit: z.enum(["development", "evaluation", "all"]).optional(),
     specHashes: z.record(z.string(), z.string()),
     inputFingerprint: z.string().min(1),
-    configOverrides: z
-      .object({
-        suite: z.string().optional(),
-        targetUrl: z.string().optional(),
-        agentProvider: z.enum(["codex", "claude", "grok", "mock"]).optional(),
-        judgeProvider: z.enum(["codex", "claude", "grok", "mock"]).optional(),
-        agentModel: z.string().optional(),
-        judgeModel: z.string().optional(),
-        maxTurns: z.number().int().positive().optional(),
-        headed: z.boolean().optional(),
-      })
-      .strict()
-      .optional(),
+    configOverrides: configOverridesSchema.optional(),
     lastError: z.string().optional(),
     mode: z.enum(["collect", "judge"]).optional(),
     evidenceSource: z.string().optional(),

@@ -44,6 +44,7 @@ checks, and file/integration workflows, including a user-story YAML example.
 
 | Task | Guide |
 | --- | --- |
+| Look up configuration fields, defaults, limits, and precedence | [Configuration reference](configuration.md) |
 | Find commands, selection flags, defaults, and exit statuses | [Command guide](cli.md) |
 | Diagnose setup failures, blocked scenarios, or low coverage | [Troubleshooting](troubleshooting.md) |
 | Interpret score, coverage, and critical gates | [Read the first report](first-run.md#read-the-report) |

@@ -8,6 +8,7 @@ import test from "node:test";
 import YAML from "yaml";
 import { buildCampaignReport } from "../src/campaign.js";
 import { writeArtifactIndex } from "../src/integrity.js";
+import { commandHelp } from "../src/cli-help.js";
 
 const kitRoot = path.resolve(import.meta.dirname, "..");
 const cli = path.join(kitRoot, "src", "cli.ts");
@@ -18,6 +19,79 @@ test("CLI without arguments prints help successfully", () => {
   const result = runCli(kitRoot, []);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Agent Eval Kit/);
+});
+
+test("command and subcommand help lists exact accepted options without loading a project", () => {
+  for (const [args, included, excluded] of [
+    [["run"], "--changed-since", "--repetitions"],
+    [["collect"], "--json", "--judge-model"],
+    [["campaign"], "--resume", "--changed-since"],
+    [["campaign", "compare"], "--allow-incompatible", "--resume"],
+    [["baseline", "list"], "--suite", "--include-images"],
+    [["adjudicate"], "--fail-under-coverage", "--headed"],
+    [["validate"], "--suite", "--run"],
+    [["list"], "--config", "--scenarios"],
+    [["doctor"], "--providers", "--agent"],
+    [["reference", "list"], "--suite", "--reviewer"],
+  ] as const) {
+    const result = runCli(os.tmpdir(), [...args, "--help"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(result.stdout.includes(`Usage: aek ${args.join(" ")}`));
+    assert.ok(result.stdout.includes(included), result.stdout);
+    assert.ok(!result.stdout.includes(excluded), result.stdout);
+    assert.doesNotMatch(result.stdout, /\[run flags\]/);
+  }
+  const invalid = runCli(os.tmpdir(), ["baseline", "typo", "--help"]);
+  assert.equal(invalid.status, 1);
+  assert.match(invalid.stderr, /baseline requires/);
+  assert.throws(
+    () => commandHelp("undocumented", undefined, ["help"], new Set(["help"])),
+    /Missing CLI usage for undocumented/,
+  );
+});
+
+test("collect and campaign JSON previews validate without running graders or creating output", (t) => {
+  const root = temporary();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  writeProject(root);
+  const file = path.join(root, "specs/core.yaml");
+  const spec = YAML.parse(fs.readFileSync(file, "utf8"));
+  spec.rubric.push({
+    id: "MODEL",
+    criterion: "Inspect",
+    passCriteria: "Works",
+    weight: 1,
+    scenarios: ["S1"],
+    grader: { type: "llm" },
+  });
+  fs.writeFileSync(file, YAML.stringify(spec));
+  const collect = runCli(root, ["collect", "--dry-run", "--json"]);
+  assert.equal(collect.status, 0, collect.stderr);
+  const plan = JSON.parse(collect.stdout);
+  assert.equal(plan.mode, "collect");
+  assert.equal(
+    plan.areas[0].graders.find((g: { id: string }) => g.id === "MODEL").status,
+    "deferred",
+  );
+  assert.equal(plan.judgeCalls.maximum, 0);
+  const campaign = runCli(root, [
+    "campaign",
+    "--repetitions",
+    "4",
+    "--dry-run",
+    "--json",
+    "--output",
+    path.join(root, "campaign"),
+  ]);
+  assert.equal(campaign.status, 0, campaign.stderr);
+  const repeated = JSON.parse(campaign.stdout);
+  assert.equal(repeated.mode, "campaign");
+  assert.equal(repeated.repetitions, 4);
+  assert.equal(repeated.judgeCalls.maximum, 4);
+  assert.equal(fs.existsSync(path.join(root, "campaign")), false);
+  assert.equal(fs.existsSync(path.join(root, "runs")), false);
+  const invalid = runCli(root, ["campaign", "--repetitions", "1", "--dry-run", "--json"]);
+  assert.equal(invalid.status, 1);
 });
 
 test("CLI campaigns fail when individually passing repetitions use different target inputs", () => {
@@ -848,16 +922,30 @@ test("JSON planning validates selectors and returns only selected scenarios with
     fs.writeFileSync(specFile, YAML.stringify(spec));
     const result = runCli(root, ["run", "--dry-run", "--json", "--scenarios", "S2"]);
     assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout), {
-      version: 1,
-      areas: [{ id: "core", scenarios: [{ id: "S2" }] }],
-    });
+    const plan = JSON.parse(result.stdout);
+    assert.equal(plan.version, 2);
+    assert.deepEqual(
+      plan.areas[0].scenarios.map((s: { id: string }) => s.id),
+      ["S2"],
+    );
+    assert.equal(plan.areas[0].graders[0].type, "command");
+    assert.ok(plan.areas[0].graders[0].command);
+    assert.equal(plan.judgeCalls.maximum, 0);
     assert.equal(fs.existsSync(path.join(root, "runs")), false);
     const invalid = runCli(root, ["run", "--dry-run", "--json", "--scenarios", "missing"]);
     assert.equal(invalid.status, 1);
     const executing = runCli(root, ["run", "--json"]);
     assert.equal(executing.status, 1);
     assert.match(executing.stderr, /requires --dry-run/);
+    const invalidThreshold = runCli(root, [
+      "run",
+      "--dry-run",
+      "--json",
+      "--fail-under-score",
+      "101",
+    ]);
+    assert.equal(invalidThreshold.status, 1);
+    assert.match(invalidThreshold.stderr, /--fail-under-score/);
     assert.equal(fs.existsSync(path.join(root, "runs")), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -913,9 +1001,11 @@ test("JSON planning stays machine-readable with text-case selection", (t) => {
   fs.writeFileSync(specFile, YAML.stringify(spec));
   const result = runCli(root, ["run", "--dry-run", "--json", "--text-cases", "core/drafts/one"]);
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), {
-    version: 1,
-    areas: [{ id: "core", scenarios: [] }],
-  });
+  const plan = JSON.parse(result.stdout);
+  assert.equal(plan.version, 2);
+  assert.deepEqual(plan.areas[0].scenarios, []);
+  assert.deepEqual(plan.areas[0].graders[0].cases, [{ id: "core/drafts/one", selected: true }]);
+  assert.equal(plan.judgeCalls.minimum, 5);
+  assert.equal(plan.judgeCalls.maximum, 9);
   assert.equal(fs.existsSync(path.join(root, "runs")), false);
 });

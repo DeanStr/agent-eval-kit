@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { commandHelp } from "./cli-help.js";
 import { specSourceBytes } from "./specs.js";
 import { promoteTextReference, listTextReferences } from "./text/references.js";
 import { changedTextCases } from "./text/selection.js";
@@ -8,15 +9,9 @@ import { loadSealedDefinitions, validateEvaluationInputs } from "./run/inputs.js
 import path from "node:path";
 import YAML from "yaml";
 import { captureAuth } from "./auth.js";
-import { throwIfCancelled, withCliSignals } from "./cancellation.js";
+import { withCliSignals } from "./cancellation.js";
 import { listPromotedBaselines, loadPromotedBaseline, promoteBaseline } from "./baselines.js";
-import {
-  buildCampaignReport,
-  campaignRunRecord,
-  createCampaignDirectory,
-  type CampaignRunRecord,
-  writeCampaignArtifacts,
-} from "./campaign.js";
+import { loadCampaignState, runCampaign } from "./campaign-run.js";
 import {
   campaignComparisonFailures,
   compareCampaigns,
@@ -117,7 +112,7 @@ const booleanFlags = new Set([
   "public",
 ]);
 
-function validateCliShape(args: Args): void {
+function allowedCliFlags(args: Args): string[] {
   const knownCommands = new Set([
     "image",
     "author",
@@ -272,15 +267,13 @@ function validateCliShape(args: Args): void {
       allowed =
         args.positionals[0] === "compare"
           ? ["baseline", "candidate", "output", "fail-on-regression", "allow-incompatible"]
-          : [...runFlags, "repetitions", "output"];
+          : [...runFlags, "json", "repetitions", "output"];
       break;
     case "run":
-      if (args.flags.json && (!args.flags["dry-run"] || args.flags.resume))
-        throw new Error("run --json requires --dry-run and cannot resume");
       allowed = [...runFlags, "json", "changed-since", "text-cases"];
       break;
     case "collect":
-      allowed = runFlags.filter(
+      allowed = [...runFlags, "json"].filter(
         (flag) =>
           !["judge", "judge-model", "fail-under-score", "fail-under-coverage"].includes(flag),
       );
@@ -299,6 +292,41 @@ function validateCliShape(args: Args): void {
   }
   if (allowed.includes("config")) allowed.push("suite");
   allowed.push("help");
+  return [...new Set(allowed)];
+}
+
+function validateCliShape(args: Args): void {
+  const allowed = allowedCliFlags(args);
+  const subcommands: Record<string, string[]> = {
+    image: ["compare"],
+    author: ["install", "init", "status", "validate"],
+    baseline: ["promote", "list"],
+    reference: ["promote", "list"],
+    privacy: ["lint"],
+  };
+  const choices = subcommands[args.command];
+  if (
+    choices &&
+    !choices.includes(args.positionals[0] ?? "") &&
+    !(args.flags.help === true && args.positionals.length === 0)
+  )
+    throw new Error(`${args.command} requires ${choices.join(" or ")}`);
+  if (
+    ["run", "collect", "campaign"].includes(args.command) &&
+    args.flags.json &&
+    (!args.flags["dry-run"] || args.flags.resume)
+  )
+    throw new Error(`${args.command} --json requires --dry-run and cannot resume`);
+  if (args.flags.resume && args.flags["dry-run"])
+    throw new Error("--resume cannot be combined with --dry-run");
+  if (
+    args.command === "campaign" &&
+    args.flags.resume &&
+    Object.keys(args.flags).some((flag) => !["resume", "help"].includes(flag))
+  )
+    throw new Error(
+      "campaign --resume restores the original options; supply only --resume <directory>",
+    );
   const unknown = Object.keys(args.flags).filter((flag) => !allowed.includes(flag));
   if (unknown.length)
     throw new Error(
@@ -308,6 +336,13 @@ function validateCliShape(args: Args): void {
     if (booleanFlags.has(flag) && value !== true)
       throw new Error(`--${flag} does not take a value`);
   }
+  for (const flag of [
+    "fail-under-score",
+    "fail-under-coverage",
+    "max-score-drop",
+    "max-coverage-drop",
+  ])
+    if (args.flags[flag] !== undefined) percentageFlag(args, flag);
   const maximumPositionals =
     args.command === "init" ||
     ["image", "author", "baseline", "reference", "campaign", "privacy"].includes(args.command)
@@ -377,7 +412,13 @@ Usage: aek <command> [flags]
       [--resume run-directory] [--fail-under-score pct]
       [--fail-under-coverage pct]
   campaign [--repetitions n]       Run the same evaluation repeatedly, sequentially
-      [run flags] [--output directory]
+      [--config file] [--suite name] [--areas a,b] [--scenarios x,y]
+      [--include-optional] [--split development|evaluation|all]
+      [--url url] [--max-turns n] [--agent provider] [--judge provider]
+      [--agent-model id] [--judge-model id] [--headed]
+      [--fail-under-score pct] [--fail-under-coverage pct]
+      [--dry-run [--json]] [--output directory]
+  campaign --resume directory      Continue unstarted repetitions with original options
   campaign compare --baseline campaign --candidate campaign
       [--output directory] [--fail-on-regression] [--allow-incompatible]
   reference promote --run directory --name name --reviewer name [--config file] [--suite name]
@@ -389,7 +430,11 @@ Usage: aek <command> [flags]
   auth --persona name              Capture a browser login session
        --email                     Use the persona's declared email-login flow
       [--at /login] [--click "Demo login"] [--json]
-  collect [run selection flags]   Seal evidence and executable checks without a judge
+  collect                         Seal evidence and executable checks without a judge
+      [--config file] [--suite name] [--areas a,b] [--scenarios x,y]
+      [--include-optional] [--split development|evaluation|all]
+      [--url url] [--max-turns n] [--agent provider] [--agent-model id]
+      [--headed] [--dry-run [--json]] [--resume collection-directory]
   judge --evidence directory       Judge a sealed collection in a new run
         [--config file] [--judge provider] [--judge-model id]
         [--resume judging-run] [--fail-under-score pct] [--fail-under-coverage pct]
@@ -657,7 +702,9 @@ async function main(): Promise<void> {
   }
   validateCliShape(args);
   if (args.flags.help) {
-    console.log(help);
+    console.log(
+      commandHelp(args.command, args.positionals[0], allowedCliFlags(args), booleanFlags),
+    );
     return;
   }
   if (args.command === "author") {
@@ -1099,10 +1146,13 @@ async function main(): Promise<void> {
     ? stringFlag(args, "resume")
     : undefined;
   const resumeState = resumeFlag ? loadRunState(path.resolve(resumeFlag)) : undefined;
+  const campaignResume = args.command === "campaign" ? stringFlag(args, "resume") : undefined;
+  const campaignState = campaignResume ? loadCampaignState(campaignResume) : undefined;
+  const savedSelection = resumeState ?? campaignState;
   const { file, config, overrides } = configFor(
     args,
-    resumeState?.configFile ?? "evalkit.yaml",
-    resumeState?.configOverrides,
+    savedSelection?.configFile ?? "evalkit.yaml",
+    savedSelection?.configOverrides ? omitUndefined(savedSelection.configOverrides) : undefined,
   );
   const allSpecs = loadSpecs(config.paths.specs);
   assertScenarioTargetCompatibility(allSpecs, config.target);
@@ -1169,93 +1219,53 @@ async function main(): Promise<void> {
 
   const selected = selectSpecs(
     allSpecs,
-    csv(stringFlag(args, "areas")) ?? resumeState?.selectedAreas,
+    csv(stringFlag(args, "areas")) ?? savedSelection?.selectedAreas,
     Boolean(args.flags["include-optional"]),
   );
   const fixtures = loadFixtures(config.paths.fixtures);
   const selectedSplit =
     args.flags.split === undefined
-      ? (resumeState?.selectedSplit ?? splitFlag(args))
+      ? (savedSelection?.selectedSplit ?? splitFlag(args))
       : splitFlag(args);
-  const scenarioIds = csv(stringFlag(args, "scenarios")) ?? resumeState?.selectedScenarios;
+  const scenarioIds = csv(stringFlag(args, "scenarios")) ?? savedSelection?.selectedScenarios;
   assertScenarioSelectors(materializeSpecs(selected, selectedSplit), scenarioIds, selectedSplit);
   if (args.command === "campaign") {
-    if (args.flags["dry-run"] || args.flags.resume)
-      throw new Error("campaign does not support --dry-run or --resume");
-    const repetitions = positiveIntegerFlag(args, "repetitions") ?? 3;
+    const repetitions =
+      campaignState?.plannedRepetitions ?? positiveIntegerFlag(args, "repetitions") ?? 3;
     if (repetitions < 2) throw new Error("--repetitions must be at least 2 for a campaign");
-    const thresholds = omitUndefined({
-      minimumScore: percentageFlag(args, "fail-under-score"),
-      minimumCoverage: percentageFlag(args, "fail-under-coverage"),
-    });
-    const directory = createCampaignDirectory(config, stringFlag(args, "output"));
-    const startedAt = new Date().toISOString();
-    const campaignId = path.basename(directory);
-    const runs: CampaignRunRecord[] = [];
-    const reports: RunReport[] = [];
-    for (let ordinal = 1; ordinal <= repetitions; ordinal++) {
-      throwIfCancelled();
-      console.log(`Campaign ${campaignId}: repetition ${ordinal}/${repetitions}`);
-      try {
-        const result = await runEvaluation({
-          config,
-          configFile: file,
-          specs: selected,
-          fixtures,
-          ...(scenarioIds === undefined ? {} : { scenarioIds: scenarioIds }),
-          split: selectedSplit,
-          configOverrides: overrides,
-          ignoredTargetPaths: [directory],
-        });
-        if (!result.report) throw new Error("Evaluation completed without a report");
-        reports.push(result.report);
-        runs.push(campaignRunRecord(ordinal, result.runDir, result.report));
-      } catch (error) {
-        runs.push({
-          ordinal,
-          status: "failed",
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-      writeCampaignArtifacts(
-        directory,
-        buildCampaignReport({
-          campaignId,
-          project: config.project.name,
-          startedAt,
-          plannedRepetitions: repetitions,
-          runs,
-        }),
-      );
-      throwIfCancelled();
+    const thresholds =
+      campaignState?.thresholds ??
+      omitUndefined({
+        minimumScore: percentageFlag(args, "fail-under-score"),
+        minimumCoverage: percentageFlag(args, "fail-under-coverage"),
+      });
+    const options = {
+      config,
+      configFile: file,
+      specs: selected,
+      fixtures,
+      split: selectedSplit,
+      configOverrides: overrides,
+      ...omitUndefined({ scenarioIds }),
+    };
+    if (args.flags["dry-run"]) {
+      await runEvaluation({
+        ...options,
+        dryRun: true,
+        dryRunJson: Boolean(args.flags.json),
+        previewRepetitions: repetitions,
+      });
+    } else {
+      await runCampaign({
+        ...options,
+        repetitions,
+        thresholds: omitUndefined(thresholds),
+        ...omitUndefined({ output: stringFlag(args, "output"), resumeCampaign: campaignResume }),
+      });
     }
-    const campaign = buildCampaignReport({
-      campaignId,
-      project: config.project.name,
-      startedAt,
-      plannedRepetitions: repetitions,
-      runs,
-    });
-    const artifacts = writeCampaignArtifacts(directory, campaign);
-    console.log(
-      `Campaign complete: ${campaign.coverage.completedRuns}/${repetitions} runs; artifacts ${artifacts.json}, ${artifacts.html}`,
-    );
-    const failures = reports.flatMap((report, index) =>
-      evaluateCiThresholds(report, thresholds).map(
-        (failure) =>
-          `repetition ${runs.filter((run) => run.status === "complete")[index]?.ordinal}: ${failure}`,
-      ),
-    );
-    if (campaign.compatibility.status !== "compatible") {
-      failures.push(
-        `campaign inputs are ${campaign.compatibility.status}; aggregate measurements are unavailable`,
-      );
-    }
-    for (const failure of failures) console.error(`CI campaign failed: ${failure}`);
-    if (runs.some((run) => run.status === "failed")) process.exitCode = 1;
-    else if (failures.length) process.exitCode = 2;
     return;
   }
+
   const changedSince = stringFlag(args, "changed-since");
   if (changedSince && (args.flags["text-cases"] !== undefined || resumeState))
     throw new Error(

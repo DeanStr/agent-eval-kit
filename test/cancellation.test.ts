@@ -125,7 +125,7 @@ for (const phase of ["setup", "readiness", "grading", "campaign"] as const) {
           const campaign = JSON.parse(
             fs.readFileSync(path.join(campaignDir, "campaign.json"), "utf8"),
           );
-          assert.equal(campaign.runs.length, 1);
+          assert.equal(campaign.runs.length, 1, output);
           assert.equal(campaign.coverage.failedRuns, 1);
           assert.equal(campaign.coverage.pendingRuns, 2);
         }

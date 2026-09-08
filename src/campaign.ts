@@ -51,6 +51,7 @@ export interface FailedCampaignRunRecord {
   ordinal: number;
   status: "failed";
   error: string;
+  runDir?: string;
 }
 
 export type CampaignRunRecord = CompleteCampaignRunRecord | FailedCampaignRunRecord;
