@@ -6,6 +6,14 @@ No provider SDK and no API key are required.
 
 This is an early pre-release project. Backward compatibility is not a requirement: configuration, artifact formats, and APIs may change without migration support. Regenerate affected runs and baselines after such changes.
 
+Start with [your first evaluation](docs/first-run.md) for an offline walkthrough,
+or [author evaluations for your whole project](docs/authoring.md) with a guided interview.
+For manual setup, use [onboarding](docs/onboarding.md).
+The [documentation index](docs/README.md) organizes guides by task, including a
+[command guide](docs/cli.md) and [troubleshooting](docs/troubleshooting.md).
+See [evaluation types and boundaries](docs/evaluation-types.md) to choose between
+user-story workflows, image/text comparisons, and other supported checks.
+
 It supports:
 
 - deployed web apps and local web apps (managed setup/start/readiness);
@@ -53,10 +61,26 @@ under `.agent-eval/release/`. Consumers can install the tarball directly:
 ```sh
 npm install --save-dev /path/to/agent-eval-kit-0.4.0.tgz
 npx aek --help
+npx aek init --kind command
 ```
 
+Run these commands in your project's root. Follow the generated
+`evals/ONBOARDING.md` and implement the checker before running the command starter.
+Choose `--kind web`, `repository`, or `artifact` for other targets. For browser
+scenarios, install the matching browser from the consuming project:
+
+```sh
+npx --no-install playwright install chromium
+```
+
+Use `npx aek` for a local npm installation, `pnpm exec aek` for a local pnpm
+installation, or `aek` for a globally linked installation wherever the guides show
+`aek`. Commands beginning with `pnpm aek` or referencing repository examples
+assume you are working from this source checkout. The offline first-run example
+requires the checkout; the tarball includes the text-datasets and authoring examples.
+
 No repository clone, TypeScript build, or development dependencies are needed in
-the consuming project. The package includes the text-datasets example. Provider CLIs and browser dependencies still apply to the
+the consuming project. The package includes text-datasets and authoring examples plus the authoring skill. Provider CLIs and browser dependencies still apply to the
 selected evaluation mode. For a published GitHub release, download its `.tgz` and
 matching `.sha256`, verify with `sha256sum -c`, then install the tarball.
 
@@ -68,9 +92,9 @@ Adding the workflow does not publish a release or establish npm registry availab
 
 - Linux is the validated runtime. Native Windows evaluation is unsupported and fails before launch. On Windows, run inside WSL using Linux Node.js, provider CLIs, and browser dependencies—not Windows executables through WSL interop. macOS is not yet CI-certified.
 - Node.js 20.19+
-- pnpm (or npm)
-- at least one supported CLI, already signed into a subscription
-- Playwright Chromium for browser scenarios (`pnpm exec playwright install chromium`)
+- pnpm for source development, or npm/pnpm to consume the built package
+- at least one supported CLI, already signed into a subscription, for real agent collection or model judging; the offline walkthrough needs none
+- Playwright Chromium for browser scenarios (`pnpm exec playwright install chromium`); text, workspace, and command-only evaluations do not need it
 
 ```bash
 # Codex: choose “Sign in with ChatGPT”
@@ -86,7 +110,7 @@ grok login
 Verify the machine without spending model quota:
 
 ```bash
-pnpm aek doctor
+aek doctor
 ```
 
 When `evalkit.yaml` is present, `doctor` requires only its configured providers
@@ -162,6 +186,21 @@ aek judge --evidence .agent-eval/runs/<collection-id> --judge claude
 
 See [collecting and judging separately](docs/evidence-workflows.md) for evidence
 compatibility, rubric changes, recovery, and baseline promotion policies.
+
+## Guided project authoring
+
+Install the authoring skill into your project's agent skill directory:
+
+```sh
+npx aek author install
+```
+
+Then ask your coding agent: “Use $aek-author to survey this whole project, ask me
+about missing product expectations, and build an evaluation suite.” The skill
+supports project discovery, focused interview rounds, saved decisions, existing-kit
+updates, and good/defect calibration. `aek author status` reports progress from the
+persistent `.aek-authoring/plan.json` map, separately from evaluation scores and
+rubric evidence coverage. See [project authoring](docs/authoring.md).
 
 ## Configuration
 
@@ -400,6 +439,18 @@ style-guided revisions, and separate voice and editorial-quality evaluations.
 See the [dataset example](examples/text-datasets/README.md) for shared voice, quality, and policy suites. See [text evaluation](docs/text-evaluation.md) for the full configuration. Direct text grading requires no collection scenario.
 
 ## Visual evaluation and repeated judges
+
+Compare two existing images without writing a config or collector:
+
+```bash
+aek image compare --candidate new.png --reference approved.png \
+  --criterion "Labels are readable and the main action is easy to find."
+```
+
+The default policy accepts improvement or observed equivalence. Add
+`--policy preference` to require improvement, or `--absolute-criterion` for a
+separate quality gate. See the [two-file image guide](docs/image-comparison.md)
+for previewing, providers, reports, and recovery.
 
 Use controlled browser adapters to capture reproducible PNGs and temporal frames, then grade deterministic checks and blind comparisons against reference images or image-bearing baselines. Pairwise judges distinguish observed equivalence from abstention, retain every vote, and resume without recollecting completed evidence. Ordinary rubric judges can also vote repeatedly over fixed evidence.
 

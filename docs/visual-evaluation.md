@@ -11,6 +11,13 @@ evidence, not proof that the application rendered an empty or broken component.
 Use a separate project-owned browser check when an opaque preview must be verified;
 do not weaken the application's sandbox to make it visible to the evaluator.
 
+## Compare existing images
+
+For two local files, use `aek image compare --candidate new.png --reference old.png
+--criterion "Labels are readable"`. AEK generates the collection setup and runs
+blind repeated judging. See [direct image comparison](image-comparison.md) for a
+walkthrough, optional absolute-quality gates, and every command flag.
+
 ## Try the example
 
 ```bash

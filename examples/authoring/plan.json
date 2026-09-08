@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "scope": {"mode": "project", "description": "The example cart calculation module", "reviewedBy": "synthetic example author"},
+  "config": "evalkit.yaml",
+  "discovery": {"sources": [{"kind": "document", "ref": "README.md: synthetic example requirements"}], "remaining": []},
+  "areas": [{"id": "cart", "title": "Cart calculation", "sources": [{"kind": "document", "ref": "README.md"}]}],
+  "decisions": [{"id": "D-CENTS", "question": "What unit represents prices and totals?", "dependsOn": [], "resolution": {"answer": "Integer cents.", "source": {"kind": "document", "ref": "README.md: synthetic example requirements"}}}],
+  "requirements": [
+    {
+      "id": "QUANTITY", "area": "cart", "statement": "Quantity contributes to the cart total.",
+      "sources": [{"kind": "document", "ref": "README.md: synthetic example requirements"}],
+      "priority": "critical", "decisionIds": ["D-CENTS"], "dependsOn": [],
+      "acceptance": "Two items priced at 500 cents total 1000 cents.",
+      "evidence": "The checker executes total() and retains actual and independently expected cents.",
+      "preparation": "No external state; run in the copied example directory.", "confirmedBy": "synthetic example author",
+      "checks": [{"area": "cart", "rubric": "QUANTITY"}], "trials": []
+    },
+    {
+      "id": "EMPTY", "area": "cart", "statement": "An empty cart totals zero.",
+      "sources": [{"kind": "document", "ref": "README.md: synthetic example requirements"}],
+      "priority": "normal", "decisionIds": ["D-CENTS"], "dependsOn": [],
+      "acceptance": "An empty list of items returns zero cents.",
+      "evidence": "The checker executes total([]) and records actual and expected zero.",
+      "preparation": "No external state.", "confirmedBy": "synthetic example author",
+      "checks": [{"area": "cart", "rubric": "EMPTY"}], "trials": []
+    }
+  ]
+}

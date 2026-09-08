@@ -1,0 +1,10 @@
+version: 1
+project: { name: Authoring walkthrough, root: . }
+target: { kind: command }
+agent: { provider: mock }
+judge: { provider: mock }
+paths:
+  specs: specs
+  runs: .agent-eval/runs
+  auth: .agent-eval/auth
+scoring: { partialCredit: 0.5, minimumCoverage: 100 }

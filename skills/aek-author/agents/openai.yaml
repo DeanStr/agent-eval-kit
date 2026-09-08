@@ -1,0 +1,4 @@
+interface:
+  display_name: "AEK Evaluation Author"
+  short_description: "Build project evals through discovery and interviews"
+  default_prompt: "Use $aek-author to survey this project, clarify its requirements with me, and build a runnable evaluation suite."

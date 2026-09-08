@@ -60,6 +60,9 @@ test("workspace MCP provides bounded read-only evidence and blocks path escapes"
   const evidence = path.join(directory, "evidence");
   fs.mkdirSync(path.join(project, "src"), { recursive: true });
   fs.mkdirSync(path.join(project, "evals"), { recursive: true });
+  fs.mkdirSync(path.join(project, ".aek-authoring"));
+  fs.writeFileSync(path.join(project, ".aek-authoring", "plan.json"), "private acceptance answers");
+  fs.symlinkSync(path.join(project, ".aek-authoring"), path.join(project, "authoring-alias"));
   fs.mkdirSync(path.join(project, ".git"), { recursive: true });
   fs.mkdirSync(path.join(project, "custom-runs"), { recursive: true });
   fs.mkdirSync(path.join(project, "custom-auth"), { recursive: true });
@@ -125,6 +128,23 @@ test("workspace MCP provides bounded read-only evidence and blocks path escapes"
     assert.match(JSON.stringify(listed.content), /src\/hello\.ts/);
     assert.doesNotMatch(JSON.stringify(listed.content), /escape\.txt/);
     assert.doesNotMatch(JSON.stringify(listed.content), /evalkit|rubric/);
+    assert.doesNotMatch(JSON.stringify(listed.content), /aek-authoring|authoring-alias/);
+    for (const protectedPath of [".aek-authoring/plan.json", "authoring-alias/plan.json"]) {
+      const result = await client.callTool({
+        name: "read_file",
+        arguments: { path: protectedPath },
+      });
+      assert.equal(result.isError, true);
+      assert.doesNotMatch(JSON.stringify(result.content), /private acceptance answers/);
+    }
+    const authoringSearch = await client.callTool({
+      name: "search",
+      arguments: { query: "private acceptance answers" },
+    });
+    assert.doesNotMatch(
+      JSON.stringify(authoringSearch.content),
+      /plan.json|private acceptance answers/,
+    );
     assert.doesNotMatch(
       JSON.stringify(listed.content),
       /custom-runs|custom-auth|prior-judge|persona/,

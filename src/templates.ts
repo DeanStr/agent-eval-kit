@@ -124,7 +124,7 @@ scenarios:
   - id: CORE-S1
     name: Deterministic check placeholder
     kind: workspace
-    # The schema requires a scenario. The offline mock performs no inspection;
+    # This optional placeholder performs no inspection with the offline mock;
     # all measured evidence comes from the command grader below.
     instructions: No agent collection is required; the command grader executes the target.
 rubric:
@@ -274,6 +274,11 @@ before adding more scenarios. Score measures judged performance; coverage
 measures how much could be judged. Blocked or insufficient evidence reduces
 coverage; provider/checker failures are execution errors.
 
+For a guided whole-project survey or help extending this kit, install the
+AEK authoring skill with aek author install and ask your coding agent to use
+$aek-author. Decisions and requirement links persist in .aek-authoring/plan.json;
+aek author status reports inventory progress separately from evidence coverage.
+
 ## 4. Calibrate on good and broken behavior
 
 Use a disposable test target. Choose a known-good implementation and write down
@@ -299,12 +304,17 @@ an execution error, not a detected product defect. A blocked scenario, withheld
 score, or lost coverage is not evidence that the checker detected the defect.
 If calibration misses the defect, improve the exercise/evidence/rubric and rerun
 BOTH targets with the new evaluator. Comparisons require matching evaluator
-fingerprints. Command-checker script bytes are tracked as target content, not
-separately as evaluator-method inputs, so review that they stayed unchanged.
+fingerprints. Declare the checker, its dependencies, configuration, and expected
+results in methodFiles, excluding the product implementation. These files are
+snapshotted and hashed as evaluator inputs; changing them makes comparisons
+incompatible. AEK does not infer imports, so review that the list is complete.
 Repeat LLM trials when assessing variability; one pair is a smoke
 check, not a judge-accuracy estimate.
 
-Restore the good target, reset state, and run again. After reviewing this run:
+Restore the good target, reset state, and run aek run --split all. The default
+release promotion policy requires the complete required suite, split all, 100%
+coverage, and passed gates. If you configure a different promotion policy, use
+its required split and thresholds. Finalize required manual reviews, then:
 
 \`\`\`bash
 aek baseline promote --run /path/to/restored-good-run --name main --reviewer YOUR_NAME

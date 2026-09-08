@@ -4,10 +4,16 @@ Onboarding produces a project-owned evaluation definition and evidence that it
 can distinguish a working requirement from a deliberate defect. `aek init`
 writes templates; it does not discover your architecture or invent requirements.
 
+For agent-assisted discovery and generation, use the [project authoring skill](authoring.md).
+It supports whole projects and individual features, records decisions across sessions,
+and validates generated checks. The steps below describe manual setup.
+
 ## Choose a starter
 
-Install and link AEK using the [quick start](../README.md#quick-start), then run
-one of these in your project's root:
+Install the [built package](../README.md#built-package-distribution) or link the
+source checkout using the [quick start](../README.md#quick-start), then run one of
+these in your project's root. For a local npm install, replace `aek` with `npx aek`;
+for a local pnpm install, use `pnpm exec aek`.
 
 | Command | Starting evaluation | Required customization |
 | --- | --- | --- |
@@ -73,16 +79,22 @@ The generated guide contains a calibration procedure and commands:
    produce exit 2; an execution error (exit 1) does not count as detection.
 4. Compare the good and broken run directories with `aek compare --baseline
    /path/to/good-run --candidate /path/to/broken-run --fail-on-regression`.
-5. Restore the good target and rerun. Review and finalize required manual work,
-   then promote that restored run with `aek baseline promote --run
-   /path/to/restored-good-run --name main --reviewer YOUR_NAME`.
+5. Restore the good target and run `aek run --split all`. Review and finalize
+   required manual work, then promote that restored run with `aek baseline
+   promote --run /path/to/restored-good-run --name main --reviewer YOUR_NAME`.
+   The default release promotion policy requires the `all` split, the complete
+   required suite, 100% coverage, and passed gates. If you configure a different
+   [promotion policy](evidence-workflows.md#baseline-promotion-policy), run its
+   required split and meet its thresholds instead.
 
 If the defect is missed, revise the exercise, evidence, or rubric, then rerun
 both targets using the revised evaluator. Changing evaluation inputs invalidates
 comparability; do not override compatibility checks to claim calibration passed.
-Command-checker script bytes are tracked as target content rather than separate
-evaluator-method inputs, so also review that the checker stayed unchanged. One
-pair is a useful smoke check, not a statistical estimate of judge accuracy.
+Command graders must declare `methodFiles`: include the checker, its dependencies,
+configuration, and expected-result files, excluding the product implementation.
+These files are snapshotted and hashed as evaluator inputs; changing them makes
+comparisons incompatible. AEK does not infer imports, so review that the list is
+complete. One pair is a useful smoke check, not a statistical estimate of judge accuracy.
 
 The [first-run walkthrough](first-run.md) demonstrates the full comparison using
 an offline cart example. Your own calibration should exercise your real target.

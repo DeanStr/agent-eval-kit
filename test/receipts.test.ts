@@ -564,6 +564,8 @@ test("dirty Git contents affect resume fingerprints while AEK-owned artifacts do
     assert.equal(result.status, 0, result.stderr);
   }
   const clean = buildRunReceipt({ config, specs: [spec], fixtures });
+  fs.mkdirSync(path.join(root, ".aek-authoring"));
+  fs.writeFileSync(path.join(root, ".aek-authoring", "plan.json"), "interview decisions");
   fs.mkdirSync(config.paths.runs, { recursive: true });
   fs.writeFileSync(path.join(config.paths.runs, "generated.json"), "{}\n");
   const withAekOutput = buildRunReceipt({ config, specs: [spec], fixtures });
@@ -640,6 +642,10 @@ test("non-Git projects fingerprint target contents while excluding managed outpu
   fs.writeFileSync(path.join(config.paths.runs, "generated.json"), "{}\n");
   const withManagedOutput = buildRunReceipt({ config, specs: [spec], fixtures });
   assert.equal(withManagedOutput.inputFingerprint, first.inputFingerprint);
+  fs.mkdirSync(path.join(root, ".aek-authoring"));
+  fs.writeFileSync(path.join(root, ".aek-authoring", "plan.json"), "new interview decisions");
+  const withAuthoring = buildRunReceipt({ config, specs: [spec], fixtures });
+  assert.equal(withAuthoring.inputFingerprint, first.inputFingerprint);
 
   fs.writeFileSync(application, "version two\n");
   const changed = buildRunReceipt({ config, specs: [spec], fixtures });
@@ -725,4 +731,52 @@ test("reusing evidence requires saved collection and judging provenance", (t) =>
   const rebuilt = buildRunReceipt({ ...options, evidenceProvenance: saved });
   assert.equal(rebuilt.inputs.collectionMethodSha256, saved.inputs.collectionMethodSha256);
   assert.deepEqual(rebuilt.runtime.judging, saved.runtime.judging);
+});
+
+test("nested authoring maps never become target changes in Git or non-Git projects", async (t) => {
+  for (const git of [false, true]) {
+    await t.test(git ? "Git" : "non-Git", () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-nested-authoring-"));
+      t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+      const { config, spec, fixtures } = inputs(root);
+      const project = path.join(root, "packages", "cart");
+      fs.mkdirSync(project, { recursive: true });
+      const product = path.join(project, "product.txt");
+      fs.writeFileSync(product, "working product");
+      if (git) {
+        for (const args of [
+          ["init"],
+          ["config", "user.email", "test@example.test"],
+          ["config", "user.name", "Test"],
+          ["add", "."],
+          ["commit", "-m", "fixture"],
+        ]) {
+          const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+          assert.equal(result.status, 0, result.stderr);
+        }
+      }
+      const before = buildRunReceipt({ config, specs: [spec], fixtures });
+      const notes = path.join(project, ".aek-authoring");
+      fs.mkdirSync(notes);
+      fs.writeFileSync(path.join(notes, "plan.json"), "updated interview decisions");
+      assert.equal(
+        buildRunReceipt({ config, specs: [spec], fixtures }).inputFingerprint,
+        before.inputFingerprint,
+      );
+      if (git) {
+        // Exclusions must work for tracked notes too, including staged changes.
+        const staged = spawnSync("git", ["add", "packages"], { cwd: root, encoding: "utf8" });
+        assert.equal(staged.status, 0, staged.stderr);
+        assert.equal(
+          buildRunReceipt({ config, specs: [spec], fixtures }).inputFingerprint,
+          before.inputFingerprint,
+        );
+      }
+      fs.writeFileSync(product, "changed product");
+      assert.notEqual(
+        buildRunReceipt({ config, specs: [spec], fixtures }).inputFingerprint,
+        before.inputFingerprint,
+      );
+    });
+  }
 });

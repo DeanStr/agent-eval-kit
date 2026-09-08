@@ -13,7 +13,7 @@ codex exec review --uncommitted -m gpt-6-astra -c 'model_reasoning_effort="mediu
 
 ## Round 1
 
-Full captured output: [review-01.log](../.agent-eval/text-review-loop/review-01.log).
+Full output was captured locally as `review-01.log` (not distributed).
 The command exited with status 0. Its header confirms model `gpt-6-astra` and
 medium reasoning effort.
 
@@ -33,15 +33,16 @@ manual-review fixes were already part of the reviewed working tree.
 
 - Type checking passed during the review.
 - All 13 text-pairwise tests passed during the review; captured output is in
-  [text-tests.log](../.agent-eval/text-review-loop/text-tests.log).
+  `text-tests.log`.
 - The reviewer's full-suite invocation did not return a final summary before
   the review ended. Its partial output is retained in
-  [reviewer-full-tests-incomplete.log](../.agent-eval/text-review-loop/reviewer-full-tests-incomplete.log)
+  `reviewer-full-tests-incomplete.log`
   and is not counted as a completed check.
 - A separate `pnpm test` run completed successfully: **299 tests passed, zero
   failures**. Output is captured in
-  [full-tests.log](../.agent-eval/text-review-loop/full-tests.log).
+  `full-tests.log`.
 - `git diff --check` passed.
 
-Raw logs are local ignored artifacts under `.agent-eval/text-review-loop/`.
+Raw logs were recorded as local ignored artifacts under `.agent-eval/text-review-loop/`
+and are not distributed with this documentation.
 This record is the committable review summary. All changes remain uncommitted.

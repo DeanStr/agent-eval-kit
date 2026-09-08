@@ -1,0 +1,27 @@
+id: cart
+title: Cart calculation
+weight: 100
+description: Verify the independent quantity and empty-cart requirements.
+scenarios: []
+rubric:
+  - id: QUANTITY
+    criterion: Cart totals account for quantity
+    weight: 3
+    gate: true
+    scenarios: []
+    grader:
+      type: command
+      output: json
+      command: node check.mjs quantity
+      methodFiles: [check.mjs]
+    passCriteria: Two items priced at 500 cents total 1000 cents.
+  - id: EMPTY
+    criterion: An empty cart totals zero
+    weight: 1
+    scenarios: []
+    grader:
+      type: command
+      output: json
+      command: node check.mjs empty
+      methodFiles: [check.mjs]
+    passCriteria: The empty cart totals zero cents.

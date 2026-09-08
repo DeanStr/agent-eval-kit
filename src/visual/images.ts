@@ -14,9 +14,11 @@ import {
 
 // Bound decoded images as well as encoded bytes. Reference inputs are local,
 // explicitly configured evaluator assets, never paths chosen by an agent.
+export const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
+
 export function imageBytes(file: string): Buffer {
   const stat = fs.statSync(file);
-  if (!stat.isFile() || stat.size > 25 * 1024 * 1024)
+  if (!stat.isFile() || stat.size > MAX_IMAGE_BYTES)
     throw new Error(`Image must be a regular file <= 25 MiB: ${file}`);
   return fs.readFileSync(file);
 }

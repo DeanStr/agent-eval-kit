@@ -69,6 +69,7 @@ import {
   type RunReport,
 } from "./types.js";
 import { KIT_VERSION } from "./version.js";
+import { authoringCommand } from "./authoring/cli.js";
 import { assertEvaluationPlatform } from "./platform.js";
 
 interface Args {
@@ -103,6 +104,7 @@ function parseArgs(argv: string[]): Args {
 }
 
 const booleanFlags = new Set([
+  "require-ready",
   "json",
   "email",
   "include-images",
@@ -117,6 +119,8 @@ const booleanFlags = new Set([
 
 function validateCliShape(args: Args): void {
   const knownCommands = new Set([
+    "image",
+    "author",
     "adjudicate",
     "auth",
     "baseline",
@@ -167,6 +171,47 @@ function validateCliShape(args: Args): void {
   ];
   let allowed: string[] = [];
   switch (args.command) {
+    case "image":
+      if (
+        args.positionals[0] !== "compare" &&
+        !(args.flags.help === true && !args.positionals.length)
+      )
+        throw new Error("image requires compare");
+      allowed = [
+        "candidate",
+        "reference",
+        "criterion",
+        "absolute-criterion",
+        "policy",
+        "judge",
+        "judge-model",
+        "judge-effort",
+        "timeout-seconds",
+        "minimum-votes",
+        "maximum-votes",
+        "agreement",
+        "minimum-confidence",
+        "width",
+        "height",
+        "output",
+        "dry-run",
+        "json",
+      ];
+      break;
+    case "author":
+      if (!args.positionals[0] && args.flags.help === true) {
+        allowed = [];
+        break;
+      }
+      if (!["install", "init", "status", "validate"].includes(args.positionals[0] ?? ""))
+        throw new Error("author requires install, init, status, or validate");
+      allowed =
+        args.positionals[0] === "install"
+          ? ["directory"]
+          : args.positionals[0] === "init"
+            ? ["project", "mode", "description"]
+            : ["project", "json", "require-ready"];
+      break;
     case "init":
       allowed = ["kind"];
       break;
@@ -265,7 +310,7 @@ function validateCliShape(args: Args): void {
   }
   const maximumPositionals =
     args.command === "init" ||
-    ["baseline", "reference", "campaign", "privacy"].includes(args.command)
+    ["image", "author", "baseline", "reference", "campaign", "privacy"].includes(args.command)
       ? 1
       : 0;
   if (args.positionals.length > maximumPositionals) {
@@ -302,6 +347,20 @@ const help = `aek — Agent Eval Kit v${KIT_VERSION}
 
 Usage: aek <command> [flags]
 
+  image compare --candidate file --reference file --criterion text
+      [--policy preference|non_regression] [--absolute-criterion text]
+      [--judge codex|claude|grok|mock] [--judge-model id] [--judge-effort value]
+      [--minimum-votes n] [--maximum-votes n] [--agreement fraction]
+      [--minimum-confidence fraction] [--timeout-seconds n]
+      [--width pixels] [--height pixels] [--output new-directory]
+      [--dry-run [--json]]          Compare two local images without a project config
+  author install [--directory .agents/skills]
+                                   Install the project evaluation authoring skill
+  author init [--project directory] [--mode project|feature] [--description text]
+                                   Create a persistent requirements and decision map
+  author status [--project directory] [--json] [--require-ready]
+  author validate [--project directory] [--json] [--require-ready]
+                                   Validate the map, check rubric links and recorded trials
   init [directory] [--kind web|repository|command|artifact]
                                    Create a starter kit and onboarding guide
   validate [--config file]         Validate configuration, specs, and fixture paths
@@ -599,6 +658,15 @@ async function main(): Promise<void> {
   validateCliShape(args);
   if (args.flags.help) {
     console.log(help);
+    return;
+  }
+  if (args.command === "author") {
+    await authoringCommand(args.positionals[0], args.flags);
+    return;
+  }
+  if (args.command === "image") {
+    const { imageCompareCommand } = await import("./visual/direct.js");
+    await imageCompareCommand(args.flags);
     return;
   }
   if (
@@ -1225,7 +1293,7 @@ async function main(): Promise<void> {
   }
 }
 
-const execute = ["run", "campaign", "collect", "judge"].includes(process.argv[2] ?? "")
+const execute = ["image", "run", "campaign", "collect", "judge"].includes(process.argv[2] ?? "")
   ? () => withCliSignals(main)
   : main;
 execute().catch((error) => {

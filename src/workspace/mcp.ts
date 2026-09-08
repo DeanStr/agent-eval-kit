@@ -13,6 +13,7 @@ import { z } from "zod";
 import type { TranscriptEntry } from "../types.js";
 import type { WorkspaceMcpContext, WorkspaceResultState } from "./context.js";
 import { prospectiveRealPath, writeJson } from "../io.js";
+import { AUTHORING_DIRECTORY } from "../authoring/paths.js";
 
 const contextFile = process.argv[2];
 if (!contextFile) {
@@ -35,6 +36,7 @@ let finalized = false;
 const MAX_READ_OUTPUT_CHARACTERS = 32_000;
 
 const excludedDirectories = new Set([
+  AUTHORING_DIRECTORY,
   ".agent-eval",
   ".git",
   ".next",

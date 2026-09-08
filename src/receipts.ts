@@ -1,6 +1,7 @@
 import { specSourceBytes } from "./specs.js";
 import { specMethodHash } from "./text/datasets.js";
 import { textCaseFingerprints } from "./text/selection.js";
+import { AUTHORING_DIRECTORY } from "./authoring/paths.js";
 import { omitUndefined } from "./invariants.js";
 import { graderMethodReceipts } from "./judging/command-inputs.js";
 import { textInputDefinitions, textInputs } from "./text/inputs.js";
@@ -139,7 +140,12 @@ function gitPathspecs(root: string, excludedPaths: string[]): string[] {
     if (!relative || relative === "." || relative === ".." || relative.startsWith("../")) return [];
     return [`:(exclude)${relative}`, `:(exclude)${relative}/**`];
   });
-  return [".", ...exclusions];
+  return [
+    ".",
+    ...exclusions,
+    `:(exclude,glob)**/${AUTHORING_DIRECTORY}`,
+    `:(exclude,glob)**/${AUTHORING_DIRECTORY}/**`,
+  ];
 }
 
 function hashFile(file: string): string {
@@ -189,7 +195,8 @@ function nonGitTreeSha256(root: string, excludedPaths: string[]): string {
       .readdirSync(directory, { withFileTypes: true })
       .sort((left, right) => left.name.localeCompare(right.name))) {
       const absolute = path.join(directory, entry.name);
-      if (excluded(absolute) || entry.name === ".git") continue;
+      if (excluded(absolute) || entry.name === ".git" || entry.name === AUTHORING_DIRECTORY)
+        continue;
       if (entries.length >= MAX_TARGET_ENTRIES) {
         throw new Error(
           `Non-Git target exceeds the ${MAX_TARGET_ENTRIES}-entry fingerprint limit; initialize Git or reduce project.root`,

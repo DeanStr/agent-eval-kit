@@ -74,6 +74,81 @@ try {
   );
   const cli = path.join(consumer, "node_modules/.bin/aek");
   assert.match(await run(cli, ["--help"], consumer), /Agent Eval Kit/);
+  // The authoring workflow must work entirely from the installed package.
+  const imageFile = path.join(consumer, "image.svg");
+  fs.writeFileSync(
+    imageFile,
+    '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60"><rect width="80" height="60" fill="#3274ab"/></svg>',
+  );
+  const imageArgs = [
+    "image",
+    "compare",
+    "--candidate",
+    imageFile,
+    "--reference",
+    imageFile,
+    "--criterion",
+    "Clear shape and contrast",
+    "--judge",
+    "mock",
+    "--minimum-votes",
+    "1",
+    "--maximum-votes",
+    "1",
+  ];
+  const imagePlan = JSON.parse(await run(cli, [...imageArgs, "--dry-run", "--json"], consumer));
+  assert.equal(imagePlan.candidate.width, 80);
+  const imageOutput = path.join(consumer, "image-review");
+  await run(cli, [...imageArgs, "--output", imageOutput], consumer, 2);
+  const imageRuns = path.join(imageOutput, ".agent-eval", "runs");
+  const imageRun = path.join(imageRuns, fs.readdirSync(imageRuns)[0]!);
+  const imageReport = JSON.parse(fs.readFileSync(path.join(imageRun, "report.json"), "utf8"));
+  assert.equal(imageReport.overallCoveragePct, 0);
+  assert.equal(imageReport.gates.passed, false);
+  await run(cli, ["verify", "--run", imageRun], consumer);
+  assert.equal(fs.existsSync(path.join(installed, "docs", "image-comparison.md")), true);
+  const skillDirectory = path.join(consumer, ".agents", "skills");
+  await run(cli, ["author", "install", "--directory", skillDirectory], consumer);
+  assert.ok(fs.existsSync(path.join(skillDirectory, "aek-author", "references", "plan.md")));
+  assert.ok(
+    fs.existsSync(path.join(skillDirectory, "aek-author", "references", "docs", "authoring.md")),
+  );
+  await run(cli, ["author", "install", "--directory", skillDirectory], consumer, 1);
+  const authorExample = path.join(consumer, "author-example");
+  fs.cpSync(path.join(installed, "examples", "authoring"), authorExample, { recursive: true });
+  await run(cli, ["author", "init"], authorExample);
+  await run(cli, ["author", "validate", "--require-ready"], authorExample, 2);
+  const authorPlanFile = path.join(authorExample, ".aek-authoring", "plan.json");
+  fs.copyFileSync(path.join(authorExample, "plan.json"), authorPlanFile);
+  await run(cli, ["author", "validate", "--require-ready"], authorExample);
+  await run(cli, ["run"], authorExample);
+  const authorRuns = path.join(authorExample, ".agent-eval", "runs");
+  const goodAuthorRun = fs.readdirSync(authorRuns)[0]!;
+  const authorTarget = path.join(authorExample, "cart.mjs");
+  const originalAuthorTarget = fs.readFileSync(authorTarget);
+  fs.writeFileSync(
+    authorTarget,
+    "export function total(lines) { return lines.reduce((sum, line) => sum + line.priceCents, 0); }\n",
+  );
+  await run(cli, ["run"], authorExample, 2);
+  const badAuthorRun = fs.readdirSync(authorRuns).find((id) => id !== goodAuthorRun)!;
+  fs.writeFileSync(authorTarget, originalAuthorTarget);
+  const authorPlan = JSON.parse(fs.readFileSync(authorPlanFile, "utf8"));
+  for (const requirement of authorPlan.requirements)
+    requirement.trials = [
+      { kind: "good", run: `.agent-eval/runs/${goodAuthorRun}`, rationale: "Known good fixture" },
+      {
+        kind: "defect",
+        run: `.agent-eval/runs/${badAuthorRun}`,
+        rationale: "Quantity deliberately ignored",
+      },
+    ];
+  fs.writeFileSync(authorPlanFile, JSON.stringify(authorPlan));
+  const authorStatus = JSON.parse(await run(cli, ["author", "status", "--json"], authorExample));
+  assert.deepEqual(
+    authorStatus.requirements.map((entry: { stage: string }) => entry.stage),
+    ["calibrated", "exercised"],
+  );
   // Exercise text datasets and suite/selection/reference commands from the tarball.
   const textExample = path.join(consumer, "text-example");
   fs.cpSync(path.join(installed, "examples/text-datasets"), textExample, {
@@ -351,7 +426,7 @@ console.log(JSON.stringify({ version: 1, outcome: 'completed', summary: 'Sent no
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
   console.log(
-    "Package smoke passed: tarball install, text datasets/suites/selection/reference promotion, file and email collector/checker pass and failure, executable bin, init, validate, run, collect, judge, release promotion, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
+    "Package smoke passed: tarball install, direct two-image comparison, authoring skill/map/calibration, text datasets/suites/selection/reference promotion, file and email collector/checker pass and failure, executable bin, init, validate, run, collect, judge, release promotion, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
   );
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });

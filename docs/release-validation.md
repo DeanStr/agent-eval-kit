@@ -1,5 +1,78 @@
 # Release validation
 
+## Requested authoring/image review loop (2026-09-08)
+
+The requested `codex exec review --uncommitted` loop used `gpt-6-astra` with high
+reasoning effort for three rounds. Two actionable findings were fixed: compressed
+candidates now fail preflight if their PNG evidence would exceed the reader limit,
+and authoring calibration accepts arithmetic roundoff in fully covered hybrid
+scores while still rejecting missing coverage. The third review reported no
+actionable findings. No distinct findings were dismissed as non-actionable.
+
+Validation passed all 515 tests with concurrency limited to four, the final
+reviewer's 40 targeted tests, type checking, lint, formatting, whitespace checks,
+and production-package smoke. The [review record](review-loop-authoring-images-2026-09-08.md)
+contains each finding, disposition, fix rationale, and regression result.
+
+## Uncommitted-change review (2026-09-08)
+
+Review fixes align authoring readiness with execution's scenario-target and email
+validation, preserve literal whitespace in direct-image input/output paths, and
+exclude nested authoring maps from Git and non-Git target fingerprints. Regression
+checks cover invalid browser/email setup, quoted paths with trailing spaces through
+comparison/verification/resume, and nested untracked and staged authoring notes
+while ensuring product changes still affect identity.
+
+The full suite passed 507 tests. Targeted regression suites passed 37 tests after
+the fixes, along with type checking, lint, formatting, whitespace checks, and
+production-package smoke. No live model calls were used.
+
+## Direct image comparison (2026-09-08)
+
+`aek image compare` accepts two local image files and a criterion, generates the
+collection and judging setup, and retains ordinary sealed run artifacts. It
+supports non-regression and strict-preference policies, optional absolute-quality
+gates, repeated votes, previews, and standard run recovery.
+
+Validation passed: 67 relevant CLI, command-collector, visual-contract, visual
+integration, and direct-image tests; type checking, lint, formatting, and
+production-package smoke. Direct tests cover policies, abstention, literal
+criteria, invalid inputs, retained originals, integrity verification, and recovery
+that reuses votes after the original files are removed. Package smoke exercises
+the installed command and docs without a source checkout or dev dependencies.
+Provider responses use local fixtures and mock abstentions; no live model quality
+or provider authentication was tested.
+
+## Project evaluation authoring (2026-09-08)
+
+The packaged `aek-author` skill now supports whole-project discovery, an interview
+with saved decisions, feature updates, suite generation, and calibration. The
+`author` CLI installs the skill, initializes its map, and verifies map structure,
+rubric links, readiness, and recorded trial provenance. Authoring notes remain
+outside workspace evidence and target fingerprints.
+
+Validation passed: 52 distinct relevant tests across authoring, CLI, initialization,
+workspace isolation, and receipts; type checking, lint, formatting, skill structure,
+and production-package smoke. Package smoke includes skill installation and an
+offline good/defect authoring example without development dependencies.
+
+An independent behavioral trial used an isolated two-module project with pricing
+and stock requirements. The skill surveyed the project and asked three
+independent decision questions before generation; simulated
+user answers supplied scope, release importance, and invalid-input policy. It
+generated two areas and four checks, retained three reviewed exclusions, and
+passed validation. One good run passed all four checks. Four separate deliberate
+target defects each failed exactly the intended check, with 100% evidence coverage
+and exit 2. Evaluator fingerprints matched, target identities differed, and the
+original product files were restored byte for byte. Final map status was ready
+with four calibrated requirements and no open decisions or unmapped rubrics.
+
+This is one behavioral skill trial and deterministic contract coverage, not a
+measurement of interviewing quality across users or model-judge accuracy. No live
+evaluation providers or external services were used. Command-only dry-run JSON
+continues to list selected scenario plans rather than command-grader invocations;
+`validate` and the specs identify those rubrics.
+
 ## AgentMail review/fix loop
 
 The requested GPT-6 Astra review command completed nine rounds on 2026-09-06;
@@ -106,7 +179,7 @@ Validated locally on 2026-09-05: type checking, all 314 tests, both browser smok
 
 ## Judging review/fix loop (0.2.2)
 
-The requested `codex exec review --uncommitted -m gpt-6-astra -c 'model_reasoning_effort="medium"'` review completed on 2026-09-05 with no actionable findings in its first round. Type checking, all 286 tests, and diff checks passed. No implementation fixes or finding dismissals were needed. See the [captured result and review decisions](review-loop-judging-2026-09-05.md).
+The requested `codex exec review --uncommitted -m gpt-6-astra -c 'model_reasoning_effort="medium"'` review completed on 2026-09-05 with no actionable findings in its first round. Type checking, all 286 tests, and diff checks passed. No implementation fixes or finding dismissals were needed. The separately recorded `review-loop-judging-2026-09-05.md` is not included in this checkout.
 
 ## Fail-fast judge claims and aggregation (0.2.2)
 
@@ -300,4 +373,4 @@ before failed postflight checks, retained-path collisions between distinct file
 labels, and ZIP filename decoding that ignored the encoding flag. The final review
 reported no actionable findings; all 394 tests, type checking, lint, formatting,
 the production-package smoke with a fresh build, and whitespace checks passed.
-See the [round-by-round findings and decisions](review-loop-2026-09-06.md).
+The separately recorded `review-loop-2026-09-06.md` is not included in this checkout.

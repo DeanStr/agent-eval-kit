@@ -21,11 +21,17 @@
   "files": [
     "dist",
     "docs",
+    "skills",
     "README.md",
     "examples/text-datasets/*.yaml",
     "examples/text-datasets/*.json",
     "examples/text-datasets/*.md",
-    "examples/text-datasets/specs/*.yaml"
+    "examples/text-datasets/specs/*.yaml",
+    "examples/authoring/*.mjs",
+    "examples/authoring/*.yaml",
+    "examples/authoring/*.json",
+    "examples/authoring/*.md",
+    "examples/authoring/specs/*.yaml"
   ],
   "engines": {
     "node": ">=20.19.0"
