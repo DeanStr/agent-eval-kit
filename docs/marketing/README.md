@@ -55,6 +55,6 @@ and the visible search history in [Sakana AI's DGM archive tree](https://sakana.
 The AEK terrain, route, and illustration are original vector work; no reference
 imagery is included in the demo or exports.
 
-The silent 40-second Remotion film has 16:9 and 4:5 exports. Open
+The silent 100-second Remotion film has 16:9 and 4:5 exports. Open
 [the video preview](video.html) after rendering; see
 [video build, references, and eval instructions](../../video/marketing/README.md).

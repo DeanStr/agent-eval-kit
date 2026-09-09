@@ -26,7 +26,7 @@ console.log(
     confidence: "high",
     reasoning: failures.length
       ? failures.join(" ")
-      : "Both exports decode completely: 40 seconds, 1,200 frames at 30 fps, H.264/yuv420p, expected dimensions, and no audio stream.",
+      : "Both exports decode completely: 100 seconds, 3,000 frames at 30 fps, H.264/yuv420p, expected dimensions, and no audio stream.",
     evidenceRefs: ["EXPORT/collector-output/media-report.json"],
   }),
 );

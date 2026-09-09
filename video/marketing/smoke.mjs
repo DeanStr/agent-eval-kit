@@ -1,3 +1,4 @@
+import { DURATION } from "./src/story.mjs";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 const url = process.argv[2];
@@ -18,16 +19,14 @@ try {
   ]) {
     await page.locator(`[data-format=${format}]`).click();
     await page.waitForFunction((id) => document.getElementById(id).readyState >= 1, format);
-    const metadata = await page
-      .locator(`#${format}`)
-      .evaluate((video) => ({
-        duration: video.duration,
-        width: video.videoWidth,
-        height: video.videoHeight,
-        muted: video.muted,
-        visible: !video.hidden,
-      }));
-    assert.deepEqual(metadata, { duration: 40, width, height, muted: true, visible: true });
+    const metadata = await page.locator(`#${format}`).evaluate((video) => ({
+      duration: video.duration,
+      width: video.videoWidth,
+      height: video.videoHeight,
+      muted: video.muted,
+      visible: !video.hidden,
+    }));
+    assert.deepEqual(metadata, { duration: DURATION, width, height, muted: true, visible: true });
     assert.equal(
       await page.locator(".download").getAttribute("href"),
       `video-output/${format}.mp4`,
@@ -37,7 +36,7 @@ try {
       await video.play();
     });
     await page.waitForFunction((id) => document.getElementById(id).ended, format, {
-      timeout: 20000,
+      timeout: 30000,
     });
   }
   for (const width of [360, 540, 1200]) {
