@@ -20,9 +20,14 @@ test("evidence MCP exposes only explicitly selected screenshots", async () => {
   const contextFile = path.join(directory, "context.json");
   writeJson(contextFile, {
     attachmentRoot: attachments,
-    screenshots: { "S1/screenshots/selected.jpg": "selected.jpg" },
+    screenshots: Object.fromEntries(
+      Array.from({ length: 31 }, (_, index) => [
+        index === 0 ? "S1/screenshots/selected.jpg" : `S1/screenshots/selected-${index}.jpg`,
+        "selected.jpg",
+      ]),
+    ),
     transcriptFile: path.join(directory, "evidence-transcript.ndjson"),
-    maxToolCalls: 2,
+    maxToolCalls: 32,
   } satisfies EvidenceMcpContext);
   const launch = evidenceMcpLaunch(contextFile);
   const transport = new StdioClientTransport({
@@ -49,13 +54,29 @@ test("evidence MCP exposes only explicitly selected screenshots", async () => {
     if (imageContent?.type === "image" && imageContent.data) {
       assert.equal(Buffer.from(imageContent.data, "base64").toString(), image.toString());
     }
+    for (let index = 1; index < 31; index++) {
+      const retrieved = await client.callTool({
+        name: "view_screenshot",
+        arguments: { ref: `S1/screenshots/selected-${index}.jpg` },
+      });
+      assert.notEqual(retrieved.isError, true);
+      assert.ok(
+        (retrieved.content as Array<{ type: string }>).some((item) => item.type === "image"),
+      );
+    }
     const denied = await client.callTool({
       name: "view_screenshot",
       arguments: { ref: "../not-selected.jpg" },
     });
     assert.equal(denied.isError, true);
     assert.match(JSON.stringify(denied.content), /Unknown screenshot reference/);
-    assert.deepEqual([...inspectedScreenshots(directory)], ["S1/screenshots/selected.jpg"]);
+    assert.equal(inspectedScreenshots(directory).size, 31);
+    const exhausted = await client.callTool({
+      name: "view_screenshot",
+      arguments: { ref: "S1/screenshots/selected.jpg" },
+    });
+    assert.equal(exhausted.isError, true);
+    assert.match(JSON.stringify(exhausted.content), /budget \(32\) exhausted/);
   } finally {
     await client.close().catch(() => {});
     await transport.close().catch(() => {});

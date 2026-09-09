@@ -94,8 +94,11 @@ function fixture(t: TestContext) {
 const fs = require('node:fs'), path = require('node:path');
 const args = process.argv.slice(2);
 const mcpIndex = args.indexOf('--mcp-config');
-if (mcpIndex >= 0 && ${transcript !== undefined}) {
-  const mcp = JSON.parse(fs.readFileSync(args[mcpIndex + 1], 'utf8')).mcpServers.evidence;
+const codexMcpArgs = args.find(value => value.startsWith('mcp_servers.evidence.args='));
+const mcp = mcpIndex >= 0
+  ? JSON.parse(fs.readFileSync(args[mcpIndex + 1], 'utf8')).mcpServers.evidence
+  : codexMcpArgs ? {args: JSON.parse(codexMcpArgs.slice(codexMcpArgs.indexOf('=') + 1))} : undefined;
+if (mcp && ${transcript !== undefined}) {
   const context = JSON.parse(fs.readFileSync(mcp.args.at(-1), 'utf8'));
   fs.writeFileSync(context.transcriptFile, ${JSON.stringify(transcript ?? "")});
 }
@@ -274,19 +277,74 @@ test("ordinary screenshot claims require successful views, including case and de
   );
 });
 
-test("attached Codex images count as accessed but images outside the attachment budget do not", async (t) => {
-  const f = fixture(t),
-    excluded = f.screenshot("first");
-  f.config.judge.provider = "codex";
-  f.fake(f.answer(excluded));
-  assert.equal(
-    requireDefined((await f.grade("attached")).items[0], '(await f.grade("attached")).items[0]')
-      .verdict,
-    "pass",
+test("checkpoint images survive later screenshots and exclude unrelated evidence", async (t) => {
+  const f = fixture(t);
+  const early = f.screenshot("saved");
+  for (let i = 0; i < 35; i++) f.screenshot(`later-${i}`);
+  f.evidence[0]!.outcome = "blocked";
+  f.evidence[0]!.checkpoints = { saved: { step: 2, evidenceRefs: ["step:1"] } };
+  f.spec.rubric[0]!.checkpoints = { S: ["saved"] };
+  f.evidence.push({
+    ...f.evidence[0]!,
+    scenarioId: "UNRELATED",
+    outcome: "completed",
+    screenshots: [f.evidence[0]!.screenshots[0]!],
+  });
+  fs.mkdirSync(path.join(f.root, "UNRELATED", "screenshots"), { recursive: true });
+  fs.copyFileSync(
+    path.join(f.root, early),
+    path.join(f.root, "UNRELATED", "screenshots", "saved.png"),
   );
+  for (const provider of ["codex", "claude"] as const) {
+    f.config.judge.provider = provider;
+    f.fake(f.answer(early), view(early));
+    assert.equal((await f.grade(provider)).items[0]?.verdict, "pass");
+    const directory = path.join(f.root, provider, "_judge");
+    assert.equal(fs.readdirSync(path.join(directory, "attachments")).length, 1);
+    const prompt = fs.readFileSync(path.join(directory, "prompt.md"), "utf8");
+    assert.equal((prompt.match(/"visualAvailable":\s*true/g) ?? []).length, 1);
+  }
+});
+
+test("more than 30 eligible images remain available through inspected MCP retrieval", async (t) => {
+  const f = fixture(t);
+  const refs = Array.from({ length: 31 }, (_, i) => f.screenshot(`evidence-${i}`));
+  f.evidence[0]!.checkpoints = {
+    first: { step: 32, evidenceRefs: Array.from({ length: 20 }, (_, i) => `step:${i + 1}`) },
+    second: { step: 33, evidenceRefs: Array.from({ length: 11 }, (_, i) => `step:${i + 21}`) },
+  };
+  f.spec.rubric[0]!.checkpoints = { S: ["first", "second"] };
+  for (const provider of ["codex", "claude"] as const) {
+    f.config.judge.provider = provider;
+    const answer = f.answer(refs[0]);
+    answer.items[0]!.evidenceRefs = refs;
+    answer.cases[0]!.evidenceRefs = refs;
+    f.fake(answer);
+    await assert.rejects(f.grade(`${provider}-unviewed`), /screenshot contract violation/);
+    f.fake(answer, refs.map((ref) => view(ref)).join(""));
+    assert.equal((await f.grade(`${provider}-viewed`)).items[0]?.verdict, "pass");
+    const context = JSON.parse(
+      fs.readFileSync(
+        path.join(f.root, `${provider}-viewed`, "_judge", "evidence-context.json"),
+        "utf8",
+      ),
+    );
+    assert.deepEqual(Object.keys(context.screenshots), refs);
+    assert.equal(context.maxToolCalls, 31);
+  }
+});
+
+test("unscoped Codex evidence over the attachment limit also requires retrieval", async (t) => {
+  const f = fixture(t),
+    ref = f.screenshot("first");
+  f.config.judge.provider = "codex";
+  f.fake(f.answer(ref));
+  assert.equal((await f.grade("attached")).items[0]?.verdict, "pass");
   for (let i = 0; i < 30; i++) f.screenshot(`later-${i}`);
-  f.fake(f.answer(excluded));
-  await assert.rejects(f.grade("excluded"), /screenshot contract violation/);
+  f.fake(f.answer(ref));
+  await assert.rejects(f.grade("unviewed"), /screenshot contract violation/);
+  f.fake(f.answer(ref), view(ref));
+  assert.equal((await f.grade("retrieved")).items[0]?.verdict, "pass");
 });
 
 test("invalid repeated judgements are not journaled and can be retried with explicit valid results", async (t) => {

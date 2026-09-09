@@ -127,6 +127,7 @@ out of source control.
 | Field | Type / default | Contract |
 | --- | --- | --- |
 | `browser.headless` | Boolean, `true` | `--headed` overrides it to `false`. |
+| `browser.readOnlyFrames` | Optional array, up to 10 `{pathPrefix, selector}` policies | Evidence-only opt-in for direct, fully sandboxed `srcdoc` iframes on the configured application origin. Prefixes must end in `/`. No interactive references are granted; other frames remain subject to the origin policy. |
 | `browser.viewport.width` | Integer, `1280` | From 1 to 2,000 pixels. |
 | `browser.viewport.height` | Integer, `800` | From 1 to 2,000 pixels. Both dimensions are required when supplying `viewport`. |
 | `browser.actionTimeoutMs` | Positive integer, `10000` | Ordinary browser action deadline. Controlled capture has separate deadlines. |

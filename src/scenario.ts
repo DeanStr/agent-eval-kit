@@ -250,6 +250,9 @@ export async function executeScenario(options: {
       headless: config.browser.headless,
       viewport: config.browser.viewport,
       actionTimeoutMs: config.browser.actionTimeoutMs,
+      ...(config.browser.readOnlyFrames === undefined
+        ? {}
+        : { readOnlyFrames: config.browser.readOnlyFrames }),
       ...(config.browser.screenshotFormat === undefined
         ? {}
         : { screenshotFormat: config.browser.screenshotFormat }),

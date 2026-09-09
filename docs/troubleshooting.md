@@ -56,6 +56,21 @@ Application data persists independently of browser sessions. If repetitions see
 different state, provide an idempotent reset in `target.setup` or isolate test
 accounts/records. See [onboarding](onboarding.md) and [target lifecycle](../README.md#local-target-lifecycle).
 
+Saved-session loss detection recognizes explicit login routes and authentication
+expiry query signals. Resource-creation routes such as `/admin/sessions/new` are
+ambiguous and do not establish a login wall by themselves. For applications whose
+login URL has no authentication signal, scenarios must verify the signed-in
+identity before treating unavailable controls as missing product functionality.
+
+Ordinary rubric judging selects screenshots from the scenarios and checkpoint
+steps allowed by the requested criteria. Later captures do not displace earlier
+checkpoint images. Codex receives up to 30 eligible images as attachments; larger
+sets use the same restricted `view_screenshot` evidence tool as other providers.
+All eligible images are available to that tool, within a call budget equal to the
+selected image count and the judge's configured deadline. A successful view is
+required before citing a retrieved image. Unviewed evidence remains unavailable;
+this does not alter criterion requirements or award credit automatically.
+
 ## Execution failures and interrupted runs
 
 For a scenario failure, inspect `<scenario-id>/provider-stderr.log`,
@@ -114,3 +129,31 @@ checkpoint; see [promotion policy](evidence-workflows.md#baseline-promotion-poli
 
 This project is pre-release. When a version rejects old artifact formats, regenerate
 runs and baselines with the current evaluator; migration compatibility is not promised.
+
+
+## Sandboxed application previews
+
+A sandboxed `srcdoc` preview has an opaque origin and remains excluded by default.
+For an application-owned read-only preview, explicitly configure its page prefix
+and iframe selector:
+
+```yaml
+browser:
+  readOnlyFrames:
+    - pathPrefix: /admin/communications/
+      selector: iframe.email-preview-frame
+```
+
+The policy admits text and screenshot evidence only when the iframe is a direct
+child of the configured application origin, its URL is `about:srcdoc`, and its
+sandbox has had no permissions since attachment and has not changed. A changed
+iframe must be replaced before it can be admitted again. State-preserving moves
+also revoke preview eligibility, including moves of a containing shadow host.
+Open and closed shadow roots created with `attachShadow` are observed from creation,
+including nested roots. Roots created through other mechanisms, such as declarative
+shadow DOM, remain excluded because their attachment history is unavailable.
+The policy does not remove the sandbox or expose interactive
+references inside the preview. Nested/unmatched/external frames remain excluded;
+credential checks include approved previews, and captures are discarded if an
+approved preview loses its boundary during the screenshot. Ordinary origin
+allowlists remain the mechanism for interactive third-party widgets.

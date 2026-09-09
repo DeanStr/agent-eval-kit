@@ -88,12 +88,8 @@ function isLoginWall(url: string): boolean {
       )
     )
       return true;
-    if (
-      routeSegments.some(
-        (route) => route.at(-1) === "new" && ["session", "sessions"].includes(route.at(-2) ?? ""),
-      )
-    )
-      return true;
+    // "Session" can be a product resource (for example, a conference session).
+    // A creation URL alone is not evidence that saved authentication was lost.
     const expiry = [parsed.searchParams.get("reason"), parsed.searchParams.get("error")]
       .filter((value): value is string => Boolean(value))
       .map((value) => value.toLowerCase().replace(/[^a-z]/g, ""));
@@ -157,6 +153,7 @@ async function getBrowser(): Promise<BrowserSession> {
     "same-origin",
     {
       lossless: context.screenshotFormat === "png",
+      ...(context.readOnlyFrames === undefined ? {} : { readOnlyFrames: context.readOnlyFrames }),
       ...(context.personas
         ? { namespace: Object.keys(context.personas).indexOf(activePersona) + 1 }
         : {}),

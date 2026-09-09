@@ -730,3 +730,32 @@ test("fixture validation reports all missing, invalid, and non-file paths", () =
     /files\.missing does not exist[\s\S]*files\.invalid must be a non-empty path string[\s\S]*files\.directory is not a regular file/,
   );
 });
+
+test("read-only preview configuration requires explicit selectors and pathname prefixes", (t) => {
+  const root = temporary();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, "evalkit.yaml");
+  const write = (policy: object) =>
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        project: { name: "Preview", root: "." },
+        target: { kind: "web", url: "https://app.example.test" },
+        browser: { readOnlyFrames: [policy] },
+      }),
+    );
+  write({ selector: "iframe.preview", pathPrefix: "/compose/" });
+  assert.deepEqual(loadConfig(file).browser.readOnlyFrames, [
+    { selector: "iframe.preview", pathPrefix: "/compose/" },
+  ]);
+  for (const policy of [
+    { selector: "", pathPrefix: "/compose/" },
+    { selector: "iframe", pathPrefix: "https://external.test/" },
+    { selector: "iframe", pathPrefix: "/compose" },
+    { selector: "iframe", pathPrefix: "/compose/?x=1" },
+  ]) {
+    write(policy);
+    assert.throws(() => loadConfig(file), /readOnlyFrames/);
+  }
+});

@@ -1,3 +1,10 @@
+export interface ReadOnlyFramePolicy {
+  /** Application pathname prefix, ending in a slash. */
+  pathPrefix: string;
+  /** CSS selector for a direct, fully sandboxed srcdoc iframe. */
+  selector: string;
+}
+
 import type { TextPairwiseGrader, TextRubricGrader, TextSource } from "./text/contracts.js";
 import type { MailboxConfig, EmailAuthFlow } from "./email/contracts.js";
 import type {
@@ -76,6 +83,7 @@ export interface EvalConfig {
     actionTimeoutMs: number;
     diagnostics?: DiagnosticPolicy;
     screenshotFormat?: "jpeg" | "png";
+    readOnlyFrames?: ReadOnlyFramePolicy[];
   };
   scoring: {
     partialCredit: number;

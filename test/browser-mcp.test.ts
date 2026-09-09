@@ -666,9 +666,7 @@ test("screenshots fail closed when an off-origin child frame cannot be masked", 
 
   await assert.rejects(
     () =>
-      (
-        session as unknown as { maskDisallowedFrames(): Promise<() => Promise<void>> }
-      ).maskDisallowedFrames(),
+      (session as unknown as { maskDisallowedFrames(): Promise<unknown> }).maskDisallowedFrames(),
     (error) =>
       error instanceof BrowserEvidenceError &&
       /Could not mask every off-origin frame.*frame detached/.test(error.message),
@@ -1054,10 +1052,12 @@ test("browser MCP never captures evidence after an action redirects off-origin",
 });
 
 test("browser MCP halts after a saved authenticated session remains on a login wall", async () => {
-  const server = http.createServer((_request, response) => {
+  const server = http.createServer((request, response) => {
     response.writeHead(200, { "content-type": "text/html" });
     response.end(
-      "<!doctype html><title>Sign in</title><form><input name=email><button>Sign in</button></form>",
+      request.url?.includes("/sessions/new") || request.url?.includes("/session/new")
+        ? "<!doctype html><title>New conference session</title><form><label>Title<input name=title></label><button>Create session</button></form>"
+        : "<!doctype html><title>Sign in</title><form><input name=email><button>Sign in</button></form>",
     );
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -1068,7 +1068,23 @@ test("browser MCP halts after a saved authenticated session remains on a login w
       { route: "/login", blocked: true, expectAuthenticated: true },
       { route: "/users/sign_in", blocked: true, expectAuthenticated: true },
       { route: "/auth", blocked: true, expectAuthenticated: true },
+      { route: "/#/login", blocked: true, expectAuthenticated: true },
       { route: "/?reason=sessionExpired", blocked: true, expectAuthenticated: true },
+      {
+        route: "/admin/sessions/new?error=authenticationRequired",
+        blocked: true,
+        expectAuthenticated: true,
+      },
+      { route: "/admin/sessions/new", blocked: false, expectAuthenticated: true },
+      { route: "/session/new", blocked: false, expectAuthenticated: true },
+      { route: "/sessions/new", blocked: false, expectAuthenticated: true },
+      { route: "/#/admin/sessions/new", blocked: false, expectAuthenticated: true },
+      {
+        route: "/admin/sessions/new",
+        blocked: false,
+        expectAuthenticated: true,
+        finalizeImmediately: true,
+      },
       { route: "/settings/auth", blocked: false, expectAuthenticated: true },
       { route: "/?next=/login", blocked: false, expectAuthenticated: true },
       { route: "/login", blocked: false, expectAuthenticated: false },
@@ -1087,7 +1103,7 @@ test("browser MCP halts after a saved authenticated session remains on a login w
         storageStatePath: stateFile,
         expectAuthenticated,
         checkpoints: { saved: "Saved content" },
-        requiredCheckpoints: ["saved"],
+        requiredCheckpoints: finalizeImmediately && !blocked ? [] : ["saved"],
         fixtureFiles: {},
         headless: true,
         viewport: { width: 800, height: 600 },
@@ -1121,6 +1137,11 @@ test("browser MCP halts after a saved authenticated session remains on a login w
           assert.equal(state.outcome, "blocked");
           const stillHalted = await client.callTool({ name: "navigate", arguments: { url } });
           assert.equal(stillHalted.isError, true);
+        } else if (finalizeImmediately) {
+          const state = JSON.parse(
+            fs.readFileSync(path.join(directory, "browser-result.json"), "utf8"),
+          );
+          assert.equal(state.outcome, "completed");
         } else {
           assert.equal(fs.existsSync(path.join(directory, "browser-result.json")), false);
         }
@@ -1370,3 +1391,253 @@ test("uploads fall back only for an absent chooser, never for execution failures
     });
   }
 });
+
+test("approved srcdoc previews expose evidence without interactive refs or broader frame access", async () => {
+  const server = http.createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "text/html" });
+    if (_request.url === "/compose/race") {
+      response.end(`<!doctype html><h1>Compose</h1>
+        <iframe class="other" sandbox srcdoc="Other"></iframe>
+        <iframe id="preview" sandbox srcdoc="Preview"></iframe>
+        <script>new MutationObserver(() => {
+          if (document.querySelector('.other').style.visibility === 'hidden')
+            document.querySelector('#preview').className = 'preview';
+        }).observe(document.querySelector('.other'), {attributes:true,attributeFilter:['style']});</script>`);
+      return;
+    }
+    response.end(`<!doctype html><h1>Compose</h1>
+      <iframe class="preview" sandbox srcdoc="<p>Hello Priya</p><button>Preview-only control</button>"></iframe>
+      <iframe class="other" sandbox srcdoc="<p>Unapproved secret</p>"></iframe>
+      <script>for (const frame of document.querySelectorAll('iframe')) {
+        new MutationObserver(() => { if (frame.style.visibility === 'hidden') frame.dataset.masked = 'yes'; })
+          .observe(frame, {attributes:true, attributeFilter:['style']});
+      }</script>`);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const origin = `http://127.0.0.1:${address.port}`;
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "aek-read-only-preview-"));
+  const session = new BrowserSession(
+    directory,
+    true,
+    origin,
+    undefined,
+    [origin],
+    { width: 800, height: 600 },
+    5000,
+    "same-origin",
+    {
+      readOnlyFrames: [{ pathPrefix: "/compose/", selector: "iframe.preview" }],
+    },
+  );
+  try {
+    await session.start();
+    const snapshot = await session.navigate(`${origin}/compose/draft`);
+    assert.match(snapshot, /Hello Priya/);
+    assert.match(snapshot, /approved read-only preview/);
+    assert.doesNotMatch(snapshot, /Unapproved secret/);
+    assert.doesNotMatch(snapshot.split("INTERACTIVE ELEMENTS")[1]!, /Preview-only control/);
+    await session.screenshot("approved-preview", false);
+    assert.equal(await session.page.locator("iframe.preview").getAttribute("data-masked"), null);
+    assert.equal(await session.page.locator("iframe.other").getAttribute("data-masked"), "yes");
+    assert.equal(await session.page.locator("iframe.preview").getAttribute("sandbox"), "");
+    assert.doesNotMatch(await session.navigate(`${origin}/outside`), /Hello Priya/);
+    await session.navigate(`${origin}/compose/draft`);
+    await session.page.locator("iframe.preview").evaluate((node) => {
+      const frame = document.createElement("iframe");
+      frame.className = "preview";
+      frame.sandbox.add("allow-scripts");
+      frame.srcdoc =
+        "<body>Permissive preview<script>setInterval(()=>document.body.dataset.ticks=String(Number(document.body.dataset.ticks||0)+1),10)</script>";
+      node.replaceWith(frame);
+    });
+    const permissive = session.page.frameLocator("iframe.preview");
+    await permissive.locator("body[data-ticks]").waitFor();
+    await session.page
+      .locator("iframe.preview")
+      .evaluate((node) => node.setAttribute("sandbox", ""));
+    assert.ok(Number(await permissive.locator("body").getAttribute("data-ticks")) > 0);
+    assert.doesNotMatch(await session.snapshot(), /Permissive preview/);
+    await session.navigate(`${origin}/compose/draft`);
+    await session.page
+      .locator("iframe.preview")
+      .evaluate((node) => node.setAttribute("sandbox", "allow-scripts"));
+    assert.doesNotMatch(await session.snapshot(), /Hello Priya/);
+    await session.navigate(`${origin}/compose/draft`);
+    await session.page.evaluate(() => {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const shadow = host.attachShadow({ mode: "closed" });
+      const frame = document.createElement("iframe");
+      frame.className = "preview imported";
+      frame.sandbox.add("allow-scripts");
+      frame.srcdoc =
+        '<body>Moved permissive preview<script>setInterval(()=>document.body.dataset.running="yes",10)</script>';
+      shadow.append(frame);
+      (window as unknown as { movePreview: () => void }).movePreview = () => {
+        frame.setAttribute("sandbox", "");
+        (
+          document.body as HTMLElement & {
+            moveBefore(node: Node, child: Node | null): void;
+          }
+        ).moveBefore(frame, null);
+      };
+    });
+    const shadowFrame = session.page.frames().at(-1)!;
+    await shadowFrame.locator("body[data-running]").waitFor();
+    await session.page.evaluate(() =>
+      (window as unknown as { movePreview: () => void }).movePreview(),
+    );
+    assert.equal(await shadowFrame.locator("body").getAttribute("data-running"), "yes");
+    assert.doesNotMatch(await session.snapshot(), /Moved permissive preview/);
+    await session.navigate(`${origin}/compose/draft`);
+    const originalScreenshot = session.page.screenshot.bind(session.page);
+    session.page.screenshot = async (...args) => {
+      const image = await originalScreenshot(...args);
+      await session.page
+        .locator("iframe.preview")
+        .evaluate((node) => node.removeAttribute("sandbox"));
+      return image;
+    };
+    const before = fs.readdirSync(path.join(directory, "screenshots"));
+    await assert.rejects(
+      session.screenshot("changed-preview", false),
+      /preview changed its evidence boundary/,
+    );
+    assert.deepEqual(fs.readdirSync(path.join(directory, "screenshots")), before);
+    session.page.screenshot = originalScreenshot;
+    await session.navigate(`${origin}/compose/race`);
+    session.page.screenshot = async (...args) => {
+      assert.equal(await session.page.locator("#preview").getAttribute("class"), "preview");
+      await session.page.locator("#preview").evaluate((node) => {
+        node.setAttribute("sandbox", "allow-scripts");
+        (node as HTMLIFrameElement).srcdoc =
+          '<body>Permissive capture<script>document.body.dataset.running="yes"</script>';
+      });
+      await session.page.frameLocator("#preview").locator("body[data-running]").waitFor();
+      return originalScreenshot(...args);
+    };
+    await assert.rejects(
+      session.screenshot("newly-admitted-preview", false),
+      /preview changed its evidence boundary/,
+    );
+    assert.deepEqual(fs.readdirSync(path.join(directory, "screenshots")), before);
+    session.page.screenshot = originalScreenshot;
+    await session.navigate(`${origin}/compose/draft`);
+    const preview = session.page.frames().find((frame) => frame.url() === "about:srcdoc")!;
+    const originalLocator = preview.locator.bind(preview);
+    preview.locator = (...args) => {
+      const locator = originalLocator(...args);
+      locator.ariaSnapshot = async () => {
+        throw new Error("preview observation unavailable");
+      };
+      return locator;
+    };
+    await assert.rejects(
+      session.snapshot(),
+      (error: unknown) =>
+        error instanceof BrowserEvidenceError &&
+        /preview observation unavailable/.test(error.message),
+    );
+  } finally {
+    await session.stop();
+    server.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+for (const mode of ["open", "closed"] as const) {
+  test(`read-only previews track attachment history in nested ${mode} shadow roots`, async () => {
+    const origin = "http://preview.test";
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "aek-shadow-preview-"));
+    const session = new BrowserSession(
+      directory,
+      true,
+      origin,
+      undefined,
+      [origin],
+      { width: 800, height: 600 },
+      5000,
+      "same-origin",
+      { readOnlyFrames: [{ pathPrefix: "/compose/", selector: "iframe.preview" }] },
+    );
+    try {
+      await session.start();
+      await session.page.route(`${origin}/**`, (route) =>
+        route.fulfill({
+          contentType: "text/html",
+          body: `<!doctype html><h1>Compose</h1><script>
+            const host = document.createElement('div');
+            host.id = 'host';
+            const outer = host.attachShadow({mode: '${mode}'});
+            const innerHost = document.createElement('div');
+            outer.append(innerHost);
+            const shadow = innerHost.attachShadow({mode: '${mode}'});
+            for (const name of ['approved', 'unmatched', 'permissive']) {
+              const frame = document.createElement('iframe');
+              frame.name = name;
+              frame.className = name === 'unmatched' ? 'other' : 'preview';
+              frame.setAttribute('sandbox', name === 'permissive' ? 'allow-scripts' : '');
+              frame.srcdoc = '<body><p>' + name + ' shadow content</p><button>Preview control</button>'
+                + (name === 'permissive' ? '<script>document.body.dataset.running="yes"<\\/script>' : '');
+              shadow.append(frame);
+            }
+            document.body.append(host);
+          </script>`,
+        }),
+      );
+      const snapshot = await session.navigate(`${origin}/compose/draft`);
+      assert.match(snapshot, /approved shadow content/);
+      assert.doesNotMatch(snapshot, /unmatched shadow content|permissive shadow content/);
+      assert.doesNotMatch(snapshot.split("INTERACTIVE ELEMENTS")[1]!, /Preview control/);
+
+      const approved = session.page.frame({ name: "approved" })!;
+      const unmatched = session.page.frame({ name: "unmatched" })!;
+      const permissive = session.page.frame({ name: "permissive" })!;
+      await permissive.locator("body[data-running]").waitFor();
+      await (await permissive.frameElement()).evaluate((node) =>
+        (node as HTMLIFrameElement).setAttribute("sandbox", ""),
+      );
+      assert.doesNotMatch(await session.snapshot(), /permissive shadow content/);
+
+      const originalScreenshot = session.page.screenshot.bind(session.page);
+      session.page.screenshot = async (...args) => {
+        for (const frame of [approved, unmatched, permissive]) {
+          const visibility = await (await frame.frameElement()).evaluate(
+            (node) => (node as HTMLIFrameElement).style.visibility,
+          );
+          assert.equal(visibility, frame === approved ? "" : "hidden");
+        }
+        return originalScreenshot(...args);
+      };
+      await session.screenshot("shadow-preview", false);
+      session.page.screenshot = originalScreenshot;
+
+      await (await approved.frameElement()).evaluate((node) => {
+        const iframe = node as HTMLIFrameElement;
+        iframe.setAttribute("sandbox", "allow-scripts");
+        iframe.setAttribute("sandbox", "");
+      });
+      assert.doesNotMatch(await session.snapshot(), /approved shadow content/);
+      const attached = session.page.waitForEvent("frameattached");
+      await (await approved.frameElement()).evaluate((node) =>
+        (node as HTMLIFrameElement).replaceWith(node.cloneNode(true)),
+      );
+      const replacement = await attached;
+      await replacement.waitForURL("about:srcdoc");
+      await replacement.locator("body").waitFor();
+      assert.match(await session.snapshot(), /approved shadow content/);
+
+      await session.page.evaluate(() => {
+        (
+          document.body as HTMLElement & { moveBefore(node: Node, child: Node | null): void }
+        ).moveBefore(document.getElementById("host")!, document.querySelector("h1"));
+      });
+      assert.doesNotMatch(await session.snapshot(), /approved shadow content/);
+    } finally {
+      await session.stop();
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}

@@ -145,7 +145,14 @@ export async function controlledCapture(
         config.browser.viewport,
         config.browser.actionTimeoutMs,
         "same-origin",
-        { lossless: true, disableAnimations: true, software: capture.renderer === "software" },
+        {
+          lossless: true,
+          disableAnimations: true,
+          software: capture.renderer === "software",
+          ...(config.browser.readOnlyFrames === undefined
+            ? {}
+            : { readOnlyFrames: config.browser.readOnlyFrames }),
+        },
       );
       await session.start();
       check();

@@ -61,6 +61,9 @@ export async function captureAuth(options: {
     config.browser.viewport,
     config.browser.actionTimeoutMs,
     "authentication",
+    config.browser.readOnlyFrames === undefined
+      ? undefined
+      : { readOnlyFrames: config.browser.readOnlyFrames },
   );
   await browser.start();
   try {

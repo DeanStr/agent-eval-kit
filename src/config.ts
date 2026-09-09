@@ -182,6 +182,19 @@ const rawConfigSchema = z
         actionTimeoutMs: z.number().int().positive().default(10_000),
         diagnostics: diagnosticPolicySchema.optional(),
         screenshotFormat: z.enum(["jpeg", "png"]).optional(),
+        readOnlyFrames: z
+          .array(
+            z
+              .object({
+                pathPrefix: z
+                  .string()
+                  .regex(/^\/(?:[^?#]*\/)?$/, "must be an absolute pathname prefix ending in /"),
+                selector: z.string().trim().min(1),
+              })
+              .strict(),
+          )
+          .max(10)
+          .optional(),
       })
       .strict()
       .default({ headless: true, viewport: { width: 1280, height: 800 }, actionTimeoutMs: 10_000 }),

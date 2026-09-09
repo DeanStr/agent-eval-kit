@@ -3,7 +3,6 @@ import type { z } from "zod";
 import type { judgementOutputValidator } from "../schemas.js";
 import type {
   Defect,
-  EvalConfig,
   EvalSpec,
   JudgedCase,
   JudgedItem,
@@ -37,14 +36,14 @@ function checkedEvidenceRefs(
 /** Canonical normalization for fresh single judgements and each repeated judgement. */
 export function normalizeRubricJudgement(options: {
   judgement: z.infer<typeof judgementOutputValidator>;
-  config: EvalConfig;
+  screenshotAccess: "attached" | "mcp";
   spec: EvalSpec;
   items: RubricItem[];
   evidence: ScenarioEvidence[];
   directory: string;
   attachments: Record<string, string>;
 }): { items: JudgedItem[]; cases: JudgedCase[]; defects: Defect[]; notes: string } {
-  const { judgement, config, spec, items, evidence, directory, attachments } = options;
+  const { judgement, screenshotAccess, spec, items, evidence, directory, attachments } = options;
   const requestedCases = caseJudgeRequests(items, evidence);
   assertJudgementIdentities(judgement, { items, cases: requestedCases }, directory);
   const screenshotRefs = new Set(
@@ -59,7 +58,7 @@ export function normalizeRubricJudgement(options: {
   ];
   assertScreenshotAccess({
     directory,
-    access: config.judge.provider === "codex" ? "attached" : "mcp",
+    access: screenshotAccess,
     selectedRefs: Object.keys(attachments),
     requiredRefs: claims
       .flatMap((item) => item.evidenceRefs)

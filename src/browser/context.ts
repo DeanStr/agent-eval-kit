@@ -1,4 +1,4 @@
-import type { Scenario } from "../types.js";
+import type { Scenario, ReadOnlyFramePolicy } from "../types.js";
 export interface BrowserMcpContext {
   emailAuthentication?: {
     credentialFile: string;
@@ -23,6 +23,7 @@ export interface BrowserMcpContext {
   viewport: { width: number; height: number };
   actionTimeoutMs: number;
   screenshotFormat?: "jpeg" | "png";
+  readOnlyFrames?: ReadOnlyFramePolicy[];
   /** Codex has no provider turn limit, so its maxTurns is enforced here. */
   maxToolCalls?: number;
 }

@@ -20,7 +20,7 @@ Rubric judges supply an independent item verdict. Case results constrain a propo
 
 ## Image access
 
-Rubric claims require access to the screenshots they cite. Text-only verdicts and explicit abstentions need no image view. Pairwise non-abstaining decisions require both anonymous panels; viewing only the chosen image is insufficient. Codex receives selected images as direct attachments; MCP-based judges must successfully request them. Failed views and unselected images never establish access. A fresh ordinary judge clears earlier image-view records when an unfinished area is retried; a completed repeated vote retains its own sealed transcript.
+Rubric claims require access to the screenshots they cite. Text-only verdicts and explicit abstentions need no image view. Pairwise non-abstaining decisions require both anonymous panels; viewing only the chosen image is insufficient. Ordinary rubric judges select images from the requested scenarios and checkpoint steps. Codex receives up to 30 eligible images as direct attachments; larger sets and other providers use restricted MCP retrieval with all eligible images available. Retrieved images must be successfully requested before citation. Failed views and unselected images never establish access. A fresh ordinary judge clears earlier image-view records when an unfinished area is retried; a completed repeated vote retains its own sealed transcript.
 
 ## Regression coverage
 

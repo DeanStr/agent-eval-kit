@@ -451,7 +451,7 @@ test("checkpoint-scoped grading retains reached evidence after a later blockage 
   const normalize = () =>
     normalizeRubricJudgement({
       judgement,
-      config: f.config,
+      screenshotAccess: "attached",
       spec,
       items: spec.rubric,
       evidence: [evidence],
@@ -495,7 +495,7 @@ test("checkpoint-scoped grading retains reached evidence after a later blockage 
   const normalizeMatrix = () =>
     normalizeRubricJudgement({
       judgement: matrixJudgement,
-      config: f.config,
+      screenshotAccess: "attached",
       spec: { ...spec, rubric: [matrixItem] },
       items: [matrixItem],
       evidence: instances,

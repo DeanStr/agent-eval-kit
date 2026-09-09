@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { installReadOnlyFrameGuard } from "./read-only-frame-guard.js";
+import type { ReadOnlyFramePolicy } from "../types.js";
 import { attachDiagnostics } from "./diagnostics.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -44,6 +47,7 @@ export class BrowserSession {
   private refCounter = 0;
   private referencesValid = true;
   private shotCounter = 0;
+  private readonly readOnlyFrameGuardKey = `aek-preview-${randomUUID()}`;
   private diagnosticBudget = { count: 0 };
   private privateAuthentication = false;
   private authenticationSecrets = new Set<string>();
@@ -108,7 +112,7 @@ export class BrowserSession {
       if (!this.isAllowedUrl(page.url()))
         throw new Error("Email authentication left an external page open");
       for (const frame of page.frames()) {
-        if (!(await this.isAllowedFrame(frame, page.mainFrame()))) continue;
+        if (!(await this.isEvidenceFrame(frame, page.mainFrame()))) continue;
         const content = await frame
           .evaluate(() => {
             const roots: Array<Document | ShadowRoot> = [document];
@@ -177,6 +181,7 @@ export class BrowserSession {
       software?: boolean;
       disableAnimations?: boolean;
       namespace?: number;
+      readOnlyFrames?: ReadOnlyFramePolicy[];
     },
   ) {
     this.refCounter = (captureOptions?.namespace ?? 0) * 1_000_000;
@@ -230,6 +235,8 @@ export class BrowserSession {
         deviceScaleFactor: 1,
         software: this.captureOptions?.software ?? false,
       });
+      if (this.captureOptions?.readOnlyFrames?.length)
+        await installReadOnlyFrameGuard(this.context, this.readOnlyFrameGuardKey);
       this.page = await this.context.newPage();
       this.initialBlankAllowed = true;
       this.page.setDefaultTimeout(this.actionTimeoutMs);
@@ -387,6 +394,47 @@ export class BrowserSession {
     return current === main && this.isOnTarget(main.url());
   }
 
+  /** Evidence-only opt-in; never used to authorize interactive references. */
+  private async isReadOnlyFrame(frame: Frame, main = this.page.mainFrame()): Promise<boolean> {
+    const policies = this.captureOptions?.readOnlyFrames;
+    if (!policies?.length || frame.parentFrame() !== main || frame.url() !== "about:srcdoc")
+      return false;
+    const pageUrl = new URL(main.url());
+    if (pageUrl.origin !== new URL(this.targetUrl).origin) return false;
+    const selectors = policies
+      .filter((policy) => pageUrl.pathname.startsWith(policy.pathPrefix))
+      .map((policy) => policy.selector);
+    if (!selectors.length) return false;
+    try {
+      const element = await frame.frameElement();
+      return await element.evaluate(
+        (node, { approved, key }) => {
+          const iframe = node as HTMLIFrameElement;
+          const guard = (
+            window as unknown as Record<string, { allows(element: Element): boolean }>
+          )[key];
+          if (!guard) throw new Error("Read-only preview attachment history is unavailable");
+          return (
+            guard.allows(iframe) &&
+            approved.some((selector) => iframe.matches(selector)) &&
+            iframe.hasAttribute("srcdoc") &&
+            iframe.hasAttribute("sandbox") &&
+            iframe.sandbox.length === 0
+          );
+        },
+        { approved: selectors, key: this.readOnlyFrameGuardKey },
+      );
+    } catch (error) {
+      throw new BrowserEvidenceError(
+        `Could not inspect read-only preview policy: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private async isEvidenceFrame(frame: Frame, main = this.page.mainFrame()): Promise<boolean> {
+    return (await this.isAllowedFrame(frame, main)) || (await this.isReadOnlyFrame(frame, main));
+  }
+
   private async allowedFrames(): Promise<Frame[]> {
     const frames = this.page.frames();
     const allowed = await Promise.all(frames.map((frame) => this.isAllowedFrame(frame)));
@@ -531,6 +579,24 @@ export class BrowserSession {
     const title = await this.page.title().catch(() => "");
 
     const { entries, modalLabel, frameOutlines, hidden } = await this.tagInteractiveElements();
+    try {
+      for (const frame of this.page.frames()) {
+        if (!(await this.isReadOnlyFrame(frame))) continue;
+        const outline = await frame.locator("body").ariaSnapshot({ timeout: this.actionTimeoutMs });
+        if (!(await this.isReadOnlyFrame(frame)))
+          throw new BrowserEvidenceError(
+            "Read-only preview changed its evidence boundary during capture",
+          );
+        frameOutlines.push({
+          label: "approved read-only preview (no interactive refs)",
+          aria: outline,
+        });
+      }
+    } catch (error) {
+      throw new BrowserEvidenceError(
+        `Could not capture read-only preview evidence: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
 
     // With a modal open, the aria outline of <body> is mostly unreachable
     // background; scope it to the dialog so the outline matches the refs.
@@ -579,7 +645,7 @@ export class BrowserSession {
 
     const excludedFrames = (
       await Promise.all(
-        this.page.frames().map(async (frame) => !(await this.isAllowedFrame(frame))),
+        this.page.frames().map(async (frame) => !(await this.isEvidenceFrame(frame))),
       )
     ).filter(Boolean).length;
     if (excludedFrames) this.pendingNotes.push(this.frameExclusionNote(excludedFrames));
@@ -852,7 +918,7 @@ export class BrowserSession {
     // A top-level screenshot normally includes pixels rendered by third-party
     // iframes. Hide frames outside the allowlist for the duration of capture so
     // image evidence obeys the same boundary as text snapshots and actions.
-    const restoreFrames = await this.maskDisallowedFrames();
+    const { restoreFrames, readOnlyFrames } = await this.maskDisallowedFrames();
     try {
       const buf = await this.page.screenshot({
         ...options,
@@ -862,6 +928,12 @@ export class BrowserSession {
         const postCaptureOrigin = await this.enforceOrigin();
         if (postCaptureOrigin) throw new OriginBoundaryError(postCaptureOrigin);
         await this.assertAuthenticationEvidenceSafe();
+        for (const frame of readOnlyFrames) {
+          if (!(await this.isReadOnlyFrame(frame)))
+            throw new BrowserEvidenceError(
+              "Read-only preview changed its evidence boundary during capture",
+            );
+        }
       } catch (error) {
         // page.screenshot({ path }) writes before returning. Never retain the
         // file or expose its buffer when the page crossed the boundary during
@@ -879,11 +951,19 @@ export class BrowserSession {
     return `AEK excluded ${count} child frame(s) by origin policy, including sandboxed frames without an allowed origin. Their content is unavailable to this evaluation and is masked in screenshots. Do not interpret blank frame regions as missing or broken product content.`;
   }
 
-  private async maskDisallowedFrames(): Promise<() => Promise<void>> {
+  private async maskDisallowedFrames(): Promise<{
+    restoreFrames: () => Promise<void>;
+    readOnlyFrames: Frame[];
+  }> {
     const restorers: Array<() => Promise<void>> = [];
+    const readOnlyFrames: Frame[] = [];
     try {
       for (const frame of this.page.frames()) {
         if (frame === this.page.mainFrame() || (await this.isAllowedFrame(frame))) continue;
+        if (await this.isReadOnlyFrame(frame)) {
+          readOnlyFrames.push(frame);
+          continue;
+        }
         const element = await frame.frameElement();
         const previous = await element.evaluate((node) => {
           const style = (node as HTMLElement).style;
@@ -907,8 +987,11 @@ export class BrowserSession {
       );
     }
     if (restorers.length) this.pendingNotes.push(this.frameExclusionNote(restorers.length));
-    return async () => {
-      await Promise.all(restorers.reverse().map((restore) => restore()));
+    return {
+      readOnlyFrames,
+      restoreFrames: async () => {
+        await Promise.all(restorers.reverse().map((restore) => restore()));
+      },
     };
   }
 }

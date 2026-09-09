@@ -18,7 +18,7 @@ import { z } from "zod";
 import { safeName, writeJson } from "./io.js";
 import { EVIDENCE_TOOL_NAMES, evidenceMcpLaunch, writeMcpConfig } from "./mcp-config.js";
 import { judgePrompt } from "./prompts.js";
-import { caseJudgeRequests } from "./judging/evidence.js";
+import { caseJudgeRequests, rubricEvidenceRefs } from "./judging/evidence.js";
 import { runProvider } from "./providers/index.js";
 import { shellInvocation, spawnCaptured } from "./providers/process.js";
 import { judgementOutputSchema, judgementOutputValidator } from "./schemas.js";
@@ -167,34 +167,33 @@ interface JudgeImage {
   file: string;
 }
 
-function pickImages(evidence: ScenarioEvidence[], runDir: string, maximum = 30): JudgeImage[] {
-  const queues = evidence.map((scenario) =>
+function pickImages(
+  items: RubricItem[],
+  evidence: ScenarioEvidence[],
+  runDir: string,
+): JudgeImage[] {
+  const allowed = new Set(
+    items.flatMap((item) => {
+      const relevant = evidence.filter(
+        (scenario) => !item.scenarios.length || item.scenarios.includes(scenario.scenarioId),
+      );
+      return [...rubricEvidenceRefs(item, relevant)];
+    }),
+  );
+  return evidence.flatMap((scenario) =>
     scenario.screenshots
       .map((shot) => ({
         ref: `${scenario.scenarioId}/${shot.path}`,
         file: path.join(runDir, scenario.scenarioId, ...shot.path.split("/")),
       }))
       .filter((image) => {
-        if (!fs.existsSync(image.file)) return false;
+        if (!allowed.has(image.ref) || !fs.existsSync(image.file)) return false;
         const dimensions = imageSize(image.file);
         return (
           !dimensions || (dimensions.width <= MAX_IMAGE_EDGE && dimensions.height <= MAX_IMAGE_EDGE)
         );
-      })
-      .reverse(),
+      }),
   );
-  const picked: JudgeImage[] = [];
-  for (let round = 0; picked.length < maximum; round++) {
-    let found = false;
-    for (const queue of queues) {
-      if (queue[round] && picked.length < maximum) {
-        picked.push(requireDefined(queue[round], "queue[round]"));
-        found = true;
-      }
-    }
-    if (!found) break;
-  }
-  return picked.reverse();
 }
 
 function stageImages(
@@ -241,9 +240,13 @@ async function runLlmJudge(options: {
   const schemaFile = path.join(directory, "judgement-output.schema.json");
   const eventLogFile = path.join(directory, "provider-events.ndjson");
   const stderrFile = path.join(directory, "provider-stderr.log");
-  const attachments = stageImages(pickImages(evidence, runDir), directory);
+  const attachments = stageImages(pickImages(items, evidence, runDir), directory);
+  // Keep small Codex image sets attached. Larger sets use bounded, read-only
+  // retrieval so the attachment limit never silently removes eligible evidence.
+  const screenshotAccess =
+    config.judge.provider === "codex" && attachments.files.length <= 30 ? "attached" : "mcp";
   let mcp: ProviderInvocation["mcp"];
-  if (attachments.files.length && config.judge.provider !== "codex") {
+  if (attachments.files.length && screenshotAccess === "mcp") {
     const contextFile = path.join(directory, "evidence-context.json");
     writeJson(contextFile, {
       attachmentRoot: path.join(directory, "attachments"),
@@ -269,11 +272,7 @@ async function runLlmJudge(options: {
       items,
       evidence,
       attachments: attachments.byRef,
-      screenshotAccess: attachments.files.length
-        ? config.judge.provider === "codex"
-          ? "attached"
-          : "mcp"
-        : "none",
+      screenshotAccess: attachments.files.length ? screenshotAccess : "none",
     }),
   );
   writeJson(schemaFile, judgementOutputSchema);
@@ -294,7 +293,7 @@ async function runLlmJudge(options: {
     ...(config.judge.maxTurns === undefined ? {} : { maxTurns: config.judge.maxTurns }),
     timeoutSeconds: config.judge.timeoutSeconds,
     extraArgs: config.judge.extraArgs,
-    images: config.judge.provider === "codex" ? attachments.files : [],
+    images: screenshotAccess === "attached" ? attachments.files : [],
     additionalDirs: [],
     ...(mcp === undefined ? {} : { mcp: mcp }),
     allowWorkspaceTools: false,
@@ -328,7 +327,7 @@ async function runLlmJudge(options: {
 
   return normalizeRubricJudgement({
     judgement: parsed.data,
-    config,
+    screenshotAccess,
     spec,
     items,
     evidence,
@@ -356,7 +355,7 @@ async function repeatedLlmJudge(
   const policy = options.config.judge.voting;
   if (!policy) return runLlmJudge(options);
   const receipt = JSON.parse(fs.readFileSync(path.join(options.runDir, "receipt.json"), "utf8"));
-  const images = pickImages(options.evidence, options.runDir).map((image) => ({
+  const images = pickImages(options.items, options.evidence, options.runDir).map((image) => ({
     ref: image.ref,
     sha256: sha256(fs.readFileSync(image.file)),
   }));
