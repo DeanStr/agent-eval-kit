@@ -129,9 +129,19 @@ export async function runCommandGrader(options: {
 
 const MAX_IMAGE_EDGE = 2_000;
 
-function jpegSize(file: string): { width: number; height: number } | undefined {
+function imageSize(file: string): { width: number; height: number } | undefined {
   try {
     const buffer = fs.readFileSync(file);
+    if (
+      buffer.length >= 24 &&
+      buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) &&
+      buffer.toString("ascii", 12, 16) === "IHDR"
+    ) {
+      return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+    }
+    // PNG compressed data can contain JPEG-like markers. Only parse JPEG
+    // segments after establishing the format from its start-of-image marker.
+    if (buffer.length < 2 || buffer.readUInt16BE(0) !== 0xffd8) return undefined;
     let offset = 2;
     while (offset + 8 < buffer.length) {
       if (buffer[offset] !== 0xff) {
@@ -166,7 +176,7 @@ function pickImages(evidence: ScenarioEvidence[], runDir: string, maximum = 30):
       }))
       .filter((image) => {
         if (!fs.existsSync(image.file)) return false;
-        const dimensions = jpegSize(image.file);
+        const dimensions = imageSize(image.file);
         return (
           !dimensions || (dimensions.width <= MAX_IMAGE_EDGE && dimensions.height <= MAX_IMAGE_EDGE)
         );

@@ -1,5 +1,16 @@
 # Agent Eval Kit (`aek`)
 
+**Give your agent something to climb.** Define what better means, evaluate each
+revision, and feed the evidence into your agent's next move. AEK supplies the
+evaluation and comparison layer for an autonomous improvement loop; your coding
+agent or orchestration makes changes and selects candidates.
+
+[![Illustrative hill-climbing loop: accepted revisions improve, a critical regression is rejected, and missing evidence remains unscored.](docs/marketing/hill-climbing.svg)](docs/marketing/index.html)
+
+[Open the interactive visual locally](docs/marketing/README.md) ·
+[Download the graphic](docs/marketing/hill-climbing.png) ·
+[Build the silent social video and run its evals](video/marketing/README.md)
+
 `aek` is a configurable, evidence-first evaluation harness for any software project. It runs test scenarios with the coding-agent subscription you already pay for—OpenAI Codex, Claude Code, or Grok Build—then uses a fresh agent context plus deterministic checks to score a weighted rubric.
 
 No provider SDK and no API key are required. 

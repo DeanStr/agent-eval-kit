@@ -1,0 +1,24 @@
+version: 1
+project:
+  name: Agent Eval Kit silent social video
+  root: ../..
+target:
+  kind: repository
+agent:
+  provider: mock # Command collection does not invoke an agent.
+judge:
+  provider: codex
+  model: gpt-6-astra
+  effort: medium
+  timeoutSeconds: 900
+  concurrency: 1 # Ordinary area votes are sequential; never more than three concurrent judges.
+  voting:
+    minimumVotes: 3
+    maximumVotes: 5
+    agreement: 0.8
+    minimumConfidence: 0.55
+paths:
+  specs: video/marketing/evals/specs
+  runs: .agent-eval/marketing-video/eval-runs
+scoring:
+  minimumCoverage: 100

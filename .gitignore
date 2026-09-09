@@ -4,3 +4,6 @@ dist/
 evalkit.local.yaml
 *.log
 .env
+
+# Local rendered marketing video preview
+/docs/marketing/video-output

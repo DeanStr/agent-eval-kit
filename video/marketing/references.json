@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "reviewedAt": "2026-09-09",
+  "references": [
+    {
+      "id": "linear-agent",
+      "title": "Introducing Linear Agent",
+      "page": "https://linear.app/changelog/2026-03-24-introducing-linear-agent",
+      "url": "https://webassets.linear.app/files/ornj730p/production/c8530d6578e71e2e6c1461778f1fe599bb5f0e00.mp4",
+      "duration": 54.868,
+      "times": [
+        2,
+        7,
+        13,
+        19,
+        25,
+        31,
+        39,
+        47
+      ],
+      "target": "Composition, restrained palette, focal hierarchy, product detail framing. Do not copy its tiny UI text or grade inferred continuous motion.",
+      "sha256": "6ecb1d9ff89d9c6ca0b71ceef0a0160a9ea9208773191b14e97776130318d1da",
+      "bytes": 6293220
+    },
+    {
+      "id": "linear-cursor",
+      "title": "Cursor × Linear: agents for software development",
+      "page": "https://linear.app/agents",
+      "url": "https://static.linear.app/assets/agents/cursor-video.mp4",
+      "duration": 42.048,
+      "times": [
+        2,
+        7,
+        12,
+        17,
+        22,
+        27,
+        33,
+        39
+      ],
+      "target": "A concrete workflow with cause and effect, sparse framing, readable outcome and brand close. Do not require screenshot-based storytelling.",
+      "sha256": "5b017522ff094dbe6d98d935587931513c9af1ef7bbdcfc3f36b283aba29789d",
+      "bytes": 35435007
+    },
+    {
+      "id": "alphaevolve",
+      "title": "AlphaEvolve: code evolution illustration",
+      "page": "https://deepmind.google/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/",
+      "url": "https://storage.googleapis.com/gdm-deepmind-com-prod-public/media/media/Code-Evolution-Illustration_compressed_iUJETbv.mp4",
+      "duration": 32.416667,
+      "times": [
+        1,
+        5,
+        9,
+        13,
+        17,
+        21,
+        25,
+        30
+      ],
+      "target": "Visual continuity of candidate exploration and selection. The code is intentionally dense; use this as a conceptual reference, not the legibility bar.",
+      "sha256": "29d8d6709c87c2a52abdd806c0737a3e7c9867e60342da56a126a7e7cd9880f8",
+      "bytes": 13587855
+    }
+  ]
+}

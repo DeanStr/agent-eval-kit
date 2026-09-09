@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
+import sharp from "sharp";
 import { sha256, stableJson } from "../src/io.js";
 import { judgeArea } from "../src/graders.js";
 import {
@@ -145,6 +146,39 @@ const view = (reference: string, isError = false) =>
     result: "Response",
     isError,
   }) + "\n";
+
+test("PNG attachments use IHDR dimensions, not embedded JPEG-like markers", async (t) => {
+  const f = fixture(t);
+  f.config.judge.provider = "codex";
+  const ref = f.screenshot("png-markers");
+  const file = path.join(f.root, ref);
+  const png = fs.readFileSync(file);
+  // A valid ancillary tEXt chunk contains bytes resembling a JPEG SOF marker
+  // with 5,000px dimensions. They must never override the PNG's 1×1 IHDR.
+  const data = Buffer.concat([
+    Buffer.from("Comment\0"),
+    Buffer.from([0xff, 0xc0, 0, 8, 8, 0x13, 0x88, 0x13, 0x88]),
+  ]);
+  const chunk = Buffer.alloc(data.length + 12);
+  chunk.writeUInt32BE(data.length, 0);
+  chunk.write("tEXt", 4);
+  data.copy(chunk, 8);
+  let crc = 0xffffffff;
+  for (const byte of chunk.subarray(4, -4)) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  chunk.writeUInt32BE((crc ^ 0xffffffff) >>> 0, chunk.length - 4);
+  fs.writeFileSync(file, Buffer.concat([png.subarray(0, -12), chunk, png.subarray(-12)]));
+  assert.equal((await sharp(file).metadata()).width, 1);
+  f.fake(f.answer(ref));
+  assert.equal((await f.grade("png-attached")).items[0]?.verdict, "pass");
+
+  await sharp({ create: { width: 2001, height: 1, channels: 3, background: "white" } })
+    .png()
+    .toFile(file);
+  await assert.rejects(f.grade("oversize-png"), /screenshot contract violation/);
+});
 
 test("judge output requires exactly the requested rubric and case identities", async (t) => {
   const f = fixture(t);
