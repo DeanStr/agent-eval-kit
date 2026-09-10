@@ -86,13 +86,15 @@ npx --no-install playwright install chromium
 
 Use `npx aek` for a local npm installation, `pnpm exec aek` for a local pnpm
 installation, or `aek` for a globally linked installation wherever the guides show
-`aek`. Commands beginning with `pnpm aek` or referencing repository examples
-assume you are working from this source checkout. The offline first-run example
-requires the checkout; the tarball includes the text-datasets and authoring examples.
+`aek`. Commands beginning with `pnpm aek` assume you are working from this source
+checkout. Start with the [offline first-run walkthrough](docs/first-run.md): its
+cart fixture ships in the package and demonstrates score, coverage, critical
+gates, and regression comparison without provider access.
 
 No repository clone, TypeScript build, or development dependencies are needed in
-the consuming project. The package includes text-datasets and authoring examples plus the authoring skill. Provider CLIs and browser dependencies still apply to the
-selected evaluation mode. For a published GitHub release, download its `.tgz` and
+the consuming project. The package includes first-run, text-datasets, and authoring
+examples plus the authoring skill. Provider CLIs and browser dependencies still
+apply to the selected evaluation mode. For a published GitHub release, download its `.tgz` and
 matching `.sha256`, verify with `sha256sum -c`, then install the tarball.
 
 The release workflow tests and publishes these artifacts when a matching `v*`
@@ -696,7 +698,11 @@ The offline `mock` provider exists for harness tests. It does not inspect a targ
 - Raw provider output is retained. Provider timeouts, nonzero exits, evidence-boundary violations, malformed structured answers or events, missing scenario finalization, and corrupt transcripts abort the run with diagnostics instead of being mislabeled as model uncertainty. A valid judge abstention still becomes unavailable coverage.
 - Command strings in configuration are trusted project code. Review them before running an eval kit from someone else.
 
-This is evaluation infrastructure, not a hardened hostile-code sandbox. Run untrusted projects in a disposable container or VM.
+This is evaluation infrastructure, not a hardened hostile-code sandbox. Tool-policy
+monitoring can invalidate a run after an action has occurred; it cannot undo that
+action. Run untrusted projects in externally isolated, disposable environments.
+See [deployment and isolation](docs/deployment.md) for the boundaries of local,
+CI, and hosted execution, including credentials, mounts, and network access.
 
 ## Artifact layout
 

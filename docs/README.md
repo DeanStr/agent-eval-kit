@@ -10,7 +10,7 @@ the evaluation detects a deliberate defect, then expand the suite.
    [source checkout](../README.md#quick-start).
 2. [Run your first evaluation](first-run.md): an offline cart example with known
    scores, coverage, a failed critical gate, and a before/after comparison.
-   This walkthrough requires the source checkout.
+   The fixture ships in the installed package and needs no provider access.
 3. [Onboard your project](onboarding.md): select a starter, define evidence,
    prepare test state, calibrate a check, and promote a reviewed run.
 
@@ -51,6 +51,7 @@ checks, and file/integration workflows, including a user-story YAML example.
 | Resume a run, adjust scoring, or complete manual checks | [Run recovery and manual finalization](../README.md#run-resume-rescore-finalize) |
 | Resolve an automatic abstention with human evidence | [Adjudication](adjudication.md) |
 | Enforce CI acceptance criteria | [CI thresholds](../README.md#ci-thresholds), [exit statuses](cli.md#exit-statuses) |
+| Deploy locally, in CI, or for untrusted submissions | [Deployment and isolation](deployment.md) |
 | Compare versions or assess repeated-run stability | [Run comparisons](../README.md#compare-runs), [campaigns](../README.md#repeated-run-campaigns) |
 | Promote an accepted release or record an incomplete milestone | [Promotion policies](evidence-workflows.md#baseline-promotion-policy) |
 | Share results without raw private evidence | [Public export and privacy lint](../README.md#public-export-and-privacy-lint) |

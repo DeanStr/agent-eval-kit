@@ -1,20 +1,21 @@
 # Your first evaluation
 
-Run a tiny cart evaluation, read its report, then introduce a defect and compare the two runs. This walkthrough uses deterministic command graders and an offline mock collector: it needs Linux, Node.js 20.19+, and pnpm, but no provider login or browser installation. It demonstrates the harness; it does not measure an LLM judge's accuracy.
+Run a tiny cart evaluation, read its report, then introduce a defect and compare the two runs. This walkthrough uses deterministic command graders and an offline mock collector: it needs Linux, Node.js 20.19+, and an [installed AEK package](../README.md#built-package-distribution), but no source checkout, provider login, or browser installation. After package installation, the evaluation runs entirely offline. It demonstrates the harness; it does not measure an LLM judge's accuracy.
 
 ## Run the working example
 
-From the repository root:
+From the project directory where you installed AEK:
 
 ```bash
-pnpm install --frozen-lockfile
 demo=$(mktemp -d)
-cp -R examples/first-run/. "$demo/"
-pnpm aek validate --config "$demo/evalkit.yaml"
-pnpm aek run --config "$demo/evalkit.yaml"
+cp -R node_modules/agent-eval-kit/examples/first-run/. "$demo/"
+npx --no-install aek validate --config "$demo/evalkit.yaml"
+npx --no-install aek run --config "$demo/evalkit.yaml"
 ```
 
-The copy gives you a disposable project to edit. Keep this terminal open so `$demo` remains set. The run prints the full path to `report.html`; open that file in your browser. Its sibling `report.json` contains the machine-readable results.
+The copy gives you a disposable project to edit. Keep this terminal open and stay in the directory where AEK is installed so `$demo` remains set and `npx --no-install` resolves the installed command. The run prints the full path to `report.html`; open that file in your browser. Its sibling `report.json` contains the machine-readable results.
+
+For development from a source checkout, first run `pnpm install --frozen-lockfile` in the repository root. Copy `examples/first-run/.` instead, and substitute `pnpm aek` for `npx --no-install aek` throughout this guide.
 
 The example's four relevant files are:
 
@@ -73,7 +74,7 @@ export function total(lines) {
   return lines.reduce((sum, line) => sum + line.priceCents, 0);
 }
 JS
-pnpm aek run --config "$demo/evalkit.yaml"
+npx --no-install aek run --config "$demo/evalkit.yaml"
 ```
 
 This implementation ignores quantity. The new report should show:
@@ -93,7 +94,7 @@ Record the second run ID and compare:
 
 ```bash
 candidate="$demo/.agent-eval/runs/<second-run-id>"
-pnpm aek compare --baseline "$baseline" --candidate "$candidate" --fail-on-regression
+npx --no-install aek compare --baseline "$baseline" --candidate "$candidate" --fail-on-regression
 ```
 
 The comparison also exits 2. Open the printed `comparison.html`: `QUANTITY` regressed, the score dropped 75 percentage points, and coverage stayed unchanged. The evaluator fingerprints remain compatible because you changed the target implementation rather than the evaluation definition. Start a new run when changing the target; resume is for continuing the same inputs.

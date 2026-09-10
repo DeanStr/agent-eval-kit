@@ -2,7 +2,7 @@ import { requireDefined } from "../invariants.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import { terminateProcessTree } from "../process-tree.js";
 import { cancellationSignal } from "../cancellation.js";
@@ -41,7 +41,10 @@ export function shellInvocation(
   return { command: "bash", args: ["--noprofile", "--norc", "-c", script] };
 }
 
+// Captured tails are capped in UTF-16 code units, independently per stream.
 const MAX_CAPTURE = 12 * 1024 * 1024;
+// Event lines are capped in UTF-8 bytes, including a trailing CR but not LF.
+const MAX_LINE_BYTES = 12 * 1024 * 1024;
 
 export async function spawnCaptured(options: {
   command: string;
@@ -61,25 +64,37 @@ export async function spawnCaptured(options: {
   fs.mkdirSync(path.dirname(options.stderrFile), { recursive: true });
   const stdoutStream = fs.createWriteStream(options.stdoutFile, { flags: "w" });
   const stderrStream = fs.createWriteStream(options.stderrFile, { flags: "w" });
-  let outputError: Error | undefined;
-  stdoutStream.on("error", (error) => {
-    outputError ??= error;
-  });
-  stderrStream.on("error", (error) => {
-    outputError ??= error;
-  });
-
   return await new Promise((resolve, reject) => {
-    const child = spawn(options.command, options.args, {
-      cwd: options.cwd,
-      env: options.env,
-      stdio: ["pipe", "pipe", "pipe"],
-      detached: true,
-    });
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(options.command, options.args, {
+        cwd: options.cwd,
+        env: options.env,
+        stdio: ["pipe", "pipe", "pipe"],
+        detached: true,
+      });
+    } catch (error) {
+      // spawn can reject arguments synchronously, before normal output handlers
+      // exist. Close even still-opening logs and retain the original spawn error.
+      void Promise.all(
+        [stdoutStream, stderrStream].map(
+          (stream) =>
+            new Promise<void>((closed) => {
+              stream.on("error", () => {});
+              stream.once("close", closed);
+              stream.destroy();
+            }),
+        ),
+      ).then(() => reject(error));
+      return;
+    }
     let stdout = "";
     let stderr = "";
-    let stdoutRemainder = "";
-    let stderrRemainder = "";
+    const pendingLines = {
+      stdout: { parts: [] as string[], bytes: 0 },
+      stderr: { parts: [] as string[], bytes: 0 },
+    };
+    let outputError: Error | undefined;
     const stdoutDecoder = new StringDecoder("utf8");
     const stderrDecoder = new StringDecoder("utf8");
     let decodersFlushed = false;
@@ -98,34 +113,77 @@ export async function spawnCaptured(options: {
         : clipped;
     };
     const lines = (stream: "stdout" | "stderr", chunk: string) => {
-      let buffer = (stream === "stdout" ? stdoutRemainder : stderrRemainder) + chunk;
-      const parts = buffer.split(/\r?\n/);
-      buffer = parts.pop() ?? "";
-      if (stream === "stdout") stdoutRemainder = buffer;
-      else stderrRemainder = buffer;
-      for (const line of parts) options.onLine?.(stream, line);
+      if (!options.onLine || outputError) return;
+      const pending = pendingLines[stream];
+      let start = 0;
+      while (start < chunk.length) {
+        const newline = chunk.indexOf("\n", start);
+        const part = chunk.slice(start, newline === -1 ? undefined : newline);
+        pending.bytes += Buffer.byteLength(part, "utf8");
+        if (pending.bytes > MAX_LINE_BYTES) {
+          const log = stream === "stdout" ? options.stdoutFile : options.stderrFile;
+          throw new Error(
+            `Subprocess ${stream} event line exceeds ${MAX_LINE_BYTES} UTF-8 bytes; reduce the provider's event size. See ${log} for output retained before termination.`,
+          );
+        }
+        pending.parts.push(part);
+        if (newline === -1) return;
+        const line = pending.parts.join("").replace(/\r$/, "");
+        pending.parts = [];
+        pending.bytes = 0;
+        options.onLine(stream, line);
+        start = newline + 1;
+      }
     };
 
-    child.stdout.on("data", (data: Buffer) => {
-      stdoutStream.write(data);
-      const chunk = stdoutDecoder.write(data);
-      stdout = capture(stdout, chunk);
-      lines("stdout", chunk);
-    });
-    child.stderr.on("data", (data: Buffer) => {
-      stderrStream.write(data);
-      const chunk = stderrDecoder.write(data);
-      stderr = capture(stderr, chunk);
-      lines("stderr", chunk);
-    });
+    const failOutput = (error: unknown) => {
+      outputError ??=
+        error instanceof Error
+          ? error
+          : new Error("Subprocess output handling failed", { cause: error });
+      child.stdout.pause();
+      child.stderr.pause();
+      stop();
+    };
+    for (const stream of ["stdout", "stderr"] as const) {
+      const input = child[stream];
+      const output = stream === "stdout" ? stdoutStream : stderrStream;
+      const decoder = stream === "stdout" ? stdoutDecoder : stderrDecoder;
+      output.on("error", (error) => {
+        const log = stream === "stdout" ? options.stdoutFile : options.stderrFile;
+        failOutput(
+          new Error(`Cannot write subprocess ${stream} log ${log}: ${error.message}`, {
+            cause: error,
+          }),
+        );
+      });
+      output.on("drain", () => {
+        if (!outputError && !settled) input.resume();
+      });
+      input.on("error", failOutput);
+      input.on("data", (data: Buffer) => {
+        if (outputError) return;
+        try {
+          if (!output.write(data)) input.pause();
+          const chunk = decoder.write(data);
+          if (stream === "stdout") stdout = capture(stdout, chunk);
+          else stderr = capture(stderr, chunk);
+          lines(stream, chunk);
+        } catch (error) {
+          failOutput(error);
+        }
+      });
+    }
     const finishStream = (stream: fs.WriteStream) =>
       new Promise<void>((streamResolve, streamReject) => {
         if (stream.closed) {
           streamResolve();
           return;
         }
-        stream.once("error", streamReject);
-        stream.once("close", streamResolve);
+        stream.once("close", () => {
+          if (stream.errored) streamReject(stream.errored);
+          else streamResolve();
+        });
         stream.end();
       });
 
@@ -133,37 +191,65 @@ export async function spawnCaptured(options: {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      let cleanupError: Error | undefined;
       // A closed leader does not imply its descendants exited. Keep the
       // escalation alive and await it before returning or removing isolation.
       try {
         await termination;
       } catch (terminationError) {
-        error = terminationError as Error;
+        cleanupError = terminationError as Error;
       }
       signal?.removeEventListener("abort", onAbort);
-      if (!decodersFlushed) {
-        decodersFlushed = true;
-        const stdoutTail = stdoutDecoder.end();
-        const stderrTail = stderrDecoder.end();
-        if (stdoutTail) {
-          stdout = capture(stdout, stdoutTail);
-          lines("stdout", stdoutTail);
-        }
-        if (stderrTail) {
-          stderr = capture(stderr, stderrTail);
-          lines("stderr", stderrTail);
-        }
-        if (result) {
-          result.stdout = stdout;
-          result.stderr = stderr;
-        }
-      }
-      if (stdoutRemainder) options.onLine?.("stdout", stdoutRemainder);
-      if (stderrRemainder) options.onLine?.("stderr", stderrRemainder);
       try {
-        await Promise.all([finishStream(stdoutStream), finishStream(stderrStream)]);
-      } catch (streamError) {
-        reject(streamError);
+        if (!decodersFlushed && !outputError) {
+          decodersFlushed = true;
+          const stdoutTail = stdoutDecoder.end();
+          const stderrTail = stderrDecoder.end();
+          if (stdoutTail) {
+            stdout = capture(stdout, stdoutTail);
+            lines("stdout", stdoutTail);
+          }
+          if (stderrTail) {
+            stderr = capture(stderr, stderrTail);
+            lines("stderr", stderrTail);
+          }
+          if (result) {
+            result.stdout = stdout;
+            result.stderr = stderr;
+          }
+        }
+        if (!outputError && options.onLine) {
+          for (const stream of ["stdout", "stderr"] as const) {
+            const pending = pendingLines[stream];
+            if (pending.bytes) options.onLine(stream, pending.parts.join(""));
+          }
+        }
+      } catch (lineError) {
+        failOutput(lineError);
+      }
+      const closed = await Promise.allSettled([
+        finishStream(stdoutStream),
+        finishStream(stderrStream),
+      ]);
+      for (const result of closed) {
+        if (result.status === "rejected") outputError ??= result.reason;
+      }
+      // Final line callbacks or log flushing can fail after the leader closes.
+      // Await any cleanup those failures started before releasing the caller.
+      try {
+        await termination;
+      } catch (terminationError) {
+        cleanupError = terminationError as Error;
+      }
+      if (cleanupError) {
+        reject(
+          outputError
+            ? new AggregateError(
+                [outputError, cleanupError],
+                `${outputError.message}; subprocess cleanup failed: ${cleanupError.message}`,
+              )
+            : cleanupError,
+        );
         return;
       }
       if (outputError) {

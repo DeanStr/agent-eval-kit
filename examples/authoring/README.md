@@ -1,5 +1,10 @@
 # Project authoring walkthrough
 
+For an introduction to scores, coverage, gates, and revision comparisons, start
+with [your first evaluation](../../docs/first-run.md), which also runs entirely
+from the installed package. This walkthrough adds requirement mapping and
+calibration records.
+
 This synthetic project's requirements are: prices and totals use integer cents;
 quantities multiply unit prices; an empty cart totals zero. The included map's
 review identities describe this fixture, not a review of your product.

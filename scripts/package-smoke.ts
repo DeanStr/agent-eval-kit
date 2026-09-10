@@ -74,7 +74,61 @@ try {
   );
   const cli = path.join(consumer, "node_modules/.bin/aek");
   assert.match(await run(cli, ["--help"], consumer), /Agent Eval Kit/);
-  // The authoring workflow must work entirely from the installed package.
+  // Follow the installed first-run guide with a disposable target outside the
+  // consumer, retaining the installed command's working directory throughout.
+  const firstExample = path.join(scratch, "first-run-example");
+  fs.cpSync(path.join(installed, "examples", "first-run"), firstExample, { recursive: true });
+  assert.ok(fs.existsSync(path.join(installed, "docs", "first-run.md")));
+  assert.ok(fs.existsSync(path.join(installed, "docs", "deployment.md")));
+  const firstConfig = path.join(firstExample, "evalkit.yaml");
+  const firstCli = (args: string[], expectedExit = 0) =>
+    run("npx", ["--no-install", "aek", ...args], consumer, expectedExit);
+  await firstCli(["validate", "--config", firstConfig]);
+  const firstRuns = path.join(firstExample, ".agent-eval", "runs");
+  const firstEvaluate = async (expectedExit: number, score: number, gate: boolean) => {
+    const previous = fs.existsSync(firstRuns) ? fs.readdirSync(firstRuns) : [];
+    await firstCli(["run", "--config", firstConfig], expectedExit);
+    const added = fs.readdirSync(firstRuns).filter((id) => !previous.includes(id));
+    assert.equal(added.length, 1);
+    const directory = path.join(firstRuns, added[0]!);
+    const report = JSON.parse(fs.readFileSync(path.join(directory, "report.json"), "utf8"));
+    assert.equal(report.overallScorePct, score);
+    assert.equal(report.overallCoveragePct, 80);
+    assert.equal(report.scoreWithheld, false);
+    assert.equal(report.manualPending, 1);
+    assert.equal(report.gates.passed, gate);
+    assert.ok(fs.existsSync(path.join(directory, "report.html")));
+    await firstCli(["verify", "--run", directory]);
+    return directory;
+  };
+  const firstBaseline = await firstEvaluate(0, 100, true);
+  fs.writeFileSync(
+    path.join(firstExample, "cart.mjs"),
+    "export function total(lines) { return lines.reduce((sum, line) => sum + line.priceCents, 0); }\n",
+  );
+  const firstCandidate = await firstEvaluate(2, 25, false);
+  const firstComparison = path.join(scratch, "first-run-comparison");
+  await firstCli(
+    [
+      "compare",
+      "--baseline",
+      firstBaseline,
+      "--candidate",
+      firstCandidate,
+      "--fail-on-regression",
+      "--output",
+      firstComparison,
+    ],
+    2,
+  );
+  const firstDelta = JSON.parse(
+    fs.readFileSync(path.join(firstComparison, "comparison.json"), "utf8"),
+  );
+  assert.equal(firstDelta.compatibility.status, "compatible");
+  assert.equal(firstDelta.overall.scorePct.delta, -75);
+  assert.equal(firstDelta.overall.coveragePct.delta, 0);
+  assert.ok(fs.existsSync(path.join(firstComparison, "comparison.html")));
+
   const imageFile = path.join(consumer, "image.svg");
   fs.writeFileSync(
     imageFile,
@@ -112,6 +166,7 @@ try {
   assert.match(campaignHelp, /--fail-on-regression/);
   assert.doesNotMatch(campaignHelp, /--resume/);
   const skillDirectory = path.join(consumer, ".agents", "skills");
+  // The authoring workflow must work entirely from the installed package.
   await run(cli, ["author", "install", "--directory", skillDirectory], consumer);
   assert.ok(fs.existsSync(path.join(skillDirectory, "aek-author", "references", "plan.md")));
   assert.ok(
@@ -442,7 +497,7 @@ console.log(JSON.stringify({ version: 1, outcome: 'completed', summary: 'Sent no
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
   console.log(
-    "Package smoke passed: tarball install, direct two-image comparison, authoring skill/map/calibration, text datasets/suites/selection/reference promotion, file and email collector/checker pass and failure, executable bin, init, validate, run, collect, judge, release promotion, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
+    "Package smoke passed: tarball install, offline first-run scores/coverage/gates/comparison, direct two-image comparison, authoring skill/map/calibration, text datasets/suites/selection/reference promotion, file and email collector/checker pass and failure, executable bin, init, validate, run, collect, judge, release promotion, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
   );
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });
