@@ -9,6 +9,7 @@ import { decideVotes, journalVote, mapConcurrent, rubricVoteVerdict } from "../v
 import {
   defaultTextVoting,
   textRubricResultSchema,
+  type validatedTextRubricResultSchema,
   validateTextRubricResult,
 } from "./contracts.js";
 import { readTextSnapshot } from "./inputs.js";
@@ -67,8 +68,8 @@ export async function judgeTextRubric(options: {
     );
     const directory = path.join(options.areaDirectory, "text-rubric", item.id);
     fs.mkdirSync(directory, { recursive: true });
-    const votes: z.infer<typeof textRubricResultSchema>[] = [];
-    const outcome = (vote: z.infer<typeof textRubricResultSchema>) =>
+    const votes: z.infer<typeof validatedTextRubricResultSchema>[] = [];
+    const outcome = (vote: z.infer<typeof validatedTextRubricResultSchema>) =>
       vote.verdict === "cannot_judge" || vote.confidence < grader.voting.minimumConfidence
         ? "abstain"
         : vote.verdict;

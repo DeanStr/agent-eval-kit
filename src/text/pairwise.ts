@@ -13,7 +13,12 @@ import {
   pairOutcome,
   pairwiseVoteVerdict,
 } from "../visual/votes.js";
-import { defaultTextVoting, textPairResultSchema, validateTextPairResult } from "./contracts.js";
+import {
+  defaultTextVoting,
+  textPairResultSchema,
+  validatedTextPairResultSchema,
+  validateTextPairResult,
+} from "./contracts.js";
 import { readTextSnapshot } from "./inputs.js";
 import { textComparisonHtml } from "./report.js";
 
@@ -56,7 +61,7 @@ async function invokeTextPair(
 }
 
 const storedVoteSchema = z
-  .object({ candidateIsA: z.boolean(), raw: textPairResultSchema })
+  .object({ candidateIsA: z.boolean(), raw: validatedTextPairResultSchema })
   .strict();
 export async function judgeTextPairwise(options: {
   config: EvalConfig;
@@ -120,8 +125,10 @@ export async function judgeTextPairwise(options: {
             },
             validate: (value) => {
               const vote = storedVoteSchema.parse(value);
-              validateTextPairResult(vote.raw, textsFor(vote.candidateIsA));
-              return vote;
+              return {
+                ...vote,
+                raw: validateTextPairResult(vote.raw, textsFor(vote.candidateIsA)),
+              };
             },
             ...(options.onVoteComplete === undefined ? {} : { seal: options.onVoteComplete }),
             run: async (voteDir) => {

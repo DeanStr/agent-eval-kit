@@ -91,8 +91,15 @@ It must cite A, B, and R. R supplies taste, not facts to import or wording to co
 Each vote uses a fresh provider context with independently randomized A/B order.
 All text is supplied in the prompt; judges may not use tools. Completed votes
 retain the prompt, provider response, raw decision, ordering, literal quotations,
-and content hashes. Quotes must occur exactly in the indicated input; malformed
-or missing required citations are execution errors, even at low confidence.
+and content hashes. Quotes are checked against the indicated input, trying an
+exact match first. If that fails, runs of spaces, tabs, and CR/LF line breaks
+may differ; all other characters must remain unchanged. Whitespace cannot be
+removed to join words. Each validated citation retains the submitted `quote`,
+the original passage as `sourceQuote`, and a `whitespaceNormalized` flag. Reports
+show the source formatting and label normalized matches; raw provider artifacts
+remain unchanged. A normalized match establishes textual provenance, not fidelity
+to formatting. Malformed or missing required citations are execution errors,
+even at low confidence.
 
 The judge returns A, B, `equivalent`, or `abstain`. `preference` requires candidate
 wins; `non_regression` also accepts observed equivalence. Low-confidence votes
@@ -215,8 +222,8 @@ adaptive voting. Set `role: reference` on source records or fixed policy text;
 the default role is candidate. Roles determine input identity, not factual truth.
 
 No collection scenario is needed. Each observed judgment must quote every
-supplied input literally and explain its relevance. Missing or fabricated
-quotations, schema failures, forbidden tools, and provider errors abort the run,
+supplied input under the quotation-matching rules above and explain its relevance.
+Missing or fabricated quotations, schema failures, forbidden tools, and provider errors abort the run,
 even at low confidence. Valid low-confidence judgments and abstentions reduce
 coverage. A checked quotation establishes where the evidence came from, not
 whether the interpretation is correct. Claims can be checked against supplied

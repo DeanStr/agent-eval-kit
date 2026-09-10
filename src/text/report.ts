@@ -18,7 +18,13 @@ export function textComparisonHtml(options: {
     candidateIsA: boolean;
     outcome: string;
     reasoning: string;
-    citations: Array<{ text: string; quote: string; explanation: string }>;
+    citations: Array<{
+      text: string;
+      quote: string;
+      sourceQuote: string;
+      whitespaceNormalized: boolean;
+      explanation: string;
+    }>;
   }>;
 }): string {
   const { id, policy, decision, votes } = options;
@@ -31,7 +37,7 @@ export function textComparisonHtml(options: {
 <p><a href="comparison.json">Comparison and all votes (JSON)</a></p>
 <div class="panels">${panel("Candidate", options.candidate)}${panel("Reference", options.reference)}</div>
 ${options.style === undefined ? "" : panel("Style target", options.style)}
-<h2>Votes and passage citations</h2><ol>${votes.map((vote) => `<li><strong>${escapeHtml(vote.outcome)}</strong><p>A = ${vote.candidateIsA ? "Candidate; B = Reference" : "Reference; B = Candidate"}</p><p>${escapeHtml(vote.reasoning)}</p>${vote.citations.map((citation) => `<p><strong>${escapeHtml(citation.text)}</strong></p><blockquote>${escapeHtml(citation.quote)}</blockquote><p>${escapeHtml(citation.explanation)}</p>`).join("")}</li>`).join("")}</ol></html>`;
+<h2>Votes and passage citations</h2><ol>${votes.map((vote) => `<li><strong>${escapeHtml(vote.outcome)}</strong><p>A = ${vote.candidateIsA ? "Candidate; B = Reference" : "Reference; B = Candidate"}</p><p>${escapeHtml(vote.reasoning)}</p>${vote.citations.map((citation) => `<p><strong>${escapeHtml(citation.text)}</strong></p><blockquote>${escapeHtml(citation.sourceQuote)}</blockquote>${citation.whitespaceNormalized ? "<p>Matched with whitespace normalization; original source formatting shown.</p>" : ""}<p>${escapeHtml(citation.explanation)}</p>`).join("")}</li>`).join("")}</ol></html>`;
 }
 
 export function textRubricHtml(options: {
@@ -41,7 +47,13 @@ export function textRubricHtml(options: {
   votes: Array<{
     verdict: string;
     reasoning: string;
-    citations: Array<{ text: string; quote: string; explanation: string }>;
+    citations: Array<{
+      text: string;
+      quote: string;
+      sourceQuote: string;
+      whitespaceNormalized: boolean;
+      explanation: string;
+    }>;
   }>;
 }): string {
   return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(options.id)} text rubric</title>
@@ -52,5 +64,5 @@ export function textRubricHtml(options: {
 ${Object.entries(options.texts)
   .map(([name, text]) => `<h2>${escapeHtml(name)}</h2><pre>${escapeHtml(text)}</pre>`)
   .join("")}
-<h2>Votes and quotations</h2>${options.votes.map((vote) => `<h3>${escapeHtml(vote.verdict)}</h3><p>${escapeHtml(vote.reasoning)}</p>${vote.citations.map((citation) => `<strong>${escapeHtml(citation.text)}</strong><blockquote>${escapeHtml(citation.quote)}</blockquote><p>${escapeHtml(citation.explanation)}</p>`).join("")}`).join("")}</html>`;
+<h2>Votes and quotations</h2>${options.votes.map((vote) => `<h3>${escapeHtml(vote.verdict)}</h3><p>${escapeHtml(vote.reasoning)}</p>${vote.citations.map((citation) => `<strong>${escapeHtml(citation.text)}</strong><blockquote>${escapeHtml(citation.sourceQuote)}</blockquote>${citation.whitespaceNormalized ? "<p>Matched with whitespace normalization; original source formatting shown.</p>" : ""}<p>${escapeHtml(citation.explanation)}</p>`).join("")}`).join("")}</html>`;
 }

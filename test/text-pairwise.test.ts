@@ -46,7 +46,7 @@ if(args.includes('--version')){console.log('codex text fixture 1');process.exit(
 const count=Number(fs.existsSync(${JSON.stringify(counter)})?fs.readFileSync(${JSON.stringify(counter)},'utf8'):0)+1;
 fs.writeFileSync(${JSON.stringify(counter)},String(count));
 const mode=fs.existsSync(${JSON.stringify(mode)})?fs.readFileSync(${JSON.stringify(mode)},'utf8'):'';
-if(mode==='interrupt'&&count===2)process.exit(19);
+if((mode==='interrupt'||mode==='whitespace-interrupt')&&count===2)process.exit(19);
 const input=fs.readFileSync(0,'utf8');
 const passages=JSON.parse(input.slice(input.indexOf('PASSAGES_JSON:\\n')+'PASSAGES_JSON:\\n'.length));
 let preferred='equivalent';
@@ -57,6 +57,8 @@ if(mode==='mixed'){
 }
 if(mode==='abstain')preferred='abstain';
 const result={preferred,confidence:mode==='low'?0.1:0.95,reasoning:'Fixture editorial comparison.',citations:preferred==='abstain'?[]:Object.entries(passages).map(([text,value])=>({text,quote:value.slice(0,80),explanation:'Fixture evidence.'}))};
+if(mode==='whitespace-interrupt')for(const citation of result.citations)citation.quote=citation.quote.replace(/[ \\t\\r\\n]+/g,' ');
+if(mode==='derived-fields')for(const citation of result.citations)Object.assign(citation,{sourceQuote:citation.quote,whitespaceNormalized:false});
 if(mode==='bad-quote')result.citations[0].quote='Invented words that are absent.';
 if(mode==='missing')result.citations=[];
 if(mode==='invalid')result.preferred='tie';
@@ -235,6 +237,40 @@ test("interrupted direct text judging resumes sealed votes, produces scored repo
   await assert.rejects(runEvaluation({ ...value, resumeDir: runDir }), /integrity|changed/i);
 });
 
+test("whitespace-normalized votes resume with raw output and source formatting preserved", async (t) => {
+  const value = fixture(t, "codex");
+  fs.writeFileSync(value.mode, "whitespace-interrupt");
+  const source = "CANDIDATE: One\n\tclear observation.";
+  fs.writeFileSync(path.join(value.project, "candidate.md"), source);
+  await assert.rejects(runEvaluation(value), /Text pairwise judge execution failed/);
+  const runDir = path.join(value.config.paths.runs, fs.readdirSync(value.config.paths.runs)[0]!);
+  const directory = pairDir(runDir);
+  const firstVoteFile = path.join(directory, "vote-01/vote.json");
+  const firstVote = fs.readFileSync(firstVoteFile, "utf8");
+  const result = await runEvaluation({ ...value, resumeDir: runDir });
+  assert.equal(result.report?.overallCoveragePct, 100);
+  assert.equal(fs.readFileSync(value.counter, "utf8"), "3");
+  assert.equal(fs.readFileSync(firstVoteFile, "utf8"), firstVote);
+  const vote = JSON.parse(fs.readFileSync(path.join(directory, "vote-01/vote.json"), "utf8"));
+  const raw = JSON.parse(
+    fs.readFileSync(path.join(directory, "vote-01/provider-final.json"), "utf8"),
+  );
+  const label = vote.result.candidateIsA ? "A" : "B";
+  const citation = vote.result.raw.citations.find(
+    (entry: { text: string }) => entry.text === label,
+  );
+  const submitted = raw.citations.find((entry: { text: string }) => entry.text === label);
+  assert.equal(citation.quote, "CANDIDATE: One clear observation.");
+  assert.equal(citation.sourceQuote, source);
+  assert.equal(citation.whitespaceNormalized, true);
+  assert.equal(submitted.quote, citation.quote);
+  assert.equal(Object.hasOwn(submitted, "sourceQuote"), false);
+  const html = fs.readFileSync(path.join(directory, "comparison.html"), "utf8");
+  assert.ok(html.includes(`<blockquote>${source}</blockquote>`));
+  assert.match(html, /Matched with whitespace normalization/);
+  assert.equal(verifyArtifactIndex(result.runDir).ok, true);
+});
+
 test("preference requires candidate wins; equivalence is observed failure, low confidence is unavailable", async (t) => {
   const value = fixture(t, "codex");
   setGrader(value, { policy: "preference" });
@@ -282,7 +318,7 @@ test("multiple reference judgments aggregate observed mixed outcomes without inv
 
 test("invalid quotations, missing citations, malformed preferences, and tool use abort without journaling votes", async (t) => {
   const value = fixture(t, "codex");
-  for (const mode of ["bad-quote", "missing", "invalid", "tools"]) {
+  for (const mode of ["bad-quote", "missing", "invalid", "tools", "derived-fields"]) {
     fs.writeFileSync(value.mode, mode);
     await assert.rejects(
       runEvaluation(value),

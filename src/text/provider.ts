@@ -10,7 +10,7 @@ export async function invokeTextJudge<T>(options: {
   config: EvalConfig;
   directory: string;
   prompt: string;
-  schema: z.ZodType<T>;
+  schema: z.ZodType;
   validate: (value: unknown) => T;
   label: string;
 }): Promise<T> {
@@ -40,7 +40,7 @@ export async function invokeTextJudge<T>(options: {
   if (result.timedOut || result.exitCode !== 0 || result.policyViolations?.length)
     throw new Error(`${label} execution failed; see ${directory}`);
   try {
-    return validate(result.structured);
+    return validate(schema.parse(result.structured));
   } catch (error) {
     throw new Error(
       `${label} returned invalid output in ${directory}: ${error instanceof Error ? error.message : error}`,
