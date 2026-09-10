@@ -62,9 +62,13 @@ text, image, or integration checks as appropriate. It validates each area as it
 goes, preserves existing checks, and records remaining work for later sessions.
 An executable suite can grow while other areas still have unresolved questions.
 
-Finally, the agent runs authorized pilots and helps calibrate against known-good
-and deliberately defective targets. It reports configuration validity, execution,
-product outcomes, and calibration separately.
+Finally, the agent runs authorized pilots and reviews failed rubric items, gates,
+coverage, and representative passes against their evidence. Surprising results
+can reveal evaluator mistakes or missing expectations to resolve before revising
+the criteria. For important checks, calibration includes a meaningful defect and
+a valid variation the evaluator should accept, within the authorized budget.
+The agent reports configuration validity, execution, product outcomes, and
+calibration separately.
 
 ## Saved project map and commands
 
@@ -148,3 +152,10 @@ It demonstrates a project map, configured checks, and a good/defect calibration
 without a provider login or browser. It exercises CLI contracts rather than
 measuring how well an agent conducts an interview. Real authoring still requires
 reviewing that the generated criteria preserve the user's intent.
+
+For an optional live exercise from the source checkout, see
+[the marketing improvement exercise and results](marketing-improvement-exercise-2026-09-10.md).
+Its runnable files are in `examples/improvement-exercise/`; they require Playwright
+Chromium and a Codex subscription and are not included in the package or run by
+the default test command. The exercise checks valid wording, seeded regressions,
+and incremental repairs with a fixed evaluator.

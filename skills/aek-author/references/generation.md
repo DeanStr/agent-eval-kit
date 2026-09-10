@@ -73,14 +73,41 @@ A map can be structurally valid while discovery is still incomplete. Use
 `aek author validate --require-ready` when enforcing readiness of the reviewed
 inventory; exit 2 means remaining work, not invalid JSON or an execution failure.
 
+## Review the pilot
+
+Read execution status, coverage, critical gates, and `areas[].items` in
+`report.json`, then follow the evidence for failures and representative passes.
+Command-grader failures can exist while `areas[].defects` is empty. Inspect
+unexpected passes as well as failures; a higher score does not clear a failed gate.
+When several items fail, check whether they describe the same underlying defect.
+
+Distinguish an observed product failure from a collector/checker mistake, an
+unsupported judge interpretation, or a missing requirement. Correct execution
+problems before scoring the product. If examples expose an unsettled expectation,
+record it in the project map and ask only about the unresolved product decision.
+Revise criteria when supported by the intended contract, not merely to make the
+current target pass. Keep brief review notes and evidence links in `.aek-authoring`,
+identifying agent assessments separately from actual user judgments. An ordinary
+pilot does not require a new annotation tool or statistical validation workflow.
+
 ## Calibrate on known outcomes
 
 For each linked check, write why the baseline target should pass and identify a
 specific defect it should reject. Use an isolated target copy or test environment.
-Record actual and expected results. For a cart example, preserve the correct
-checker and change only the target to ignore quantity. The good run should pass,
+Record expected outcomes before running, then compare with actual results. For a
+cart example, preserve the correct checker and change only the target to ignore
+quantity. The good run should pass,
 the defective run should fail the intended item, and evidence coverage should
 remain complete for that check. A crash or blocked login is not detection.
+
+For important checks, choose a defect that could plausibly escape the evaluator,
+and a valid variation it might wrongly reject. For example, keep correct status
+labels but introduce contradictory next-action guidance; separately try equivalent
+correct wording. Valid variations may change wording or implementation only where
+the contract permits. Leave the evaluator and selected cases fixed across trials.
+Scale these trials to the risk and authorized budget;
+do not require a large labeled dataset for every check. Record passing variations
+as good trials with their rationale, and retain disagreements in review notes.
 
 Keep the evaluation method and selected cases fixed across each pair. A changed
 checker/reference/spec/provider setting requires both trials with that revised

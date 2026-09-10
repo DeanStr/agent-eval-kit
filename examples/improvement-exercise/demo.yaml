@@ -1,0 +1,46 @@
+id: demo
+title: Honest improvement decisions
+weight: 100
+description: The marketing demo must distinguish candidate scores, accepted revisions, pending work, and unavailable evidence.
+scenarios:
+  - id: DEMO
+    name: Select revisions and exercise timed playback
+    kind: command
+    instructions: Exercise the snapshotted page through browser controls; collect actual visible states and the Revision 04 inspector.
+    collect:
+      command: node evals/collect.mjs
+      methodFiles: [evals/collect.mjs]
+      sources: { page: site/index.html }
+      files: [states]
+      images: [unverified]
+rubric:
+  - id: BEST
+    criterion: Rejected and unverified revisions preserve the last accepted result.
+    weight: 1
+    gate: true
+    scenarios: [DEMO]
+    grader:
+      type: command
+      command: node evals/check.mjs BEST
+      methodFiles: [evals/check.mjs]
+      output: json
+    passCriteria: Revision 02 scores 77 but is rejected with failed gates and best accepted 68. Revision 04 is unverified with no score, 58% coverage, unknown gates, and best accepted 82.
+  - id: PENDING
+    criterion: Playback withholds results until evaluation finishes and preserves its phase across pause/resume.
+    weight: 1
+    gate: true
+    scenarios: [DEMO]
+    grader:
+      type: command
+      command: node evals/check.mjs PENDING
+      methodFiles: [evals/check.mjs]
+      output: json
+    passCriteria: Preparation, pause, and evaluation show pending results; the result becomes visible only on completion. The previously accepted score stays 68 throughout Revision 02.
+  - id: GUIDANCE
+    criterion: The unverified revision's next-action guidance requires evidence before acceptance.
+    weight: 1
+    gate: true
+    scenarios: [DEMO]
+    grader: { type: llm }
+    passCriteria: In the collected Revision 04 inspector, the next-action guidance tells the reader to obtain the missing evidence or restore the dependency and rerun before accepting the candidate. It must not recommend keeping, promoting, or shipping this unverified candidate. Accept equivalent wording. Evaluate the actual recommendation even if the badge and other text correctly say unverified. A recommendation to accept now violates this criterion; do not award partial credit for other correct text. If the recommendation was not observed, abstain.
+    evidence: The unverified inspector screenshot and the exact visible action text in the collected observations.

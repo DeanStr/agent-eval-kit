@@ -100,7 +100,15 @@ live transactions, or changes to a production target. Prepare all safe setup and
 make the specific remaining action reviewable before requesting needed permission.
 Continue other authoring work when a prerequisite prevents one area's pilot.
 
+Review pilot judgments against their evidence before treating the suite as complete.
+Inspect failed rubric items, critical gates, coverage, and representative passes;
+the model's defect list alone can omit command-grader failures. Use the pilot-review
+guidance in [generation and calibration](references/generation.md) to distinguish
+product failures from evaluator mistakes and unresolved expectations.
+
 Calibrate against a known-good target and deliberate defects in a disposable copy.
+For important checks, challenge plausible false passes and false failures with a
+meaningful defect and a valid variation, proportionate to the check's importance.
 Keep evaluator definitions, checker logic, fixtures, providers, and selected cases
 fixed across a pair. Read the evidence: exit 1 or missing coverage isn't defect
 detection. Record good/defect run directories and rationale in the map; let
