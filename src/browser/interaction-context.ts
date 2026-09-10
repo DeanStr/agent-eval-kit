@@ -31,3 +31,8 @@ export class AuthenticationEvidenceError extends Error {
 export class BrowserEvidenceError extends Error {
   override readonly name = "BrowserEvidenceError";
 }
+
+/** The requested framing is unreliable; the caller can choose a viewport capture. */
+export class ScreenshotFramingError extends Error {
+  override readonly name = "ScreenshotFramingError";
+}

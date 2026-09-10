@@ -17,6 +17,7 @@ import {
   OriginBoundaryError,
   AuthenticationEvidenceError,
   BrowserEvidenceError,
+  ScreenshotFramingError,
 } from "./interaction-context.js";
 import {
   browserActionResultIsError,
@@ -728,7 +729,7 @@ server.registerTool(
   "screenshot",
   {
     description:
-      "Save visual evidence and return the image. Capture every meaningful before/after or result state.",
+      "Save visual evidence and return the image. Capture every meaningful before/after or result state. For read-only iframe previews, scroll the relevant content into view and use fullPage: false; offscreen preview pixels cannot be captured reliably.",
     inputSchema: { label: z.string(), fullPage: z.boolean().default(false) },
   },
   ({ label, fullPage }) =>
@@ -762,7 +763,10 @@ server.registerTool(
           ],
         };
       } catch (error) {
-        const result = stopForEvidenceError(error);
+        const result =
+          error instanceof ScreenshotFramingError
+            ? protect(`ERROR: ${error.message}`)
+            : stopForEvidenceError(error);
         record({
           step,
           at: new Date().toISOString(),

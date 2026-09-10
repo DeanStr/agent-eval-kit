@@ -106,12 +106,12 @@ async function runIsolatedCodex(
       }
     },
   });
-  if (malformedEventLine !== undefined) {
+  if (!result.timedOut && malformedEventLine !== undefined) {
     throw new Error(
       `Codex emitted malformed JSON event output at line ${malformedEventLine}; see ${invocation.eventLogFile}`,
     );
   }
-  if (result.exitCode === 0 && !fs.existsSync(invocation.outputFile)) {
+  if (!result.timedOut && result.exitCode === 0 && !fs.existsSync(invocation.outputFile)) {
     throw new Error(
       `Codex completed without writing its required output file: ${invocation.outputFile}`,
     );

@@ -14,6 +14,7 @@ import {
   OriginBoundaryError,
   AuthenticationEvidenceError,
   BrowserEvidenceError,
+  ScreenshotFramingError,
   type BrowserInteractionContext,
 } from "./interaction-context.js";
 import {
@@ -879,6 +880,7 @@ export class BrowserSession {
     // once a request carries many images — which both the agent loop and the
     // judge become. Stay under it so a tall page can never poison a request.
     const MAX_SIDE = 1_900;
+    let clippingNote: string | undefined;
     let options: Parameters<Page["screenshot"]>[0] = {
       path: abs,
       type: this.captureOptions?.lossless ? "png" : "jpeg",
@@ -910,9 +912,7 @@ export class BrowserSession {
           fullPage: true,
           clip: { x: 0, y: 0, width: clipWidth, height: clipHeight },
         };
-        this.pendingNotes.push(
-          `Full-page screenshot was clipped to ${clipWidth}×${clipHeight}px (page is ${documentSize.width}×${documentSize.height}px). Scroll and take additional screenshots if content outside that region matters.`,
-        );
+        clippingNote = `Full-page screenshot was clipped to ${clipWidth}×${clipHeight}px (page is ${documentSize.width}×${documentSize.height}px). Scroll and take viewport screenshots (fullPage: false) if content outside that region matters.`;
       }
     }
     // A top-level screenshot normally includes pixels rendered by third-party
@@ -920,6 +920,72 @@ export class BrowserSession {
     // image evidence obeys the same boundary as text snapshots and actions.
     const { restoreFrames, readOnlyFrames } = await this.maskDisallowedFrames();
     try {
+      if (fullPage) {
+        for (const frame of readOnlyFrames) {
+          const element = await frame.frameElement();
+          let offscreen: boolean;
+          try {
+            offscreen = await element.evaluate(
+              (node, clip) =>
+                new Promise<boolean>((resolve, reject) => {
+                  // Expand the observer's document viewport to the screenshot's
+                  // document-coordinate clip. Chromium then intersects the frame
+                  // with ancestor overflow clips, including per-axis clipping and
+                  // scroll containers, rather than its entire bounding box.
+                  const margins = [
+                    window.scrollY,
+                    clip.width - window.scrollX - window.innerWidth,
+                    clip.height - window.scrollY - window.innerHeight,
+                    window.scrollX,
+                  ];
+                  const observer = new IntersectionObserver(
+                    ([entry]) => {
+                      clearTimeout(timer);
+                      observer.disconnect();
+                      if (!entry) {
+                        reject(new Error("Preview visibility observation returned no entry"));
+                        return;
+                      }
+                      const box = entry.intersectionRect;
+                      resolve(
+                        box.width > 0 &&
+                          box.height > 0 &&
+                          (box.left < 0 ||
+                            box.top < 0 ||
+                            box.right > window.innerWidth ||
+                            box.bottom > window.innerHeight),
+                      );
+                    },
+                    { root: document, rootMargin: margins.map((value) => `${value}px`).join(" ") },
+                  );
+                  const timer = setTimeout(() => {
+                    observer.disconnect();
+                    reject(new Error("Timed out waiting for preview visibility observation"));
+                  }, clip.timeoutMs);
+                  observer.observe(node as Element);
+                }),
+              {
+                width: options.clip?.width ?? MAX_SIDE,
+                height: options.clip?.height ?? MAX_SIDE,
+                timeoutMs: timeoutMs ?? this.actionTimeoutMs,
+              },
+            );
+          } catch (error) {
+            throw new BrowserEvidenceError(
+              `Could not inspect preview visibility before capture: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          } finally {
+            await element.dispose();
+          }
+          // Chromium can omit offscreen opaque-frame pixels even when its ARIA
+          // text is available. Reject the requested capture, without changing its
+          // meaning or retaining a blank image as evidence. A viewport retry is safe.
+          if (offscreen)
+            throw new ScreenshotFramingError(
+              "Full-page capture would omit an offscreen read-only preview. Scroll the preview into view and take viewport screenshots with fullPage: false; use additional scroll positions for a tall preview.",
+            );
+        }
+      }
       const buf = await this.page.screenshot({
         ...options,
         ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }),
@@ -941,6 +1007,7 @@ export class BrowserSession {
         fs.rmSync(abs, { force: true });
         throw error;
       }
+      if (clippingNote) this.pendingNotes.push(clippingNote);
       return { relPath, base64: buf.toString("base64"), notes: this.drainNotes() };
     } finally {
       await restoreFrames();

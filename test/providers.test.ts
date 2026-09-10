@@ -436,3 +436,39 @@ test("Grok removes isolated credentials when setup fails after copying auth", as
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("Codex preserves graceful-exit timeout results instead of missing or truncated output errors", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-codex-timeout-"));
+  const bin = path.join(root, "bin");
+  fs.mkdirSync(bin);
+  const executable = path.join(bin, "codex");
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
+  try {
+    for (const partialEvent of [false, true]) {
+      fs.writeFileSync(
+        executable,
+        `#!/usr/bin/env node
+process.on("SIGTERM", () => process.exit(0));
+${partialEvent ? `process.stdout.write(${JSON.stringify('{"type":')});` : ""}
+setInterval(() => {}, 1000);
+`,
+        { mode: 0o755 },
+      );
+      const result = await runCodex({ ...providerInvocation(root), timeoutSeconds: 1 });
+      assert.equal(result.timedOut, true);
+      assert.equal(result.exitCode, 0);
+      assert.equal(result.finalText, "");
+      assert.equal(result.structured, undefined);
+    }
+    fs.writeFileSync(executable, "#!/usr/bin/env node\nprocess.exit(0);\n", { mode: 0o755 });
+    await assert.rejects(
+      runCodex(providerInvocation(root)),
+      /completed without writing its required output file/,
+    );
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

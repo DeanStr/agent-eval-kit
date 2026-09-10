@@ -157,3 +157,19 @@ references inside the preview. Nested/unmatched/external frames remain excluded;
 credential checks include approved previews, and captures are discarded if an
 approved preview loses its boundary during the screenshot. Ordinary origin
 allowlists remain the mechanism for interactive third-party widgets.
+
+
+## Scenario deadlines and preview screenshots
+
+A provider deadline includes its final structured response, after browser `done`.
+Choose `agent.timeoutSeconds` with enough headroom for both phases. Codex timeouts
+retain their timeout status and scenario diagnostics even if termination produces
+exit code zero or a truncated event. Missing output without a timeout remains an
+output-contract error; a completed browser call cannot substitute for finalisation.
+
+Chromium may omit opaque iframe pixels outside the current viewport from a
+full-page image even though text snapshots can read them. AEK rejects full-page
+framing when an approved read-only preview's included portion is offscreen,
+without saving that screenshot. Scroll the preview into view and retry with
+`fullPage: false`, using multiple positions for tall previews. This framing error
+is recoverable; actual evidence inspection or boundary failures remain terminal.

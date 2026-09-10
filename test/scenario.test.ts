@@ -854,3 +854,37 @@ test("scenario collection passes rubric-required checkpoints to both MCP context
     }
   }
 });
+
+test("Codex timeout retains scenario diagnostics even after a graceful zero exit", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-scenario-timeout-"));
+  const bin = path.join(root, "bin");
+  fs.mkdirSync(bin);
+  fs.writeFileSync(
+    path.join(bin, "codex"),
+    `#!/usr/bin/env node
+process.on("SIGTERM", () => process.exit(0));
+setInterval(() => {}, 1000);
+`,
+    { mode: 0o755 },
+  );
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
+  try {
+    const { config, spec, scenario } = workspaceFixture(root);
+    config.agent = { provider: "codex", timeoutSeconds: 1, extraArgs: [] };
+    const evidence = await failedScenario({
+      config,
+      spec,
+      scenario,
+      fixtures: {},
+      directory: path.join(root, "evidence"),
+    });
+    assert.equal(evidence.outcome, "agent_error");
+    assert.match(evidence.summary, /timed out after 1s/);
+    assert.match(evidence.error ?? "", /timed out after 1s/);
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
