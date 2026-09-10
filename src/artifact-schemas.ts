@@ -12,7 +12,7 @@ const count = z.number().int().nonnegative();
 const percent = z.number().min(0).max(100);
 const fraction = z.number().min(0).max(1);
 const verdict = z.enum(["pass", "partial", "fail", "not_found", "cannot_judge"]);
-const provider = z.enum(["mock", "codex", "claude", "grok"]);
+const provider = z.enum(["mock", "codex", "claude", "grok", "cursor"]);
 const split = z.enum(["development", "evaluation"]);
 const targetKind = z.enum(["web", "repository", "command"]);
 const record = <T extends z.ZodType>(value: T) => z.record(text, value);

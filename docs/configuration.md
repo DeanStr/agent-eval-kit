@@ -71,7 +71,7 @@ a 1,800-second invocation timeout and no extra arguments.
 
 | Field under `agent` or `judge` | Type / default | Contract |
 | --- | --- | --- |
-| `provider` | `codex` (default), `claude`, `grok`, `mock` | Independent collection/judging choices. Mock uses no subscription and cannot establish model quality. |
+| `provider` | `codex` (default), `claude`, `grok`, `cursor`, `mock` | Independent collection/judging choices. Mock uses no subscription and cannot establish model quality. |
 | `model` | Optional nonempty string | Provider-specific model ID or alias; omitted uses the provider CLI default. |
 | `effort` | Optional nonempty string | Provider-specific reasoning effort. |
 | `maxTurns` | Optional positive integer | Claude/Grok provider turn cap. Codex collection uses an MCP interaction cap, default 50 when omitted. Codex has no native judge turn-limit flag. |
@@ -227,3 +227,5 @@ order, services, and conditional judge-call ranges without creating output or
 invoking a provider. See [execution previews](cli.md#execution-previews) for the
 versioned JSON contract and its limits. Use `aek <command> --help` for the exact
 options accepted by that command or subcommand.
+
+Cursor uses the `cursor-agent` executable with saved file credentials. It supports `model` and `timeoutSeconds`; `effort`, `maxTurns`, and `extraArgs` are rejected. See [Cursor setup](../README.md#provider-behavior).

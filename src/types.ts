@@ -18,7 +18,7 @@ import type {
   DistinctnessGrader,
   ImageRegressionGrader,
 } from "./visual/contracts.js";
-export const PROVIDERS = ["codex", "claude", "grok", "mock"] as const;
+export const PROVIDERS = ["codex", "claude", "grok", "cursor", "mock"] as const;
 export type ProviderId = (typeof PROVIDERS)[number];
 
 export type TargetKind = "web" | "repository" | "command";

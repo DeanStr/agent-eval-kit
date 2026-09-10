@@ -1,3 +1,5 @@
+import { cursorAuthPath } from "./providers/cursor.js";
+import { providerCommand } from "./providers/process.js";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { chromium } from "playwright";
@@ -52,13 +54,13 @@ export function doctor(options: DoctorOptions = {}): DoctorCheck[] {
     required: options.requireBrowser === true,
   });
 
-  const providers = options.providers ?? ["codex", "claude", "grok"];
+  const providers = options.providers ?? ["codex", "claude", "grok", "cursor"];
   const requireEveryProvider = options.providers !== undefined;
   const healthyProviders: ProviderId[] = [];
   for (const provider of providers) {
     if (provider === "mock") continue;
     let healthy = true;
-    const version = probe(provider, ["--version"]);
+    const version = probe(providerCommand(provider), ["--version"]);
     const installed = !version.error && version.status === 0;
     healthy &&= installed;
     checks.push({
@@ -99,6 +101,18 @@ export function doctor(options: DoctorOptions = {}): DoctorCheck[] {
           : (parseError ?? (auth.stdout + auth.stderr).trim()),
         required: requireEveryProvider,
       });
+    } else if (provider === "cursor") {
+      const authFile = cursorAuthPath();
+      const ok = fs.existsSync(authFile) && fs.statSync(authFile).isFile();
+      healthy &&= ok;
+      checks.push({
+        name: "cursor subscription auth",
+        ok,
+        detail: ok
+          ? authFile
+          : `not found at ${authFile}; run \`AGENT_CLI_CREDENTIAL_STORE=file cursor-agent login\``,
+        required: requireEveryProvider,
+      });
     } else {
       const inspect = probe("grok", ["inspect", "--json"]);
       const profileOk = inspect.status === 0;
@@ -127,7 +141,7 @@ export function doctor(options: DoctorOptions = {}): DoctorCheck[] {
       ok: healthyProviders.length > 0,
       detail: healthyProviders.length
         ? `healthy: ${healthyProviders.join(", ")}`
-        : "none of codex, claude, or grok is both installed and ready",
+        : "none of codex, claude, grok, or cursor is both installed and ready",
       required: true,
     });
   }

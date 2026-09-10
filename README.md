@@ -11,7 +11,7 @@ agent or orchestration makes changes and selects candidates.
 [Download the graphic](docs/marketing/hill-climbing.png) ·
 [Build the silent social video and run its evals](video/marketing/README.md)
 
-`aek` is a configurable, evidence-first evaluation harness for any software project. It runs test scenarios with the coding-agent subscription you already pay for—OpenAI Codex, Claude Code, or Grok Build—then uses a fresh agent context plus deterministic checks to score a weighted rubric.
+`aek` is a configurable, evidence-first evaluation harness for any software project. It runs test scenarios with the coding-agent subscription you already pay for—OpenAI Codex, Claude Code, Grok Build, or Cursor—then uses a fresh agent context plus deterministic checks to score a weighted rubric.
 
 No provider SDK and no API key are required. 
 
@@ -41,7 +41,7 @@ It supports:
 - repeated-run campaigns with rubric/case/stratum stability, whole-run bootstrap intervals, and paired case-level campaign comparisons;
 - compatibility-checked comparisons and append-only promoted baseline snapshots;
 - minimal public exports with an automatic privacy lint that never echoes matched secret values;
-- interchangeable agent and judge providers, so you can use Codex to test and Claude or Grok to judge.
+- interchangeable agent and judge providers, so you can use Codex to test and Claude, Grok, or Cursor to judge.
 
 ## Why this design
 
@@ -54,7 +54,7 @@ Explicitly source-level criteria may be judged from inspected code and concrete 
 ```text
 evalkit.yaml + specs + fixtures
                │
-               ├── scenario agent (Codex / Claude / Grok subscription)
+               ├── scenario agent (Codex / Claude / Grok / Cursor subscription)
                │      ├── browser MCP evidence, or read-only workspace inspection
                │      └── screenshots, observations, transcript, provider events
                │
@@ -678,10 +678,23 @@ The lint is a guardrail, not proof of anonymity: product-specific customer IDs o
 | Codex | `codex exec --json --ephemeral` | `--output-schema` | saved ChatGPT sign-in |
 | Claude Code | `claude -p --output-format stream-json` | `--json-schema` | saved `claude.ai` sign-in |
 | Grok Build | headless `--prompt-file` | `--json-schema` | saved Grok browser/device login |
+| Cursor | `cursor-agent --print --output-format stream-json` | schema in prompt, validated by AEK | saved Cursor file credentials |
 
-Codex is the default and most-tested adapter. Claude Code and Grok Build are first-class adapters, but their CLIs evolve independently; `aek doctor` records the installed versions, and every invocation stores its exact argv, raw events, stderr, model, session id, and token usage when exposed.
+Codex is the default and most-tested adapter. Claude Code, Grok Build, and Cursor are supported adapters, but their CLIs evolve independently; `aek doctor` records the installed versions, and every invocation stores its exact argv, raw events, stderr, model, session id, and token usage when exposed.
 
-`doctor` checks installation and local authentication status, not remaining model quota or successful OAuth refresh. Use the opt-in provider smoke to verify actual collection and judging. Claude and Grok preserve provider-written credential refreshes before removing their temporary configuration homes, provided the original credential file has not changed during the invocation.
+`doctor` checks installation and local authentication status, not remaining model quota or successful OAuth refresh. Use the opt-in provider smoke to verify actual collection and judging. Claude, Grok, and Cursor preserve provider-written credential refreshes before removing their temporary configuration homes, provided the original credential file has not changed during the invocation.
+
+For Cursor, install the [Cursor CLI](https://cursor.com/docs/cli/installation), then run:
+
+```bash
+AGENT_CLI_CREDENTIAL_STORE=file cursor-agent login
+aek doctor --providers cursor
+aek run --agent cursor --judge cursor
+```
+
+AEK uses `cursor-agent` explicitly because the `agent` command can belong to another provider. Cursor runs with an isolated home and only its saved `auth.json` credentials; on macOS, the file-store login above is required even if you have already signed in using Keychain. Linux credentials are read from `$XDG_CONFIG_HOME/cursor/auth.json` or `~/.config/cursor/auth.json`; macOS uses `~/.cursor/auth.json`. Ambient API keys and user settings are not passed through. Browser/workspace collection and image judging use AEK's MCP servers.
+
+Cursor supports `model` and `timeoutSeconds`. Separate `effort`, `maxTurns`, and `extraArgs` settings are rejected. Its [CLI output format](https://cursor.com/docs/cli/reference/output-format) does not enforce a JSON Schema: AEK supplies the schema in the prompt and validates the final answer. Malformed answers fail the run. Cursor token usage is not reported when the CLI does not expose it.
 
 The offline `mock` provider exists for harness tests. It does not inspect a target and should not be used for real LLM-graded evaluations.
 
@@ -690,7 +703,7 @@ The offline `mock` provider exists for harness tests. It does not inspect a targ
 - Browser top-level navigation is exact-origin by default. Sibling subdomains require an explicit wildcard.
 - Each scenario gets a fresh provider context and isolated artifact directory.
 - Real scenario and judge providers execute from disposable working directories outside the target's instruction-file scope. Provider arguments that could import external instructions, sessions, agents, or rules are rejected; Claude also receives an isolated configuration home containing only copied subscription credentials. Browser actions use the allowlisted Playwright MCP; workspace inspection uses a path-contained, read-only MCP with list/read/literal-search tools. The workspace view hides the eval config, specs, fixture manifest, named fixture files, prior runs, and VCS metadata. Executable project checks belong in explicitly configured command graders.
-- Repository scenario prompts contain scenario instructions and success signals, but not rubric criteria or pass thresholds. Attempts by Codex or Claude to use provider-native shell/file/web tools across the MCP evidence boundary invalidate the scenario.
+- Repository scenario prompts contain scenario instructions and success signals, but not rubric criteria or pass thresholds. Attempts by Codex, Claude, or Cursor to use provider-native shell/file/web tools across the MCP evidence boundary invalidate the scenario.
 - Judges cannot revisit the target and receive only the evidence bundle plus capped, round-robin screenshot attachments.
 - Judges receive canonical IDs for scenario records, observations, screenshots, and transcript steps. Unknown or out-of-scope citations, non-`cannot_judge` verdicts without citations, and defects without reached evidence fail the judge contract with retained diagnostics. Explicit abstentions may omit citations.
 - Screenshot citations in non-abstaining item/case verdicts and defects require actual image access: a selected direct attachment for Codex, or a successful evidence MCP view for other judges. Unselected images and failed views cannot support visual claims. Text-only judgments and explicit abstentions do not require image views.

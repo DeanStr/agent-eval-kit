@@ -23,7 +23,7 @@ export const directImageOptionsSchema = z
     criterion: nonempty,
     absoluteCriterion: nonempty.optional(),
     policy: z.enum(["preference", "non_regression"]).default("non_regression"),
-    judge: z.enum(["codex", "claude", "grok", "mock"]).default("codex"),
+    judge: z.enum(["codex", "claude", "grok", "cursor", "mock"]).default("codex"),
     judgeModel: nonempty.optional(),
     judgeEffort: nonempty.optional(),
     timeoutSeconds: z.number().int().positive().default(900),

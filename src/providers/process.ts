@@ -1,3 +1,4 @@
+import type { ProviderId } from "../types.js";
 import { requireDefined } from "../invariants.js";
 import fs from "node:fs";
 import os from "node:os";
@@ -22,7 +23,7 @@ export interface SpawnResult {
  * artifact paths; only the provider process working directory is disposable.
  */
 export async function withIsolatedProviderDirectory<T>(
-  provider: "codex" | "claude",
+  provider: "codex" | "claude" | "cursor",
   run: (directory: string) => Promise<T>,
 ): Promise<T> {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), `aek-${provider}-`));
@@ -31,6 +32,10 @@ export async function withIsolatedProviderDirectory<T>(
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
+}
+
+export function providerCommand(provider: ProviderId): string {
+  return provider === "cursor" ? "cursor-agent" : provider;
 }
 
 export function shellInvocation(

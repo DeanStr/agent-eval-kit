@@ -384,7 +384,7 @@ Usage: aek <command> [flags]
 
   image compare --candidate file --reference file --criterion text
       [--policy preference|non_regression] [--absolute-criterion text]
-      [--judge codex|claude|grok|mock] [--judge-model id] [--judge-effort value]
+      [--judge codex|claude|grok|cursor|mock] [--judge-model id] [--judge-effort value]
       [--minimum-votes n] [--maximum-votes n] [--agreement fraction]
       [--minimum-confidence fraction] [--timeout-seconds n]
       [--width pixels] [--height pixels] [--output new-directory]
@@ -407,7 +407,7 @@ Usage: aek <command> [flags]
       [--areas a,b] [--scenarios x,y] [--include-optional]
       [--split development|evaluation|all] [--suite name]
       [--changed-since prior-run | --text-cases area/dataset/case,...]
-      [--agent codex|claude|grok] [--judge codex|claude|grok]
+      [--agent codex|claude|grok|cursor] [--judge codex|claude|grok|cursor]
       [--agent-model id] [--judge-model id] [--headed] [--dry-run [--json]]
       [--resume run-directory] [--fail-under-score pct]
       [--fail-under-coverage pct]
@@ -460,7 +460,7 @@ preserving all generated artifacts. Compare requires compatible receipts unless
 --allow-incompatible is explicit.
 
 Provider adapters remove API-key environment variables before invocation, so
-Codex, Claude Code, and Grok Build use their saved subscription login.
+Codex, Claude Code, Grok Build, and Cursor use their saved subscription login.
 `;
 
 function stringFlag(args: Args, name: string): string | undefined {

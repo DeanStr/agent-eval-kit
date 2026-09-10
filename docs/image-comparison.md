@@ -86,7 +86,7 @@ and [report review commands](cli.md#execute-recover-and-review) also apply.
 | `--criterion text` | Required relative quality requirement. |
 | `--absolute-criterion text` | Optional independent candidate-only requirement; uses repeated rubric judging. |
 | `--policy non_regression\|preference` | Default `non_regression`. |
-| `--judge codex\|claude\|grok\|mock` | Default `codex`. |
+| `--judge codex\|claude\|grok\|cursor\|mock` | Default `codex`. |
 | `--judge-model id` | Provider-specific model; otherwise the provider default. |
 | `--judge-effort value` | Provider-specific reasoning effort. |
 | `--timeout-seconds n` | Positive integer provider-invocation timeout in seconds; default `900`. |

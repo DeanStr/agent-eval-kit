@@ -29,8 +29,8 @@ export const configOverridesSchema = z
   .object({
     suite: z.string().optional(),
     targetUrl: z.string().optional(),
-    agentProvider: z.enum(["codex", "claude", "grok", "mock"]).optional(),
-    judgeProvider: z.enum(["codex", "claude", "grok", "mock"]).optional(),
+    agentProvider: z.enum(["codex", "claude", "grok", "cursor", "mock"]).optional(),
+    judgeProvider: z.enum(["codex", "claude", "grok", "cursor", "mock"]).optional(),
     agentModel: z.string().optional(),
     judgeModel: z.string().optional(),
     maxTurns: z.number().int().positive().optional(),

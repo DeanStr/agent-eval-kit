@@ -1,3 +1,4 @@
+import { providerCommand } from "./providers/process.js";
 import { specSourceBytes } from "./specs.js";
 import { specMethodHash } from "./text/datasets.js";
 import { textCaseFingerprints } from "./text/selection.js";
@@ -49,7 +50,7 @@ function commandText(command: string, args: string[], cwd?: string): string | un
 
 export function providerVersion(provider: ProviderId): string {
   if (provider === "mock") return `agent-eval-kit mock ${KIT_VERSION}`;
-  const version = commandText(provider, ["--version"]);
+  const version = commandText(providerCommand(provider), ["--version"]);
   if (!version) {
     throw new Error(
       `Unable to determine ${provider} CLI version; run \`aek doctor\` and fix the provider installation before evaluating`,

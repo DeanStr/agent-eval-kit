@@ -29,8 +29,8 @@ const { values } = parseArgs({
   },
 });
 const realProvider = (value: string): ProviderId => {
-  if (!["codex", "claude", "grok"].includes(value))
-    throw new Error("Provider must be codex, claude, or grok");
+  if (!["codex", "claude", "grok", "cursor"].includes(value))
+    throw new Error("Provider must be codex, claude, grok, or cursor");
   return value as ProviderId;
 };
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
@@ -38,7 +38,7 @@ const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 async function main(): Promise<void> {
   if (values.help) {
     console.log(
-      "Reference evaluation: [--provider codex|claude|grok] [--judge provider] [--repetitions N] [--smoke] [--output NEW_DIRECTORY]\nWithout --provider, runs deterministic reference checks without model quota. --smoke requires --provider and checks workspace and browser evidence on the working fixture.",
+      "Reference evaluation: [--provider codex|claude|grok|cursor] [--judge provider] [--repetitions N] [--smoke] [--output NEW_DIRECTORY]\nWithout --provider, runs deterministic reference checks without model quota. --smoke requires --provider and checks workspace and browser evidence on the working fixture.",
     );
     return;
   }
@@ -218,8 +218,16 @@ async function main(): Promise<void> {
             version: 1,
             project: { name: "Reference application", root: "." },
             target: url ? { kind: "web", url } : { kind: "repository" },
-            agent: { provider: agent, maxTurns: 20, timeoutSeconds: 180 },
-            judge: { provider: judge, maxTurns: 20, timeoutSeconds: 180 },
+            agent: {
+              provider: agent,
+              ...(agent === "cursor" ? {} : { maxTurns: 20 }),
+              timeoutSeconds: 180,
+            },
+            judge: {
+              provider: judge,
+              ...(judge === "cursor" ? {} : { maxTurns: 20 }),
+              timeoutSeconds: 180,
+            },
             paths: { specs: "spec.yaml", runs: path.join(output, "runs") },
             scoring: { minimumCoverage: 100 },
           }),
