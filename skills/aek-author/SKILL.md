@@ -69,6 +69,10 @@ result → evidence outline. Ask only about unresolved choices; existing clear
 requirements do not need repeated approval. Record who confirmed each acceptance
 contract. Explain proposed weights and gates and settle release-blocking choices.
 
+Reuse existing tests that establish an agreed requirement through command graders;
+add assertions only for uncovered behavior. Inspect what the tests actually exercise,
+and use the result-contract guidance in the generation reference when connecting a runner.
+
 Create or extend config, specs, fixtures, and necessary checkers/collectors. Link
 each requirement to exact suite/area/rubric IDs in the map. Keep unresolved drafts
 in `.aek-authoring`, outside executable specs. Preserve and report existing checks

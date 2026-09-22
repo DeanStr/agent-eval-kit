@@ -60,3 +60,7 @@ An empty map or unresolved decisions remain incomplete. Missing trial files,
 invalid check IDs, tampered evidence, and changed checker definitions are errors.
 Editing the authoring map does not change target or evaluator fingerprints.
 This walkthrough calls no model and does not test the interviewing skill's quality.
+
+To reuse ordinary Node.js tests instead of the direct checker, follow the
+[worked JSON adapter](../../docs/existing-tests.md). The included `cart.test.mjs`
+and `test-adapter.mjs` are used only by that optional example.

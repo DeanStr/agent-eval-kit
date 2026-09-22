@@ -403,6 +403,47 @@ These files are hashed into the evaluator fingerprint, snapshotted under `inputs
 
 Command graders receive `AEK_PROJECT_ROOT`, `AEK_RUN_DIR`, and `AEK_RUBRIC_ID`.
 
+**Reusing existing tests.** Connect relevant unit, integration, or end-to-end tests
+through a command grader instead of duplicating their assertions. AEK executes the
+configured command; it does not discover tests or automatically turn each test into
+a rubric item. Select tests that establish the item's requirement, or use a whole
+suite as one aggregate regression check. A passing unit test alone cannot establish
+an unexercised end-to-end workflow.
+
+Use `output: exit-code` directly only when the command honors AEK's verdict mapping.
+Some runners use exit 1 for both failed assertions and setup errors, or exit 2 for
+invalid invocation; AEK would interpret these as `fail` and `partial`. It cannot
+distinguish those causes from the exit code alone.
+
+When necessary, use a small project-owned adapter with `output: json` to run the
+existing tests and translate their structured results. Read only results produced
+by that invocation, using a fresh output path or removing the adapter's previous
+result file before launch. Validate the runner's completion status, selected tests,
+and report before assigning a verdict. Missing/malformed results, invalid selection
+with no matching tests, setup failures, signals, and timeouts are execution errors,
+even if the runner also reported passing or failing assertions. Do not swallow a
+runner error just because a result file exists.
+
+For a valid execution, observed product assertion failures produce `fail`; a `pass`
+requires the expected tests to have executed and passed. Required skipped tests
+cannot establish a pass: use `cannot_judge` when valid missing evidence prevents a
+verdict, and explain what was skipped and why. Skips caused by broken setup remain
+execution errors. Never turn an empty failure list into a pass without verifying
+execution.
+
+The adapter must exit 0 and emit exactly one AEK verdict object for a valid result,
+even when tests failed. Execution errors must exit nonzero. Send runner logs to
+stderr or retain them under `AEK_RUN_DIR` and reference them in `evidenceRefs`;
+do not mix them into JSON stdout. Declare the adapter, selected test files, runner
+configuration, and other grading dependencies in `methodFiles`, excluding product
+code. Verify the connection with passing tests, a failed assertion, and a runner
+error, plus skipped/no-match cases where supported. If the adapter reads report
+files, verify that an old passing report cannot mask a failed new invocation.
+This reuses the test logic while preserving the distinction between product failure
+and an invalid evaluation.
+For runnable code, YAML configuration, and failure trials, see the
+[worked Node.js test adapter](docs/existing-tests.md).
+
 `manual` contributes no score or coverage until finalized:
 
 ```yaml

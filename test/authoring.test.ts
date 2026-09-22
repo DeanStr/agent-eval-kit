@@ -181,8 +181,11 @@ test("authoring skill installs with its resources and refuses overwrites", (t) =
     "references/plan.md",
     "references/generation.md",
     "references/docs/authoring.md",
+    "references/docs/existing-tests.md",
     "references/README.md",
     "references/examples/authoring/evalkit.yaml",
+    "references/examples/authoring/cart.test.mjs",
+    "references/examples/authoring/test-adapter.mjs",
   ])
     assert.ok(fs.statSync(path.join(installed, file)).isFile(), file);
   assert.match(

@@ -58,9 +58,16 @@ by the agent. Product decisions stay with you; “unknown” stays unresolved.
 
 For each requirement, you review the exercise, expected result, and evidence.
 The agent writes the YAML and helpers, choosing browser, command, workspace,
-text, image, or integration checks as appropriate. It validates each area as it
-goes, preserves existing checks, and records remaining work for later sessions.
-An executable suite can grow while other areas still have unresolved questions.
+text, image, or integration checks as appropriate. It reuses existing tests when
+their assertions establish the requirement, adding checks only for missing behavior.
+Tests are connected explicitly through command graders. A small result adapter may
+be needed to distinguish assertion failures from runner errors without duplicating
+the tests; see [command grader contracts](../README.md#grader-types) and the
+[worked test adapter](existing-tests.md).
+
+It validates each area as it goes, preserves existing checks, and records remaining
+work for later sessions. An executable suite can grow while other areas still have
+unresolved questions.
 
 Finally, the agent runs authorized pilots and reviews failed rubric items, gates,
 coverage, and representative passes against their evidence. Surprising results

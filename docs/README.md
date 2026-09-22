@@ -32,6 +32,7 @@ checks, and file/integration workflows, including a user-story YAML example.
 | What you want to evaluate | Guide |
 | --- | --- |
 | Web behavior, repository contracts, or command output | [Configuration and specs](../README.md#configuration), [grader types](../README.md#grader-types) |
+| Existing tests as an evaluation gate | [Worked JSON test adapter](existing-tests.md) |
 | Authenticated flows or workflows spanning scenarios | [Authentication](../README.md#authentication), [dependencies, bindings, and personas](workflows.md) |
 | Writing, voice, factual fidelity, or datasets of related texts | [Text evaluation](text-evaluation.md), [packaged dataset example](../examples/text-datasets/README.md) |
 | Two existing image files | [Direct image comparison](image-comparison.md) |

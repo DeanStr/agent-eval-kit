@@ -11,7 +11,7 @@ validating independent areas.
 | --- | --- | --- |
 | A user completes a web workflow | Browser scenario with explicit actions and reached evidence | `llm`, or command checks for exact observable values |
 | A documented interface matches source | Read-only workspace scenario | `llm` limited to source claims |
-| CLI output/calculation/API response is exact | Project-owned executable checker | `command`, explicit JSON/exit-code contract |
+| CLI output/calculation/API response is exact | Existing relevant tests or a project-owned checker | `command`, explicit JSON/exit-code contract |
 | Image readability/completeness | Browser capture or command collector | Ordinary `llm` absolute criterion |
 | Image preference/non-regression | Collected candidate plus reference files | `pairwise` |
 | Repeatability/motion/image measurements | Controlled capture, or applicable diagnostics | `capture`, `image-distinctness`, `image-regression` |
@@ -26,6 +26,42 @@ relevant guide: `workflows.md`, `file-evidence.md`, `email.md`, `text-evaluation
 `visual-evaluation.md`, or README's configuration, specs, and grader sections.
 The artifact/image and specialized format paths can need project-owned extraction.
 For a one-off pair of existing images, use `aek image compare --candidate file --reference file --criterion text`; add `--absolute-criterion` for a candidate-only quality gate. For project suites, generate collection and rubric definitions. Don't imply built-in PDF/video/spreadsheet semantics.
+
+## Reuse existing tests
+
+Before writing a checker, inspect existing tests, assertions, fixtures, and runner
+commands for the agreed requirement. Reuse tests that exercise the relevant behavior;
+add assertions only for gaps. A passing unit test does not establish an unexercised
+browser or integration workflow. AEK runs explicitly configured commands; it does
+not discover tests or map individual test results to rubrics automatically.
+
+Select the relevant tests for a requirement. One command grader produces one rubric
+verdict; a whole suite can serve as an aggregate regression check. Avoid running and
+scoring the same whole suite separately for each requirement.
+
+Check the runner's result contract before using `output: exit-code`: AEK interprets
+codes 0–4 as verdicts, including 1 as `fail` and 2 as `partial`. If the runner reuses
+those codes for setup errors, wrap it with a small project-owned JSON adapter that
+reads its structured results. Reuse the assertions; translate only the results.
+Validate completion status, selected tests, and structured results from the current
+invocation before assigning a verdict. Use a fresh report path or remove the
+adapter's previous report before launch. Invalid selection with no matching tests,
+missing/malformed results, setup failures, signals, and timeouts are execution errors
+even when some assertions were reported. For a valid execution, return `fail` for
+observed product assertion failures and `pass` only when the required tests executed
+and passed. Required skipped tests cannot establish a pass; use `cannot_judge` with
+a reason when valid missing evidence prevents a verdict. Skips caused by broken
+setup remain execution errors. Do not infer success from an empty failure list.
+
+In JSON mode the adapter exits 0 for any valid verdict, including `fail` and
+`cannot_judge`; execution errors exit nonzero. Keep stdout to the single AEK JSON
+object and retain runner diagnostics in stderr or run artifacts. Declare the tests,
+adapter, and grading dependencies in `methodFiles` as described below. Verify the
+integration on a passing case, an assertion failure, and a runner error; check
+skipped/no-match behavior if the runner supports it. When reading report files,
+verify that a stale passing report cannot mask a failed new invocation.
+For a runnable Node.js example and its YAML connection, read `existing-tests.md`
+in the packaged docs located as described above.
 
 ## Build the definitions
 
