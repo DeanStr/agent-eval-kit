@@ -1,9 +1,67 @@
 # Controlled skill comparison
 
-Compare a plain instruction with a small review-oriented skill on one cart task.
-This is a bounded example, not a scheduler, optimiser, or general skill ranking.
+Run project-owned prompt/skill experiments with configurable tasks, instruction
+variants, starting files, protected files, submitted outputs, and an external
+runner. The default `experiment.json` compares two instructions on a cart task.
+This is a bounded workflow, not a scheduler, optimiser, or general skill ranking.
 The external candidate adapter uses Codex in Docker. AEK only collects and judges
 the resulting artifacts; it does not execute candidate instructions as scenarios.
+
+## Use an application-owned experiment
+
+Keep tasks, data, instructions, instrumentation, and acceptance checks in the
+application repository. Pass its definition as the third argument:
+
+```sh
+node examples/skill-comparison/run.mjs /tmp/new-trial controls.json /path/to/app/evals/experiment.json
+```
+
+Use [experiment.json](experiment.json) as the schema example. All source paths
+resolve relative to that definition. Each task declares:
+
+- `task`: a task file installed as protected `TASK.md`.
+- `startingState`: destination-to-source mappings for files or directories.
+- `protected`: starting paths whose bytes and file membership cannot change.
+- `outputs`: workspace-to-evaluator mappings for submitted files or directories.
+- `evaluation.config`: an ordinary project-owned AEK config; the workflow sets
+  its root and runs directory in an isolated evaluation project.
+- `evaluation.files`: destination-to-source mappings for specs, collectors,
+  checkers, expected data, references, and their dependencies. Declare every
+  executable method in the AEK spec's existing `methodFiles` fields.
+- Optional `evaluation.controlFiles`: JSON files containing explicitly named
+  public runner controls, such as the pinned observation image. Credential paths
+  cannot be copied this way. `evaluation.timeoutSeconds` bounds each AEK command.
+
+`variants` maps stable ids to instruction files; `baseline` names the comparison
+baseline. Every other variant is compared with it for each task and repetition.
+Tasks have independent fixed evaluators; scores from different tasks are not
+pooled into a skill ranking. Output destinations cannot overlap evaluator files.
+Symlinks in submitted paths or their ancestors are rejected. The workflow removes
+the previous submission before installing the next one.
+
+`runner` names an external module exporting `validateControls(controls)`,
+`publicControls(controls)`, and `runCandidate({workspace, directory, controls,
+instructions})`. Controls include `repetitions >= 2`; remaining fields belong to
+the adapter. `publicControls` must return the full nonsecret execution identity.
+`runCandidate` must enforce its budget, retain invocation/stdout/stderr, await
+cleanup, and return `{exitCode, durationMs, usage?}` plus execution `error`,
+`cleanupError`, or `interruptedSignal` when applicable. Cleanup failure stops new
+candidate calls. It must provide the isolation its application requires; the
+host orchestrator is not a sandbox. The supplied Docker adapter is the reference.
+
+Mapped and submitted files retain their permission bits, including executable
+scripts. Protected inputs and fixed evaluators are checked for mode changes too.
+The plan retains starting bytes, hashes and modes, instruction bytes/hashes, runner
+identity, and evaluator hashes. Every attempt retains a separate candidate
+identity and submitted artifact hashes. Evaluator identity comes from AEK, never
+from the candidate model or instruction variant. A `pass`, `requirement_failure`,
+`inconclusive`, or `execution_error` outcome accompanies each attempted execution;
+blocked evidence reduces coverage and withheld scores are `null`. Unattempted
+work is counted separately. Exit status is 0 for complete passing comparisons,
+2 for observed failures/inconclusive results, and 1 for execution errors.
+
+See [consumer validation](../../docs/workflow-consumers.md) for Vacation's creator
+kit integration and [benchmarking](../benchmark/README.md) for measured workloads.
 
 The task adds a discount while preserving quantity and empty-cart behavior.
 `fixture/cart.test.mjs` remains an ordinary runnable Node test suite, visible to

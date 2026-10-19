@@ -41,7 +41,13 @@ export function validateControls(controls) {
   const proxy = new URL(controls.proxyUrl);
   if (!["http:", "https:"].includes(proxy.protocol) || proxy.username || proxy.password)
     throw new Error("proxyUrl must be an HTTP(S) model-only proxy without embedded credentials");
+  fs.accessSync(controls.authFile, fs.constants.R_OK);
   return controls;
+}
+
+export function publicControls(controls) {
+  const { authFile: _authFile, ...publicValues } = controls;
+  return publicValues;
 }
 
 export async function capture(command, args, { cwd, input, timeoutSeconds, directory, prefix }) {
@@ -73,7 +79,8 @@ export async function capture(command, args, { cwd, input, timeoutSeconds, direc
       process.on("SIGTERM", onTerminate);
       const deadline = setTimeout(() => {
         errors.push(`Execution exceeded ${timeoutSeconds}s (ETIMEDOUT)`);
-        child.kill("SIGKILL");
+        child.kill(command === "docker" ? "SIGKILL" : "SIGTERM");
+        if (command !== "docker") forceStop = setTimeout(() => child.kill("SIGKILL"), 10_000);
       }, timeoutSeconds * 1000);
       const retain = (stream, file, label) => {
         let bytes = 0;

@@ -9,6 +9,10 @@
     "aek-workspace-mcp": "dist/workspace/mcp.js"
   },
   "exports": {
+    "./benchmark": {
+      "types": "./dist/benchmark.d.ts",
+      "default": "./dist/benchmark.js"
+    },
     "./email": {
       "types": "./dist/email/mailbox.d.ts",
       "default": "./dist/email/mailbox.js"
@@ -39,6 +43,9 @@
     "examples/skill-comparison/**/*.md",
     "examples/skill-comparison/*.json",
     "examples/skill-comparison/*.yaml",
+    "examples/benchmark/*.mjs",
+    "examples/benchmark/*.json",
+    "examples/benchmark/*.md",
     "examples/judge-validation/run.mjs",
     "examples/judge-validation/README.md"
   ],
@@ -53,7 +60,7 @@
     "lint:fix": "biome lint --write --error-on-warnings .",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test test/*.test.ts",
+    "test": "pnpm build && node --import tsx --test test/*.test.ts",
     "smoke:browser": "tsx scripts/browser-smoke.ts",
     "smoke:browser:full": "tsx scripts/browser-regression.ts",
     "smoke:package": "tsx scripts/package-smoke.ts",

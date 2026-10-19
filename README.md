@@ -39,6 +39,7 @@ It supports:
 - downloaded and command-produced file evidence, typed file/scalar workflow bindings, evidence-backed checkpoints, and explicit applicability exclusions;
 - parameterized case matrices, diagnostic strata, and fingerprinted development/evaluation splits;
 - repeated-run campaigns with rubric/case/stratum stability, whole-run bootstrap intervals, and paired case-level campaign comparisons;
+- reusable [prompt/skill experiments](examples/skill-comparison/README.md) and [project-owned benchmarks](examples/benchmark/README.md), retaining every attempt and measurement changes alongside correctness gates;
 - compatibility-checked comparisons and append-only promoted baseline snapshots;
 - minimal public exports with an automatic privacy lint that never echoes matched secret values;
 - interchangeable agent and judge providers, so you can use Codex to test and Claude, Grok, or Cursor to judge.

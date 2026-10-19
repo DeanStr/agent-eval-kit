@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "baseline": "../../baseline/evalkit.yaml",
+  "candidate": "../../candidate/evalkit.yaml",
+  "repetitions": 3,
+  "timeoutSeconds": 1800,
+  "measurement": { "scenarioId": "WORKLOAD", "fileLabel": "measurements" }
+}

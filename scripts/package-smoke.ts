@@ -69,6 +69,9 @@ try {
     "check.mjs",
     "spec.yaml",
     "controls.example.json",
+    "definition.mjs",
+    "experiment.json",
+    "evalkit.yaml",
     "README.md",
     "fixture/TASK.md",
     "fixture/cart.mjs",
@@ -77,6 +80,56 @@ try {
     "variants/reviewed.md",
   ])
     assert.ok(fs.statSync(path.join(installed, "examples/skill-comparison", file)).isFile(), file);
+  for (const file of ["run.mjs", "recipe.example.json", "README.md"])
+    assert.ok(fs.statSync(path.join(installed, "examples/benchmark", file)).isFile(), file);
+  const benchmarkApi = await run(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      "import {benchmarkMeasurementsSchema, compareBenchmarkCampaigns} from 'agent-eval-kit/benchmark'; if(typeof benchmarkMeasurementsSchema.parse !== 'function' || typeof compareBenchmarkCampaigns !== 'function') process.exit(1)",
+    ],
+    consumer,
+  );
+  assert.equal(benchmarkApi.trim(), "");
+  const benchmarkRecipe = path.join(scratch, "benchmark-recipe");
+  fs.mkdirSync(benchmarkRecipe);
+  for (const side of ["baseline", "candidate"])
+    fs.writeFileSync(path.join(benchmarkRecipe, `${side}.yaml`), "version: 1\n");
+  fs.writeFileSync(
+    path.join(benchmarkRecipe, "failed-cli.mjs"),
+    "console.error('Fixture execution failure'); process.exit(1);\n",
+  );
+  fs.writeFileSync(
+    path.join(benchmarkRecipe, "recipe.json"),
+    JSON.stringify({
+      version: 1,
+      baseline: "baseline.yaml",
+      candidate: "candidate.yaml",
+      repetitions: 2,
+      timeoutSeconds: 10,
+      measurement: { scenarioId: "WORKLOAD", fileLabel: "measurements" },
+    }),
+  );
+  await run(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `
+    import assert from 'node:assert/strict';
+    import fs from 'node:fs';
+    const {runBenchmark} = await import(${JSON.stringify(path.join(installed, "examples/benchmark/run.mjs"))});
+    const root = ${JSON.stringify(benchmarkRecipe)};
+    const result = await runBenchmark(root+'/output', root+'/recipe.json', {cli:[root+'/failed-cli.mjs']});
+    assert.equal(result.outcome, 'execution_error');
+    assert.deepEqual(result.unattemptedCampaigns, ['candidate']);
+    assert.equal(result.executions.baseline.exitCode, 1);
+    assert.equal(fs.existsSync(root+'/output/candidate.stdout'), false);
+  `,
+    ],
+    consumer,
+  );
   assert.equal(
     fs.existsSync(path.join(installed, "src")),
     false,

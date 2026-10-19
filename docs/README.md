@@ -56,6 +56,7 @@ checks, and file/integration workflows, including a user-story YAML example.
 | Deploy locally, in CI, or for untrusted submissions | [Deployment and isolation](deployment.md) |
 | Compare versions or assess repeated-run stability | [Run comparisons](../README.md#compare-runs), [campaigns](../README.md#repeated-run-campaigns) |
 | Compare candidate instructions with controlled repeated execution | [Packaged skill comparison](../examples/skill-comparison/README.md) |
+| Compare project-owned workload measurements and correctness gates | [Benchmark recipe](../examples/benchmark/README.md), [consumer validation](workflow-consumers.md) |
 | Maintain coverage after product changes | [Authoring maintenance](authoring.md#maintain-an-existing-suite) |
 | Promote an accepted release or record an incomplete milestone | [Promotion policies](evidence-workflows.md#baseline-promotion-policy) |
 | Share results without raw private evidence | [Public export and privacy lint](../README.md#public-export-and-privacy-lint) |

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "name": "Controlled skill comparison",
+  "baseline": "plain",
+  "runner": "docker-runner.mjs",
+  "variants": { "plain": "variants/plain.md", "reviewed": "variants/reviewed.md" },
+  "tasks": [{
+    "id": "cart",
+    "task": "fixture/TASK.md",
+    "startingState": { "cart.mjs": "fixture/cart.mjs", "cart.test.mjs": "fixture/cart.test.mjs" },
+    "protected": ["cart.test.mjs"],
+    "outputs": { "cart.mjs": "artifact/cart.mjs" },
+    "evaluation": {
+      "config": "evalkit.yaml",
+      "files": { "evals/spec.yaml": "spec.yaml", "evals/collect.mjs": "collect.mjs", "evals/check.mjs": "check.mjs", "evals/docker-runner.mjs": "docker-runner.mjs" },
+      "controlFiles": { "evals/runtime.json": ["image"] }
+    }
+  }]
+}

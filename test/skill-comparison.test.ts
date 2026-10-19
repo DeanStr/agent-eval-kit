@@ -304,6 +304,45 @@ test("failed candidate cleanup retains the attempt and stops further model calls
   );
 });
 
+test("adapter cleanup or interruption cannot publish a product score after exit zero", async (t) => {
+  for (const failure of [
+    { cleanupError: "Runner cleanup failed" },
+    { interruptedSignal: "SIGTERM" },
+  ]) {
+    const root = temporary(t);
+    let calls = 0;
+    const summary = await runComparison(path.join(root, "experiment"), controls(root), {
+      candidate: () => {
+        calls++;
+        return { exitCode: 0, durationMs: 1, ...failure };
+      },
+    });
+    assert.equal(calls, 1);
+    assert.equal(summary.unattempted, 3);
+    assert.equal(summary.attempts[0].outcome, "execution_error");
+    assert.equal(Object.hasOwn(summary.attempts[0], "result"), false);
+    assert.equal(Object.hasOwn(summary.attempts[0], "evaluation"), false);
+  }
+});
+
+test("a changed evaluator is rejected before any checker executes", async (t) => {
+  const root = temporary(t),
+    output = path.join(root, "experiment");
+  const summary = await runComparison(output, controls(root), {
+    candidate: ({ workspace }: { workspace: string }) => {
+      fs.writeFileSync(path.join(workspace, "cart.mjs"), correct);
+      fs.writeFileSync(
+        path.join(output, "evaluation/cart/evals/check.mjs"),
+        "throw Error('Must never execute');\n",
+      );
+      return { exitCode: 0, durationMs: 1 };
+    },
+  });
+  assert.equal(summary.unattempted, 3);
+  assert.equal(summary.attempts[0].errorCode, "AEK_EVALUATOR_CHANGED");
+  assert.equal(Object.hasOwn(summary.attempts[0], "evaluation"), false);
+});
+
 test("experiment interruption cleans up the active candidate and journals cancellation", async (t) => {
   for (const signal of ["SIGTERM", "SIGINT"] as const) {
     await t.test(signal, async (subtest) => {
@@ -427,4 +466,330 @@ process.exit(child.status ?? 1);`,
     JSON.parse(fs.readFileSync(path.join(output, "summary.json"), "utf8")).attempts.length,
     4,
   );
+});
+
+test("project definitions support multiple tasks, instruction variants, output files and an external adapter", async (t) => {
+  const root = temporary(t);
+  const definition = path.join(root, "experiment.json");
+  const source = path.join(root, "input");
+  fs.mkdirSync(source);
+  fs.writeFileSync(path.join(source, "guide.md"), "Project-owned skill and task data");
+  fs.writeFileSync(
+    path.join(source, "input.sh"),
+    "#!/bin/sh\nprintf 'starting executable works'\n",
+    { mode: 0o755 },
+  );
+  for (const [file, content] of Object.entries({
+    "TASK.md": "Return result.txt using this project's rules",
+    "pass.md": "pass",
+    "fail.md": "fail",
+    "blocked.md": "blocked",
+  }))
+    fs.writeFileSync(path.join(root, file), content);
+  fs.writeFileSync(
+    path.join(root, "runner.mjs"),
+    `import fs from 'node:fs';import path from 'node:path';import {execFileSync} from 'node:child_process';
+export function validateControls(c) { if(c.repetitions!==2) throw Error('Invalid test controls'); }
+export function publicControls(c) { return {repetitions:c.repetitions, service:{url:c.service.url}}; }
+export function runCandidate({workspace,directory,instructions}) {
+ if(fs.existsSync(path.join(workspace,'evals'))) throw Error('Evaluator leaked into candidate workspace');
+ if(execFileSync(path.join(workspace,'project-data/input.sh'),{encoding:'utf8'})!=='starting executable works') throw Error('Starting executable did not run');
+ fs.writeFileSync(path.join(workspace,'result.txt'),instructions);
+ fs.writeFileSync(path.join(directory,'invocation.json'),JSON.stringify({workspace,instructions}));
+ return {exitCode:0,durationMs:1,usage:null};
+}`,
+  );
+  fs.writeFileSync(
+    path.join(root, "collect.mjs"),
+    `import fs from 'node:fs';import path from 'node:path';
+const c=JSON.parse(fs.readFileSync(process.env.AEK_COLLECT_CONTEXT,'utf8'));
+const text=fs.readFileSync(c.sources.result.path,'utf8');
+if(text==='blocked') console.log(JSON.stringify({version:1,outcome:'blocked',summary:'Project evidence unavailable',observations:['No evidence']}));
+else { fs.writeFileSync(path.join(c.outputDir,'text.txt'),text); console.log(JSON.stringify({version:1,outcome:'completed',summary:'Observed output',observations:[text],files:[{label:'result',path:'text.txt',filename:'text.txt',mediaType:'text/plain'}]})); }`,
+  );
+  fs.writeFileSync(
+    path.join(root, "check.mjs"),
+    `import fs from 'node:fs';import path from 'node:path';
+const dir=path.join(process.env.AEK_RUN_DIR,'OUTPUT'),e=JSON.parse(fs.readFileSync(path.join(dir,'evidence.json'),'utf8')),f=e.files[0];
+console.log(JSON.stringify({verdict:!f?'cannot_judge':fs.readFileSync(path.join(dir,f.path),'utf8')==='pass'?'pass':'fail',confidence:'high',reasoning:'Project-owned requirement',evidenceRefs:f?['OUTPUT/'+f.path]:[]}));`,
+  );
+  fs.writeFileSync(path.join(root, "check.sh"), "#!/bin/sh\nexec node evals/check.mjs\n", {
+    mode: 0o755,
+  });
+  fs.writeFileSync(
+    path.join(root, "evalkit.yaml"),
+    "version: 1\nproject: {name: Custom}\ntarget: {kind: command}\nagent: {provider: mock}\njudge: {provider: mock}\npaths: {specs: evals/spec.yaml}\nscoring: {minimumCoverage: 100}\n",
+  );
+  fs.writeFileSync(
+    path.join(root, "spec.yaml"),
+    "id: output\ntitle: Output\ndescription: Application requirements\nweight: 100\nscenarios:\n  - id: OUTPUT\n    name: Output\n    kind: command\n    instructions: Observe submission\n    collect:\n      command: node evals/collect.mjs\n      methodFiles: [evals/collect.mjs]\n      sources: {result: artifact/result.txt}\n      files: [result]\nrubric:\n  - id: CORRECT\n    criterion: Correct output\n    weight: 1\n    gate: true\n    scenarios: [OUTPUT]\n    grader:\n      type: command\n      command: ./evals/check.sh\n      methodFiles: [evals/check.sh, evals/check.mjs]\n      output: json\n    passCriteria: Project output matches\n",
+  );
+  const task = {
+    task: "TASK.md",
+    startingState: { "project-data": "input" },
+    protected: ["project-data"],
+    outputs: { "result.txt": "artifact/result.txt" },
+    evaluation: {
+      config: "evalkit.yaml",
+      controlFiles: { "evals/service.json": ["service"] },
+      files: {
+        "evals/collect.mjs": "collect.mjs",
+        "evals/check.mjs": "check.mjs",
+        "evals/check.sh": "check.sh",
+        "evals/spec.yaml": "spec.yaml",
+      },
+    },
+  };
+  fs.writeFileSync(
+    definition,
+    JSON.stringify({
+      version: 1,
+      name: "Application comparison",
+      baseline: "ordinary",
+      variants: { ordinary: "pass.md", defective: "fail.md", unavailable: "blocked.md" },
+      runner: "runner.mjs",
+      tasks: [
+        { id: "constructor", ...task },
+        { id: "two", ...task },
+      ],
+    }),
+  );
+  const fixed = {
+    repetitions: 2,
+    secret: "must not enter public identity",
+    service: { url: "https://example.invalid", token: "private-nested-token" },
+  };
+  const summary = await runComparison(path.join(root, "experiment"), fixed, {
+    definition,
+    cli: ["--import", import.meta.resolve("tsx"), path.join(repository, "src/cli.ts")],
+  });
+  assert.equal(summary.attempts.length, 12);
+  assert.equal(summary.comparisons.length, 8);
+  assert.equal(summary.unattempted, 0);
+  assert.equal(summary.variants.ordinary.outcomeCounts.pass, 4);
+  assert.equal(summary.variants.defective.outcomeCounts.requirement_failure, 4);
+  assert.equal(summary.variants.unavailable.outcomeCounts.inconclusive, 4);
+  for (const entry of summary.attempts) {
+    assert.equal(entry.status, "evaluated", entry.error);
+    assert.match(entry.candidateIdentity, /^[a-f0-9]{64}$/);
+    assert.notEqual(entry.candidateIdentity, entry.result.evaluator);
+    if (entry.variant === "unavailable") {
+      assert.equal(entry.result.coverage, 0);
+      assert.equal(entry.result.score, null);
+      assert.equal(entry.result.verdicts.CORRECT, "cannot_judge");
+    }
+    assert.ok(
+      fs.existsSync(
+        path.join(root, "experiment/attempts", entry.id, "artifacts/artifact/result.txt"),
+      ),
+    );
+  }
+  const plan = JSON.parse(fs.readFileSync(path.join(root, "experiment/experiment.json"), "utf8"));
+  assert.deepEqual(plan.controls, { repetitions: 2, service: { url: fixed.service.url } });
+  for (const task of ["constructor", "two"]) {
+    const file = path.join(root, "experiment/evaluation", task, "evals/service.json");
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), {
+      service: { url: fixed.service.url },
+    });
+    assert.ok(!fs.readFileSync(file, "utf8").includes(fixed.service.token));
+  }
+  assert.equal(Object.keys(summary.evaluators).length, 2);
+  assert.equal(plan.tasks.constructor.startingState["project-data/input.sh"].mode, 0o755);
+  assert.equal(plan.tasks.constructor.evaluator["evals/check.sh"].mode, 0o755);
+  const { loadDefinition, readTree } = await import(path.join(example, "definition.mjs"));
+  const invalid = JSON.parse(fs.readFileSync(definition, "utf8"));
+  invalid.tasks[0].evaluation.controlFiles["evals/service.json"] = ["secret"];
+  fs.writeFileSync(definition, JSON.stringify(invalid));
+  await assert.rejects(
+    () => runComparison(path.join(root, "private-control"), fixed, { definition }),
+    /nonpublic control: secret/,
+  );
+  assert.equal(fs.existsSync(path.join(root, "private-control")), false);
+  invalid.tasks[0].evaluation.controlFiles["evals/service.json"] = ["service"];
+  invalid.tasks[0].outputs["result.txt"] = "evals/check.mjs";
+  fs.writeFileSync(definition, JSON.stringify(invalid));
+  assert.throws(() => loadDefinition(definition), /overlaps evaluator/);
+  const linked = path.join(root, "linked");
+  fs.symlinkSync(source, linked);
+  assert.throws(() => readTree(root, "linked/guide.md"), /Symbolic link/);
+});
+
+test("valid task and variant ids cannot collide in retained attempt paths", async (t) => {
+  const root = temporary(t);
+  const definition = JSON.parse(fs.readFileSync(path.join(example, "experiment.json"), "utf8"));
+  const task = definition.tasks[0];
+  task.task = path.join(example, task.task);
+  task.evaluation.config = path.join(example, task.evaluation.config);
+  for (const mapping of [task.startingState, task.evaluation.files])
+    for (const file of Object.keys(mapping)) mapping[file] = path.join(example, mapping[file]);
+  definition.variants = {
+    b: path.join(example, "variants/plain.md"),
+    "x-1-b": path.join(example, "variants/reviewed.md"),
+  };
+  definition.baseline = "b";
+  definition.tasks = [
+    { ...task, id: "a" },
+    { ...task, id: "a-1-x" },
+  ];
+  definition.runner = path.join(root, "runner.mjs");
+  fs.writeFileSync(
+    definition.runner,
+    "export const validateControls=()=>{}; export const publicControls=c=>c; export const runCandidate=()=>{};",
+  );
+  const file = path.join(root, "definition.json");
+  fs.writeFileSync(file, JSON.stringify(definition));
+  const workspaces = new Set<string>();
+  const output = path.join(root, "experiment");
+  const summary = await runComparison(
+    output,
+    { repetitions: 2, image: `node@sha256:${"a".repeat(64)}` },
+    {
+      definition: file,
+      candidate: ({ workspace }: { workspace: string }) => {
+        assert.ok(!workspaces.has(workspace));
+        workspaces.add(workspace);
+        return { exitCode: 1, durationMs: 0, error: "Intentional runner failure" };
+      },
+    },
+  );
+  assert.equal(workspaces.size, 8);
+  assert.equal(summary.unattempted, 0);
+  assert.equal(new Set(summary.attempts.map((attempt: { id: string }) => attempt.id)).size, 8);
+  assert.equal(
+    fs.readFileSync(path.join(output, "journal.ndjson"), "utf8").trim().split("\n").length,
+    8,
+  );
+  assert.ok(fs.existsSync(path.join(output, "summary.json")));
+  for (const attempt of summary.attempts) assert.equal(attempt.outcome, "execution_error");
+});
+
+test("invalid evaluator configuration, specs and methods fail before candidate execution", async (t) => {
+  const root = temporary(t);
+  for (const invalid of [
+    "configuration",
+    "specification",
+    "method",
+    "text-reference",
+    "text-style",
+    "text-encoding",
+    "visual-reference",
+    "visual-encoding",
+  ]) {
+    const source = path.join(root, invalid);
+    fs.cpSync(example, source, { recursive: true });
+    if (invalid === "configuration")
+      fs.writeFileSync(
+        path.join(source, "evalkit.yaml"),
+        "version: 999\nproject: {name: Invalid}\n",
+      );
+    if (invalid === "specification")
+      fs.writeFileSync(path.join(source, "spec.yaml"), "id: invalid\n");
+    if (invalid === "method") {
+      const YAML = (await import("yaml")).default;
+      const spec = YAML.parse(fs.readFileSync(path.join(source, "spec.yaml"), "utf8"));
+      spec.rubric[0].grader.methodFiles.push("evals/missing.mjs");
+      fs.writeFileSync(path.join(source, "spec.yaml"), YAML.stringify(spec));
+    }
+    if (invalid.startsWith("text-") || invalid.startsWith("visual-")) {
+      const YAML = (await import("yaml")).default;
+      const spec = YAML.parse(fs.readFileSync(path.join(source, "spec.yaml"), "utf8"));
+      const definition = JSON.parse(fs.readFileSync(path.join(source, "experiment.json"), "utf8"));
+      spec.rubric[0].grader = {
+        type: invalid.startsWith("text-") ? "text-pairwise" : "pairwise",
+        policy: "preference",
+        candidate: invalid.startsWith("text-") ? "artifact/cart.mjs" : "screen",
+        references: [{ file: "evals/reference" }],
+      };
+      if (invalid.startsWith("text-")) spec.rubric[0].scenarios = [];
+      if (invalid.startsWith("visual-")) spec.scenarios[0].collect.images = ["screen"];
+      if (invalid === "text-style") {
+        fs.writeFileSync(path.join(source, "reference"), "Fixed expected text");
+        spec.rubric[0].grader.styleTarget = { file: "evals/missing-style.txt" };
+      } else if (invalid.endsWith("-encoding"))
+        fs.writeFileSync(path.join(source, "reference"), Buffer.from([0xff, 0xfe, 0x00]));
+      if (fs.existsSync(path.join(source, "reference")))
+        definition.tasks[0].evaluation.files["evals/reference"] = "reference";
+      fs.writeFileSync(path.join(source, "experiment.json"), JSON.stringify(definition));
+      fs.writeFileSync(path.join(source, "spec.yaml"), YAML.stringify(spec));
+    }
+    let calls = 0;
+    const output = path.join(root, `output-${invalid}`);
+    await assert.rejects(
+      () =>
+        runComparison(output, controls(root), {
+          definition: path.join(source, "experiment.json"),
+          cli: ["--import", import.meta.resolve("tsx"), path.join(repository, "src/cli.ts")],
+          candidate: () => {
+            calls++;
+            return { exitCode: 0, durationMs: 0 };
+          },
+        }),
+      /Invalid evaluator for task cart/,
+    );
+    assert.equal(calls, 0);
+    const project = path.join(output, "evaluation/cart");
+    assert.equal(
+      JSON.parse(fs.readFileSync(path.join(project, "validation.json"), "utf8")).exitCode,
+      1,
+    );
+    const diagnostic = fs.readFileSync(path.join(project, "validation.stderr"), "utf8");
+    assert.ok(diagnostic.trim());
+    if (invalid.startsWith("text-")) assert.match(diagnostic, /Text input/);
+    if (invalid.startsWith("visual-")) assert.match(diagnostic, /ENOENT|unsupported image/i);
+    assert.equal(fs.existsSync(path.join(output, "attempts")), false);
+  }
+});
+
+test("fixed text and image references validate while candidate submissions remain absent", async (t) => {
+  const root = temporary(t);
+  const YAML = (await import("yaml")).default;
+  for (const kind of ["text", "visual"]) {
+    const source = path.join(root, kind);
+    fs.cpSync(example, source, { recursive: true });
+    const spec = YAML.parse(fs.readFileSync(path.join(source, "spec.yaml"), "utf8"));
+    const definition = JSON.parse(fs.readFileSync(path.join(source, "experiment.json"), "utf8"));
+    if (kind === "text")
+      fs.writeFileSync(
+        path.join(source, "reference"),
+        "A fixed reference, separate from the candidate.",
+      );
+    else {
+      const sharp = (await import("sharp")).default;
+      fs.writeFileSync(
+        path.join(source, "reference"),
+        await sharp({ create: { width: 2, height: 2, channels: 3, background: "#112233" } })
+          .png()
+          .toBuffer(),
+      );
+      spec.scenarios[0].collect.images = ["screen"];
+    }
+    definition.tasks[0].evaluation.files["evals/reference"] = "reference";
+    spec.rubric[0].grader = {
+      type: kind === "text" ? "text-pairwise" : "pairwise",
+      policy: "preference",
+      candidate: kind === "text" ? "artifact/cart.mjs" : "screen",
+      references: [{ file: "evals/reference" }],
+    };
+    if (kind === "text") spec.rubric[0].scenarios = [];
+    fs.writeFileSync(path.join(source, "spec.yaml"), YAML.stringify(spec));
+    fs.writeFileSync(path.join(source, "experiment.json"), JSON.stringify(definition));
+    let calls = 0;
+    const summary = await runComparison(path.join(root, `output-${kind}`), controls(root), {
+      definition: path.join(source, "experiment.json"),
+      candidate: () => {
+        calls++;
+        return {
+          exitCode: 1,
+          durationMs: 0,
+          error: "Intentional transport failure after successful preflight",
+        };
+      },
+    });
+    assert.equal(calls, 4);
+    assert.equal(summary.unattempted, 0);
+    for (const attempt of summary.attempts) {
+      assert.equal(attempt.outcome, "execution_error");
+      assert.equal(attempt.result, undefined);
+    }
+  }
 });

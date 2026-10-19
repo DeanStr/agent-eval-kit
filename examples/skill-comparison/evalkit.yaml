@@ -1,0 +1,7 @@
+version: 1
+project: { name: Controlled skill comparison, root: . }
+target: { kind: command }
+agent: { provider: mock }
+judge: { provider: mock }
+paths: { specs: evals/spec.yaml }
+scoring: { minimumCoverage: 100 }
