@@ -40,6 +40,7 @@ checks, and file/integration workflows, including a user-story YAML example.
 | Downloaded files, command-produced artifacts, or checkpoints | [File evidence and evaluation scope](file-evidence.md) |
 | Magic links, verification codes, or notification delivery | [Email evidence and authentication](email.md) |
 | Several judging methods over the same collected evidence | [Separate collection and judging](evidence-workflows.md) |
+| Judge agreement with separate reviewer labels | [Judge validation](judge-validation.md) |
 
 ## Operate and review evaluations
 

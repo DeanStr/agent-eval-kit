@@ -50,6 +50,10 @@ substitutions as evaluator instructions.
 
 ## Calibrate judging against fixed evidence
 
+For a reusable source-checkout workflow with separate reviewer labels, related
+dataset splits and explicit error/abstention denominators, see
+[judge validation](judge-validation.md).
+
 ```bash
 # Edit rubric criteria, weights, gates, reference images, or judge settings.
 aek judge --evidence .agent-eval/runs/<collection-id> --config evalkit.yaml

@@ -1,0 +1,212 @@
+{
+  "version": 1,
+  "recordedAt": "2026-10-19T11:40:07.856Z",
+  "experiment": ".agent-eval/experiments/judge-programcue-20261019-defect",
+  "comparison": {
+    "path": ".agent-eval/experiments/judge-programcue-20261019-defect/comparison/validation-results.json",
+    "sha256": "abcec9bbd049148a59fc0f76c9b860680da805836299236d9d10e3d519a14b3f"
+  },
+  "datasetSha256": "87e20152b2b61833cfe7a6609ea9e208e4c2b646434a9a9b62632ed1a7fe86ac",
+  "labelsSha256": "91c1af192570b9f713e364e04abeddbd3f5b293f59ef3a651d2e843b99e6470e",
+  "requestedJudge": {
+    "provider": "codex",
+    "model": "gpt-6-astra",
+    "effort": "medium"
+  },
+  "limitations": [
+    "Four related cases in one evaluation family, with agent-reviewed labels; not a general accuracy estimate.",
+    "p03 and p04 are synthetic contract fixtures. p04 seeds only an incorrect latest/current marker; it does not establish a defect in live ProgramCue.",
+    "p01 and p02 reuse historical observations. No current application or hosted-provider acceptance is claimed.",
+    "Original and scoped criterion wording were frozen before comparison; no tuning against these cases. Historical screenshot normalization and collector provenance changed, so this is a fresh comparison rather than an identical rerun of the earlier bundles."
+  ],
+  "cases": [
+    {
+      "id": "p01",
+      "group": "programcue-historical-versions",
+      "split": "evaluation",
+      "area": "file-review",
+      "rubric": "PC-VERSION-HISTORY",
+      "evidenceRootSha256": "3d482519d285e3ab8001360c6a2dff761b54658f792f0aae6e1e0000e9373b23",
+      "expected": "pass"
+    },
+    {
+      "id": "p02",
+      "group": "programcue-historical-versions",
+      "split": "evaluation",
+      "area": "file-review",
+      "rubric": "PC-VERSION-HISTORY",
+      "evidenceRootSha256": "801c2b4f817cc1e808777c8263f38fc5fd10cb655e5f594d13ded3b1ad114650",
+      "expected": "cannot_judge"
+    },
+    {
+      "id": "p03",
+      "group": "programcue-historical-versions",
+      "split": "evaluation",
+      "area": "file-review",
+      "rubric": "PC-VERSION-HISTORY",
+      "evidenceRootSha256": "bef8de3b750d7d1ea2a45d1ba3903a837bf123a025ed89f86cace40cc0b847f3",
+      "expected": "pass"
+    },
+    {
+      "id": "p04",
+      "group": "programcue-historical-versions",
+      "split": "evaluation",
+      "area": "file-review",
+      "rubric": "PC-VERSION-HISTORY",
+      "evidenceRootSha256": "bbd0ce42589d50037149237b4e97937e7b676c187fffa60a0ae22a934edf8a83",
+      "expected": "fail"
+    }
+  ],
+  "results": [
+    {
+      "configuration": "original",
+      "metrics": {
+        "attempted": 4,
+        "falsePasses": {
+          "count": 0,
+          "denominator": 1,
+          "rate": 0
+        },
+        "falseFailures": {
+          "count": 0,
+          "denominator": 2,
+          "rate": 0
+        },
+        "abstentions": {
+          "count": 3,
+          "denominator": 4,
+          "rate": 0.75
+        },
+        "executionErrors": {
+          "count": 0,
+          "denominator": 4,
+          "rate": 0
+        },
+        "decisionCoverage": {
+          "count": 1,
+          "denominator": 4,
+          "rate": 0.25
+        },
+        "unsupportedDecisions": {
+          "count": 0,
+          "denominator": 1,
+          "rate": 0
+        },
+        "correctAbstentions": {
+          "count": 1,
+          "denominator": 1,
+          "rate": 1
+        },
+        "exactMatches": {
+          "count": 2,
+          "denominator": 4,
+          "rate": 0.5
+        }
+      }
+    },
+    {
+      "configuration": "scoped",
+      "metrics": {
+        "attempted": 4,
+        "falsePasses": {
+          "count": 0,
+          "denominator": 1,
+          "rate": 0
+        },
+        "falseFailures": {
+          "count": 0,
+          "denominator": 2,
+          "rate": 0
+        },
+        "abstentions": {
+          "count": 1,
+          "denominator": 4,
+          "rate": 0.25
+        },
+        "executionErrors": {
+          "count": 0,
+          "denominator": 4,
+          "rate": 0
+        },
+        "decisionCoverage": {
+          "count": 3,
+          "denominator": 4,
+          "rate": 0.75
+        },
+        "unsupportedDecisions": {
+          "count": 0,
+          "denominator": 1,
+          "rate": 0
+        },
+        "correctAbstentions": {
+          "count": 1,
+          "denominator": 1,
+          "rate": 1
+        },
+        "exactMatches": {
+          "count": 4,
+          "denominator": 4,
+          "rate": 1
+        }
+      }
+    }
+  ],
+  "observations": [
+    {
+      "configuration": "original",
+      "caseId": "p01",
+      "status": "abstained",
+      "actual": "cannot_judge",
+      "evaluationFingerprint": "72c15687c356c21fb48d8300bdf9dbbde61a12718a312a214031fad829a171e9"
+    },
+    {
+      "configuration": "original",
+      "caseId": "p02",
+      "status": "abstained",
+      "actual": "cannot_judge",
+      "evaluationFingerprint": "72c15687c356c21fb48d8300bdf9dbbde61a12718a312a214031fad829a171e9"
+    },
+    {
+      "configuration": "original",
+      "caseId": "p03",
+      "status": "abstained",
+      "actual": "cannot_judge",
+      "evaluationFingerprint": "72c15687c356c21fb48d8300bdf9dbbde61a12718a312a214031fad829a171e9"
+    },
+    {
+      "configuration": "original",
+      "caseId": "p04",
+      "status": "judged",
+      "actual": "fail",
+      "evaluationFingerprint": "72c15687c356c21fb48d8300bdf9dbbde61a12718a312a214031fad829a171e9"
+    },
+    {
+      "configuration": "scoped",
+      "caseId": "p01",
+      "status": "judged",
+      "actual": "pass",
+      "evaluationFingerprint": "d10d11c65d06cdcd89304f00d06a20588ec1cbfdfbd61d2e99b87c56ba67626d"
+    },
+    {
+      "configuration": "scoped",
+      "caseId": "p02",
+      "status": "abstained",
+      "actual": "cannot_judge",
+      "evaluationFingerprint": "d10d11c65d06cdcd89304f00d06a20588ec1cbfdfbd61d2e99b87c56ba67626d"
+    },
+    {
+      "configuration": "scoped",
+      "caseId": "p03",
+      "status": "judged",
+      "actual": "pass",
+      "evaluationFingerprint": "d10d11c65d06cdcd89304f00d06a20588ec1cbfdfbd61d2e99b87c56ba67626d"
+    },
+    {
+      "configuration": "scoped",
+      "caseId": "p04",
+      "status": "judged",
+      "actual": "fail",
+      "evaluationFingerprint": "d10d11c65d06cdcd89304f00d06a20588ec1cbfdfbd61d2e99b87c56ba67626d"
+    }
+  ]
+}

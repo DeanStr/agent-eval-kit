@@ -1,0 +1,395 @@
+{
+  "version": 1,
+  "recordedAt": "2026-10-19",
+  "limitations": [
+    "Bounded workflow demonstration with agent-authored labels, not independent human ground truth or a general accuracy estimate.",
+    "All comparisons reused pinned collection roots. Requested model settings do not establish a resolved provider snapshot.",
+    "ProgramCue original means historical criterion wording under the current requested judge, not the historical model run. Historical application evidence and its original judgement remain intact.",
+    "ProgramCue has no expected-fail cases: its false-pass denominator is zero. GUIDANCE variants all belong to one development family.",
+    "Initial GUIDANCE preparation failed because a new blocked-collector wrapper omitted version:1. Retained diagnostics are in .agent-eval/experiments/judge-guidance-20261019/collections/2026-10-19T10-13-30; repaired preparation used a new experiment. This collection execution failure is not a judge abstention and is outside the completed comparison denominators."
+  ],
+  "studies": [
+    {
+      "experiment": ".agent-eval/experiments/judge-guidance-20261019-v2",
+      "datasetSha256": "946c855e3f9efe612b79705957793e9dd870fe10e1602d85be6a6ccfe6baeccf",
+      "labelsSha256": "6e791d897d2333b39ca6753ba69a28e0f3fee8d72c0564663c057d13660e53a6",
+      "requestedJudge": {
+        "provider": "codex",
+        "model": "gpt-6-astra",
+        "effort": "medium",
+        "cliVersion": "codex-cli 0.163.0"
+      },
+      "cases": [
+        {
+          "id": "c01",
+          "group": "marketing-guidance-family",
+          "split": "development",
+          "evidenceRootSha256": "4f56131852f832980cdf776e62836eb027976ee63305efcf721b6de4f53388d4"
+        },
+        {
+          "id": "c02",
+          "group": "marketing-guidance-family",
+          "split": "development",
+          "evidenceRootSha256": "1a9a2100ddce84b4212ffb57addfbbbd84fe85adeca4051abc15b61bae52fac3"
+        },
+        {
+          "id": "c03",
+          "group": "marketing-guidance-family",
+          "split": "development",
+          "evidenceRootSha256": "4a2e39ae20619da7e3838fd68af1bbc82de2e552265e624b41a0dcc81ccca8ba"
+        },
+        {
+          "id": "c04",
+          "group": "marketing-guidance-family",
+          "split": "development",
+          "evidenceRootSha256": "ac136f7c0ac26b2d07c5745438eaa88b7f2f933b15316ad26e513b36f65f4916"
+        },
+        {
+          "id": "c05",
+          "group": "marketing-guidance-family",
+          "split": "development",
+          "evidenceRootSha256": "3eef0e1ed842c59306149da79d54bbb6c2621b48c5ee67712155d4674f3a7815"
+        },
+        {
+          "id": "c06",
+          "group": "marketing-guidance-family",
+          "split": "development",
+          "evidenceRootSha256": "fe2cdad1235ad8fda1e11946db3528faf2c4c94dfc064f99aea71b442a5baad2"
+        }
+      ],
+      "results": [
+        {
+          "configuration": "medium",
+          "metrics": {
+            "attempted": 6,
+            "falsePasses": {
+              "count": 0,
+              "denominator": 2,
+              "rate": 0
+            },
+            "falseFailures": {
+              "count": 0,
+              "denominator": 2,
+              "rate": 0
+            },
+            "abstentions": {
+              "count": 2,
+              "denominator": 6,
+              "rate": 0.3333333333333333
+            },
+            "executionErrors": {
+              "count": 0,
+              "denominator": 6,
+              "rate": 0
+            },
+            "decisionCoverage": {
+              "count": 4,
+              "denominator": 6,
+              "rate": 0.6666666666666666
+            },
+            "unsupportedDecisions": {
+              "count": 0,
+              "denominator": 2,
+              "rate": 0
+            },
+            "correctAbstentions": {
+              "count": 2,
+              "denominator": 2,
+              "rate": 1
+            },
+            "exactMatches": {
+              "count": 6,
+              "denominator": 6,
+              "rate": 1
+            }
+          }
+        },
+        {
+          "configuration": "high",
+          "metrics": {
+            "attempted": 6,
+            "falsePasses": {
+              "count": 0,
+              "denominator": 2,
+              "rate": 0
+            },
+            "falseFailures": {
+              "count": 0,
+              "denominator": 2,
+              "rate": 0
+            },
+            "abstentions": {
+              "count": 2,
+              "denominator": 6,
+              "rate": 0.3333333333333333
+            },
+            "executionErrors": {
+              "count": 0,
+              "denominator": 6,
+              "rate": 0
+            },
+            "decisionCoverage": {
+              "count": 4,
+              "denominator": 6,
+              "rate": 0.6666666666666666
+            },
+            "unsupportedDecisions": {
+              "count": 0,
+              "denominator": 2,
+              "rate": 0
+            },
+            "correctAbstentions": {
+              "count": 2,
+              "denominator": 2,
+              "rate": 1
+            },
+            "exactMatches": {
+              "count": 6,
+              "denominator": 6,
+              "rate": 1
+            }
+          }
+        }
+      ],
+      "observations": [
+        {
+          "configuration": "medium",
+          "caseId": "c01",
+          "status": "judged",
+          "actual": "pass",
+          "evaluationFingerprint": "ea539a4af382559f3959495eadd347ece405e663076c4f4e335c927ccd6b567e"
+        },
+        {
+          "configuration": "medium",
+          "caseId": "c02",
+          "status": "judged",
+          "actual": "pass",
+          "evaluationFingerprint": "ea539a4af382559f3959495eadd347ece405e663076c4f4e335c927ccd6b567e"
+        },
+        {
+          "configuration": "medium",
+          "caseId": "c03",
+          "status": "judged",
+          "actual": "fail",
+          "evaluationFingerprint": "ea539a4af382559f3959495eadd347ece405e663076c4f4e335c927ccd6b567e"
+        },
+        {
+          "configuration": "medium",
+          "caseId": "c04",
+          "status": "judged",
+          "actual": "fail",
+          "evaluationFingerprint": "ea539a4af382559f3959495eadd347ece405e663076c4f4e335c927ccd6b567e"
+        },
+        {
+          "configuration": "medium",
+          "caseId": "c05",
+          "status": "abstained",
+          "actual": "cannot_judge",
+          "evaluationFingerprint": "ea539a4af382559f3959495eadd347ece405e663076c4f4e335c927ccd6b567e"
+        },
+        {
+          "configuration": "medium",
+          "caseId": "c06",
+          "status": "abstained",
+          "actual": "cannot_judge",
+          "evaluationFingerprint": "ea539a4af382559f3959495eadd347ece405e663076c4f4e335c927ccd6b567e"
+        },
+        {
+          "configuration": "high",
+          "caseId": "c01",
+          "status": "judged",
+          "actual": "pass",
+          "evaluationFingerprint": "fd09dcd39b31584d3410d227b1f9b08ebd502a492af73554e03f587e68f3ac32"
+        },
+        {
+          "configuration": "high",
+          "caseId": "c02",
+          "status": "judged",
+          "actual": "pass",
+          "evaluationFingerprint": "fd09dcd39b31584d3410d227b1f9b08ebd502a492af73554e03f587e68f3ac32"
+        },
+        {
+          "configuration": "high",
+          "caseId": "c03",
+          "status": "judged",
+          "actual": "fail",
+          "evaluationFingerprint": "fd09dcd39b31584d3410d227b1f9b08ebd502a492af73554e03f587e68f3ac32"
+        },
+        {
+          "configuration": "high",
+          "caseId": "c04",
+          "status": "judged",
+          "actual": "fail",
+          "evaluationFingerprint": "fd09dcd39b31584d3410d227b1f9b08ebd502a492af73554e03f587e68f3ac32"
+        },
+        {
+          "configuration": "high",
+          "caseId": "c05",
+          "status": "abstained",
+          "actual": "cannot_judge",
+          "evaluationFingerprint": "fd09dcd39b31584d3410d227b1f9b08ebd502a492af73554e03f587e68f3ac32"
+        },
+        {
+          "configuration": "high",
+          "caseId": "c06",
+          "status": "abstained",
+          "actual": "cannot_judge",
+          "evaluationFingerprint": "fd09dcd39b31584d3410d227b1f9b08ebd502a492af73554e03f587e68f3ac32"
+        }
+      ]
+    },
+    {
+      "experiment": ".agent-eval/experiments/judge-programcue-20261019",
+      "datasetSha256": "b92b2e03ccef8c7a030a072aa9b5572c8f2bc3978012fce6023285c017d8340a",
+      "labelsSha256": "640153e123ee40f86ebe1647fa5ec4bdbad13da7f02862337b973b3a91044bb6",
+      "requestedJudge": {
+        "provider": "codex",
+        "model": "gpt-6-astra",
+        "effort": "medium",
+        "cliVersion": "codex-cli 0.163.0"
+      },
+      "cases": [
+        {
+          "id": "p01",
+          "group": "programcue-historical-versions",
+          "split": "evaluation",
+          "evidenceRootSha256": "5a83bbfa7880c703402482d8392bfd5c2eaadb6a7d3e9cfff070b4a6efff0918",
+          "originalRun": "2026-09-06T11-59-52",
+          "originalRootSha256": "d72eee0bcbc7896d9d03dfc6522478cc0cd6c6804ba9516beb2abb6e72ffcf8c"
+        },
+        {
+          "id": "p02",
+          "group": "programcue-historical-versions",
+          "split": "evaluation",
+          "evidenceRootSha256": "e9bf8938d4284a4f888b3abce254d0ca2cfad3848c034b0a5c3e54da8d380ee2",
+          "originalRun": "2026-09-06T11-59-52",
+          "originalRootSha256": "d72eee0bcbc7896d9d03dfc6522478cc0cd6c6804ba9516beb2abb6e72ffcf8c"
+        }
+      ],
+      "results": [
+        {
+          "configuration": "original",
+          "metrics": {
+            "attempted": 2,
+            "falsePasses": {
+              "count": 0,
+              "denominator": 0,
+              "rate": null
+            },
+            "falseFailures": {
+              "count": 0,
+              "denominator": 1,
+              "rate": 0
+            },
+            "abstentions": {
+              "count": 2,
+              "denominator": 2,
+              "rate": 1
+            },
+            "executionErrors": {
+              "count": 0,
+              "denominator": 2,
+              "rate": 0
+            },
+            "decisionCoverage": {
+              "count": 0,
+              "denominator": 2,
+              "rate": 0
+            },
+            "unsupportedDecisions": {
+              "count": 0,
+              "denominator": 1,
+              "rate": 0
+            },
+            "correctAbstentions": {
+              "count": 1,
+              "denominator": 1,
+              "rate": 1
+            },
+            "exactMatches": {
+              "count": 1,
+              "denominator": 2,
+              "rate": 0.5
+            }
+          }
+        },
+        {
+          "configuration": "scoped",
+          "metrics": {
+            "attempted": 2,
+            "falsePasses": {
+              "count": 0,
+              "denominator": 0,
+              "rate": null
+            },
+            "falseFailures": {
+              "count": 0,
+              "denominator": 1,
+              "rate": 0
+            },
+            "abstentions": {
+              "count": 1,
+              "denominator": 2,
+              "rate": 0.5
+            },
+            "executionErrors": {
+              "count": 0,
+              "denominator": 2,
+              "rate": 0
+            },
+            "decisionCoverage": {
+              "count": 1,
+              "denominator": 2,
+              "rate": 0.5
+            },
+            "unsupportedDecisions": {
+              "count": 0,
+              "denominator": 1,
+              "rate": 0
+            },
+            "correctAbstentions": {
+              "count": 1,
+              "denominator": 1,
+              "rate": 1
+            },
+            "exactMatches": {
+              "count": 2,
+              "denominator": 2,
+              "rate": 1
+            }
+          }
+        }
+      ],
+      "observations": [
+        {
+          "configuration": "original",
+          "caseId": "p01",
+          "status": "abstained",
+          "actual": "cannot_judge",
+          "evaluationFingerprint": "a9cb81f8a9c9aaf14fbd17cd4a4028374b9ad252ab5ee8cca4baccf71b0f79ef"
+        },
+        {
+          "configuration": "original",
+          "caseId": "p02",
+          "status": "abstained",
+          "actual": "cannot_judge",
+          "evaluationFingerprint": "a9cb81f8a9c9aaf14fbd17cd4a4028374b9ad252ab5ee8cca4baccf71b0f79ef"
+        },
+        {
+          "configuration": "scoped",
+          "caseId": "p01",
+          "status": "judged",
+          "actual": "pass",
+          "evaluationFingerprint": "2c85870d70a81dd31b71025e459b6ab6f19948e2b0c0d5823e5afc9d55f0498d"
+        },
+        {
+          "configuration": "scoped",
+          "caseId": "p02",
+          "status": "abstained",
+          "actual": "cannot_judge",
+          "evaluationFingerprint": "2c85870d70a81dd31b71025e459b6ab6f19948e2b0c0d5823e5afc9d55f0498d"
+        }
+      ]
+    }
+  ]
+}

@@ -1,4 +1,3 @@
-import { requireDefined } from "../src/invariants.js";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -12,6 +11,8 @@ import { createTimestampedDirectory, writeJson } from "../src/io.js";
 import { runEvaluation } from "../src/runner.js";
 import { loadSpecs } from "../src/specs.js";
 import type { ProviderId, Verdict } from "../src/types.js";
+import { validationMetrics, type ValidationOutcome } from "../src/validation-metrics.js";
+import { referenceOutcomes } from "./reference-results.js";
 
 const fixtures = path.join(import.meta.dirname, "fixtures/reference");
 const expected = JSON.parse(fs.readFileSync(path.join(fixtures, "expected.json"), "utf8")) as {
@@ -63,35 +64,36 @@ async function main(): Promise<void> {
     platform: process.platform,
     checks,
   });
-  const observations: Array<{
-    variant: string;
-    repetition: number;
-    expected: Verdict;
-    actual: Verdict;
-    runDir?: string;
-    error?: string;
-  }> = [];
+  const observations: Array<
+    ValidationOutcome & {
+      variant: string;
+      repetition: number;
+      expected: Verdict;
+      runDir?: string;
+    }
+  > = [];
   const variants = values.smoke ? expected.variants.slice(0, 1) : expected.variants;
   let server: http.Server | undefined;
   let url: string | undefined;
   const summarize = () => {
     const negatives = observations.filter((item) => item.expected !== "pass");
     const positives = observations.filter((item) => item.expected === "pass");
-    const abstentions = observations.filter((item) => item.actual === "cannot_judge").length;
-    const falseAlarms = positives.filter((item) =>
-      ["fail", "partial", "not_found"].includes(item.actual),
+    const measured = validationMetrics(observations);
+    const abstentions = measured.abstentions.count;
+    const falseAlarms = positives.filter(
+      (item) => item.status === "judged" && ["fail", "partial", "not_found"].includes(item.actual),
     ).length;
-    const missedDefects = negatives.filter((item) => item.actual === "pass").length;
-    const correct = observations.filter((item) => item.actual === item.expected).length;
+    const missedDefects = measured.falsePasses.count;
+    const correct = measured.exactMatches.count;
     const total = variants.length * repetitions * (values.smoke ? 2 : 1);
     const passed =
       observations.length === total &&
       !abstentions &&
       !falseAlarms &&
       !missedDefects &&
-      !observations.some((item) => item.error);
+      !measured.executionErrors.count;
     const summary = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       mode: values.smoke
         ? "provider_smoke"
         : agent === "mock"
@@ -110,6 +112,13 @@ async function main(): Promise<void> {
         missedDefectRate: negatives.length ? missedDefects / negatives.length : null,
         abstentions,
         abstentionRate: observations.length ? abstentions / observations.length : null,
+        executionErrors: measured.executionErrors.count,
+        executionErrorRate: measured.executionErrors.rate,
+        denominators: {
+          observations: observations.length,
+          positives: positives.length,
+          negatives: negatives.length,
+        },
       },
       passed,
       limitations: [
@@ -228,7 +237,7 @@ async function main(): Promise<void> {
               ...(judge === "cursor" ? {} : { maxTurns: 20 }),
               timeoutSeconds: 180,
             },
-            paths: { specs: "spec.yaml", runs: path.join(output, "runs") },
+            paths: { specs: "spec.yaml", runs: path.join(output, "runs", `attempt-${ordinal}`) },
             scoring: { minimumCoverage: 100 },
           }),
         );
@@ -241,37 +250,40 @@ async function main(): Promise<void> {
             fixtures: {},
           });
           assertArtifactIntegrity(result.runDir, { require: true });
-          const items = requireDefined(result.report!.areas[0], "result.report!.areas[0]").items;
+          const outcomes = referenceOutcomes(result.report, values.smoke);
           observations.push({
             variant: variant.file,
             repetition,
             expected: variant.expected,
-            actual: items.find((item) => item.id === "TOTAL")?.verdict ?? "cannot_judge",
+            ...outcomes[0]!,
             runDir: result.runDir,
           });
           if (values.smoke) {
-            const browser = requireDefined(
-              result.report!.areas[0],
-              "result.report!.areas[0]",
-            ).scenarios.find((item) => item.scenarioId === "PROFILE");
             observations.push({
               variant: "profile-persistence",
               repetition,
               expected: "pass",
-              actual: browser?.screenshots.length
-                ? (items.find((item) => item.id === "PERSIST")?.verdict ?? "cannot_judge")
-                : "cannot_judge",
+              ...outcomes[1]!,
               runDir: result.runDir,
             });
           }
         } catch (error) {
-          observations.push({
-            variant: variant.file,
-            repetition,
-            expected: variant.expected,
-            actual: "cannot_judge",
-            error: error instanceof Error ? error.message : String(error),
-          });
+          const runs = fs.existsSync(config.paths.runs) ? fs.readdirSync(config.paths.runs) : [];
+          const diagnostic =
+            error instanceof Error ? (error.stack ?? error.message) : String(error);
+          for (const item of [
+            { variant: variant.file, expected: variant.expected },
+            ...(values.smoke
+              ? [{ variant: "profile-persistence", expected: "pass" as const }]
+              : []),
+          ])
+            observations.push({
+              ...item,
+              repetition,
+              status: "execution_error",
+              error: diagnostic,
+              ...(runs.length === 1 ? { runDir: path.join(config.paths.runs, runs[0]!) } : {}),
+            });
         }
         summarize();
         throwIfCancelled();

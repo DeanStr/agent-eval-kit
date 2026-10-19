@@ -57,6 +57,7 @@
     "smoke:package": "tsx scripts/package-smoke.ts",
     "smoke:provider": "tsx scripts/reference-eval.ts --smoke",
     "test:reference": "tsx scripts/reference-eval.ts",
+    "judge:validate": "tsx scripts/judge-validation.ts",
     "install:browser": "playwright install chromium",
     "aek": "tsx src/cli.ts",
     "prepack": "pnpm build",
