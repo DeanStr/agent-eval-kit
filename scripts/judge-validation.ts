@@ -24,6 +24,7 @@ withCliSignals(async () => {
   });
   console.log(JSON.stringify(result.report.results));
   console.log(`Results: ${result.output}/validation-results.json`);
+  console.log(`Report: ${result.output}/validation-results.html`);
   if (result.report.observations.some((item) => item.status === "execution_error"))
     process.exitCode = 1;
 }).catch((error) => {

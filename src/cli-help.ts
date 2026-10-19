@@ -26,6 +26,9 @@ const descriptions: Record<string, string> = {
   output: "Output directory; creation commands require a new destination.",
   run: "Existing run directory.",
   evidence: "Completed, sealed collection directory.",
+  dataset: "Judge-validation dataset JSON with pinned collection identities.",
+  labels: "Separate reviewer-label JSON; never passed to judges.",
+  configurations: "JSON manifest of named judge configurations.",
   input: "Adjudication decision JSON file outside the run directory.",
   reviewer: "Reviewer identity recorded with the decision or promotion.",
   baseline: "Baseline run directory or report; campaign compare takes a campaign.",
@@ -81,6 +84,8 @@ const usages: Record<string, string> = {
   campaign: "[options] | --resume directory",
   "campaign compare": "--baseline campaign --candidate campaign [options]",
   judge: "--evidence collection [options] | --resume judging-directory [options]",
+  "judge validate":
+    "--dataset cases.json --labels labels.json --configurations configurations.json --output new-directory",
   verify: "--run directory",
   export: "--public --run directory [--output directory]",
   "privacy lint": "--path file-or-directory",
@@ -129,5 +134,9 @@ export function commandHelp(
       description = "Print the result as JSON.";
     return `  ${(`--${flag}${booleans.has(flag) ? "" : " <value>"}`).padEnd(34)} ${description}`;
   });
-  return `Usage: aek ${key} ${commandUsage(key)}\n\nOptions:\n${lines.join("\n")}\n\nExit: 0 completed; 1 input/execution error; 2 acceptance failure; 130/143 interrupted.`;
+  const exit =
+    key === "judge validate"
+      ? "Exit: 0 completed (reviewer disagreements do not fail); 1 input/execution error; 130/143 interrupted."
+      : "Exit: 0 completed; 1 input/execution error; 2 acceptance failure; 130/143 interrupted.";
+  return `Usage: aek ${key} ${commandUsage(key)}\n\nOptions:\n${lines.join("\n")}\n\n${command === "judge" && !positional ? "Also: aek judge validate --help for reviewed-evidence validation.\n\n" : ""}${exit}`;
 }

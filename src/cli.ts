@@ -40,6 +40,7 @@ import {
 import { buildRunReceipt, configCompatibility } from "./receipts.js";
 import { PromotionPolicyError } from "./promotion.js";
 import { judgeCollected } from "./judge-run.js";
+import { runJudgeValidation } from "./judge-validation.js";
 import { runEvaluation } from "./runner.js";
 import { loadRunState, withRunLock } from "./run/state.js";
 import { buildReport, scoreArea } from "./scoring.js";
@@ -279,15 +280,22 @@ function allowedCliFlags(args: Args): string[] {
       );
       break;
     case "judge":
-      allowed = [
-        "evidence",
-        "resume",
-        "config",
-        "judge",
-        "judge-model",
-        "fail-under-score",
-        "fail-under-coverage",
-      ];
+      if (args.positionals[0] && args.positionals[0] !== "validate")
+        throw new Error(
+          `Unknown judge subcommand ${args.positionals[0]}; expected \`validate\` or no subcommand`,
+        );
+      allowed =
+        args.positionals[0] === "validate"
+          ? ["dataset", "labels", "configurations", "output"]
+          : [
+              "evidence",
+              "resume",
+              "config",
+              "judge",
+              "judge-model",
+              "fail-under-score",
+              "fail-under-coverage",
+            ];
       break;
   }
   if (allowed.includes("config")) allowed.push("suite");
@@ -345,7 +353,9 @@ function validateCliShape(args: Args): void {
     if (args.flags[flag] !== undefined) percentageFlag(args, flag);
   const maximumPositionals =
     args.command === "init" ||
-    ["image", "author", "baseline", "reference", "campaign", "privacy"].includes(args.command)
+    ["image", "author", "baseline", "reference", "campaign", "privacy", "judge"].includes(
+      args.command,
+    )
       ? 1
       : 0;
   if (args.positionals.length > maximumPositionals) {
@@ -438,6 +448,9 @@ Usage: aek <command> [flags]
   judge --evidence directory       Judge a sealed collection in a new run
         [--config file] [--judge provider] [--judge-model id]
         [--resume judging-run] [--fail-under-score pct] [--fail-under-coverage pct]
+  judge validate --dataset cases.json --labels labels.json
+        --configurations configurations.json --output new-directory
+                                  Compare judges against reviewed evidence; write JSON and HTML
   rescore --run directory          Reapply current scoring/specs without an agent call
   finalize --run directory         Merge manual results and append review provenance
       [--reviewer name]
@@ -911,7 +924,10 @@ async function main(): Promise<void> {
     const output =
       stringFlag(args, "output") ?? defaultComparisonOutput(candidate.file, baseline.report.runId);
     assertComparisonOutputLocation(output, [candidate.file, baseline.file]);
-    const artifacts = writeComparisonArtifacts(output, comparison);
+    const artifacts = writeComparisonArtifacts(output, comparison, {
+      baselineFile: baseline.file,
+      candidateFile: candidate.file,
+    });
     console.log(
       `Compared ${baseline.report.runId} → ${candidate.report.runId}: score ${comparison.overall.scorePct.delta === null ? "n/a" : `${comparison.overall.scorePct.delta >= 0 ? "+" : ""}${comparison.overall.scorePct.delta}`} points; coverage ${comparison.overall.coveragePct.delta === null ? "n/a" : `${comparison.overall.coveragePct.delta >= 0 ? "+" : ""}${comparison.overall.coveragePct.delta}`} points`,
     );
@@ -1096,6 +1112,27 @@ async function main(): Promise<void> {
   }
 
   if (args.command === "judge") {
+    if (args.positionals[0] === "validate") {
+      const required = (name: string) => {
+        const value = stringFlag(args, name);
+        if (!value?.trim()) throw new Error(`judge validate requires --${name} <value>`);
+        return value;
+      };
+      const result = await runJudgeValidation({
+        datasetFile: required("dataset"),
+        labelsFile: required("labels"),
+        configurationsFile: required("configurations"),
+        output: required("output"),
+        onProgress: (message) => console.log(message),
+      });
+      console.log(JSON.stringify(result.report.results));
+      console.log(
+        `Artifacts: ${path.join(result.output, "validation-results.json")}, ${path.join(result.output, "validation-results.html")}`,
+      );
+      if (result.report.observations.some((item) => item.status === "execution_error"))
+        process.exitCode = 1;
+      return;
+    }
     const resumeDir = stringFlag(args, "resume");
     const saved = resumeDir ? loadRunState(path.resolve(resumeDir)) : undefined;
     if (saved && saved.mode !== "judge") throw new Error("judge --resume requires a judging run");

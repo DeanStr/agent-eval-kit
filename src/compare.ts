@@ -5,6 +5,13 @@ import { runReportSchema } from "./artifact-schemas.js";
 import { assertReportAdjudications } from "./adjudication.js";
 import { scoreRatios } from "./score-slice.js";
 import { readJson, safeName, writeJson } from "./io.js";
+import {
+  escapeHtml,
+  evidenceHtml,
+  evidencePreviews,
+  reportDocument,
+  type ReportEvidence,
+} from "./report-presentation.js";
 import type {
   AreaResult,
   JudgedItem,
@@ -12,6 +19,7 @@ import type {
   RunReport,
   ScoreSlice,
   Verdict,
+  GateResult,
 } from "./types.js";
 
 export type ItemChange =
@@ -69,9 +77,73 @@ export interface ItemComparison {
   id: string;
   baselineVerdict?: Verdict;
   candidateVerdict?: Verdict;
+  baseline?: ComparisonDecision;
+  candidate?: ComparisonDecision;
   scorePct: MetricComparison;
   coveragePct: MetricComparison;
   change: ItemChange;
+}
+
+export interface ComparisonDecision {
+  verdict: Verdict;
+  confidence: JudgedItem["confidence"];
+  reasoning: string;
+  evidenceRefs: string[];
+  evidence: ReportEvidence[];
+  gate?: GateResult;
+  adjudication?: Pick<
+    NonNullable<JudgedItem["adjudication"]>,
+    "verdict" | "reviewer" | "reviewedAt" | "rationale" | "revisionHash"
+  > & {
+    original: Pick<
+      JudgedItem,
+      "verdict" | "confidence" | "reasoning" | "evidenceRefs" | "source" | "components"
+    >;
+  };
+  unproven: boolean;
+}
+
+function comparisonDecision(item: JudgedItem, area: AreaResult): ComparisonDecision {
+  const gate = area.gates.find((gate) => gate.itemId === item.id);
+  return {
+    verdict: item.verdict,
+    confidence: item.confidence,
+    reasoning: item.reasoning,
+    evidenceRefs: item.evidenceRefs,
+    evidence: evidencePreviews(
+      [
+        ...new Set([
+          ...item.evidenceRefs,
+          ...(item.comparisons ?? []),
+          ...(item.adjudication?.evidence.map((entry) => entry.path) ?? []),
+        ]),
+      ],
+      area.scenarios,
+    ),
+    ...(gate ? { gate } : {}),
+    ...(item.adjudication
+      ? {
+          adjudication: {
+            verdict: item.adjudication.verdict,
+            reviewer: item.adjudication.reviewer,
+            reviewedAt: item.adjudication.reviewedAt,
+            rationale: item.adjudication.rationale,
+            revisionHash: item.adjudication.revisionHash,
+            original: {
+              verdict: item.adjudication.original.verdict,
+              confidence: item.adjudication.original.confidence,
+              reasoning: item.adjudication.original.reasoning,
+              evidenceRefs: item.adjudication.original.evidenceRefs,
+              source: item.adjudication.original.source,
+              ...(item.adjudication.original.components
+                ? { components: item.adjudication.original.components }
+                : {}),
+            },
+          },
+        }
+      : {}),
+    unproven: area.unproven.includes(item.id),
+  };
 }
 
 export interface ComparisonReport {
@@ -325,6 +397,8 @@ export function compareReports(
         id,
         ...(before?.verdict === undefined ? {} : { baselineVerdict: before?.verdict }),
         ...(after?.verdict === undefined ? {} : { candidateVerdict: after?.verdict }),
+        ...(before ? { baseline: comparisonDecision(before, baselineArea!) } : {}),
+        ...(after ? { candidate: comparisonDecision(after, candidateArea!) } : {}),
         scorePct: metric(
           before?.score?.scorePct ?? null,
           after?.score?.scorePct ?? null,
@@ -491,9 +565,6 @@ export function loadResumableRunReport(input: string): { file: string; report: R
   return loadReport(input, true);
 }
 
-const escapeHtml = (value: string) =>
-  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
 const display = (value: number | null, suffix = "%") =>
   value === null ? "—" : `${value}${suffix}`;
 const delta = (value: number | null) => (value === null ? "—" : `${value > 0 ? "+" : ""}${value}`);
@@ -514,38 +585,83 @@ function metricRows(
     .join("");
 }
 
-export function comparisonHtml(comparison: ComparisonReport): string {
-  const changed = comparison.items.filter(({ change }) => change !== "unchanged");
+export interface ComparisonPresentation {
+  outputDir: string;
+  baselineFile: string;
+  candidateFile: string;
+}
+
+export function comparisonHtml(
+  comparison: ComparisonReport,
+  context?: ComparisonPresentation,
+): string {
   const warnings = comparison.warnings.length
     ? `<div class="warn"><strong>Notes</strong><ul>${comparison.warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></div>`
     : "";
-  const itemRows = changed
-    .map(
-      (item) =>
-        `<tr><td>${escapeHtml(item.areaId)}</td><td>${escapeHtml(item.id)}</td><td>${escapeHtml(item.baselineVerdict ?? "—")}</td><td>${escapeHtml(item.candidateVerdict ?? "—")}</td><td>${display(item.scorePct.baseline)} → ${display(item.scorePct.candidate)}</td><td>${display(item.coveragePct.baseline)} → ${display(item.coveragePct.candidate)}</td><td class="${item.change === "regressed" || item.change === "lost_coverage" || item.change === "removed" ? "bad" : item.change === "improved" || item.change === "gained_coverage" ? "good" : ""}">${escapeHtml(item.change)}</td></tr>`,
-    )
+  const decision = (item: ItemComparison, side: "baseline" | "candidate") => {
+    const detail = item[side];
+    if (!detail)
+      return `<div class="decision"><h3>${side === "baseline" ? "Baseline" : "Candidate"}</h3><p>Item absent.</p></div>`;
+    const evidenceContext = context && {
+      outputDir: context.outputDir,
+      runDir: path.dirname(side === "baseline" ? context.baselineFile : context.candidateFile),
+      areaId: item.areaId,
+    };
+    const adjudication = detail.adjudication;
+    const explanation = adjudication
+      ? `<p><strong>Human adjudication: ${escapeHtml(adjudication.verdict)}</strong> · ${escapeHtml(adjudication.reviewer)} · ${escapeHtml(adjudication.reviewedAt)}</p><p class="reasoning">${escapeHtml(adjudication.rationale)}</p><p>Original automatic decision: <strong>${escapeHtml(adjudication.original.components?.automatic ?? adjudication.original.verdict)}</strong> (${escapeHtml(adjudication.original.confidence)} confidence; ${escapeHtml(adjudication.original.source)})</p><p class="reasoning">${escapeHtml(adjudication.original.reasoning)}</p><p>Adjudication revision: <code>${escapeHtml(adjudication.revisionHash)}</code></p>`
+      : `<p class="reasoning">${escapeHtml(detail.reasoning)}</p>`;
+    return `<div class="decision"><h3>${side === "baseline" ? "Baseline" : "Candidate"}: ${escapeHtml(detail.verdict)}</h3><p>${escapeHtml(detail.confidence)} confidence${detail.gate ? ` · Critical gate: <strong>${escapeHtml(detail.gate.status)}</strong> — ${escapeHtml(detail.gate.reason)}` : ""}</p>${detail.unproven ? '<p class="warn">Automatic decision is unproven; treated as unavailable coverage.</p>' : ""}${explanation}${evidenceHtml(detail.evidence, evidenceContext)}</div>`;
+  };
+  const items = comparison.items
+    .map((item) => {
+      const critical = Boolean(item.baseline?.gate || item.candidate?.gate);
+      const bad = ["regressed", "lost_coverage", "removed"].includes(item.change);
+      return `<section data-comparison-item data-change="${item.change}" data-critical="${critical}"><h3>${escapeHtml(item.areaId)}/${escapeHtml(item.id)} · <span class="${bad ? "bad" : ""}">${escapeHtml(item.change)}</span>${critical ? " · Critical gate" : ""}</h3><p>Score ${display(item.scorePct.baseline)} → ${display(item.scorePct.candidate)} · Coverage ${display(item.coveragePct.baseline)} → ${display(item.coveragePct.candidate)}</p><div class="decisions">${decision(item, "baseline")}${decision(item, "candidate")}</div></section>`;
+    })
     .join("");
   const compatibilityHtml = `<p class="${comparison.compatibility.status === "compatible" ? "good" : "bad"}"><strong>Evaluation inputs:</strong> ${escapeHtml(comparison.compatibility.status)}${comparison.compatibility.overridden ? " (override enabled)" : ""}</p>`;
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(comparison.candidate.project)} comparison</title><style>
-body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;color:#1f2328;max-width:1120px;margin:2rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #d0d7de;padding:.45rem .65rem;text-align:left}th{background:#f6f8fa}.headline{font-size:1.6rem;font-weight:750}.good{color:#1a7f37;font-weight:650}.bad{color:#cf222e;font-weight:650}.warn{background:#fff8c5;border:1px solid #d4a72c;border-radius:6px;padding:.6rem 1rem}code{font-size:.9em}</style></head><body>
-<h1>${escapeHtml(comparison.candidate.project)} evaluation comparison</h1><p><code>${escapeHtml(comparison.baseline.runId)}</code> → <code>${escapeHtml(comparison.candidate.runId)}</code></p>${compatibilityHtml}${warnings}
-<p class="headline">Score ${display(comparison.overall.scorePct.candidate)} <span class="${(comparison.overall.scorePct.delta ?? 0) < 0 ? "bad" : "good"}">(${delta(comparison.overall.scorePct.delta)} points)</span> · Coverage ${display(comparison.overall.coveragePct.candidate)} <span class="${(comparison.overall.coveragePct.delta ?? 0) < 0 ? "bad" : "good"}">(${delta(comparison.overall.coveragePct.delta)} points)</span></p>
+  const body = `<h1>${escapeHtml(comparison.candidate.project)} evaluation comparison</h1><p><code>${escapeHtml(comparison.baseline.runId)}</code> → <code>${escapeHtml(comparison.candidate.runId)}</code></p>${compatibilityHtml}${warnings}
+<p class="headline">Score ${display(comparison.overall.scorePct.candidate)} (${delta(comparison.overall.scorePct.delta)} points) · Coverage ${display(comparison.overall.coveragePct.candidate)} (${delta(comparison.overall.coveragePct.delta)} points)</p>
 <p>${comparison.summary.improved} improved · ${comparison.summary.regressed} regressed · ${comparison.summary.gained_coverage} gained coverage · ${comparison.summary.lost_coverage} lost coverage · ${comparison.summary.added} added · ${comparison.summary.removed} removed · ${comparison.summary.unavailable} unavailable</p>
-<h2>Areas</h2><table><thead><tr><th>Area</th><th>Status</th><th>Base score</th><th>Candidate</th><th>Δ score</th><th>Base coverage</th><th>Candidate</th><th>Δ coverage</th></tr></thead><tbody>${metricRows(comparison.areas.map((area) => ({ ...area, name: area.title })))}</tbody></table>
-<h2>Tags</h2><table><thead><tr><th>Tag</th><th>Status</th><th>Base score</th><th>Candidate</th><th>Δ score</th><th>Base coverage</th><th>Candidate</th><th>Δ coverage</th></tr></thead><tbody>${metricRows(comparison.tags.map((tag) => ({ ...tag, name: tag.tag })))}</tbody></table>
-<h2>Changed rubric items</h2>${changed.length ? `<table><thead><tr><th>Area</th><th>Item</th><th>Baseline</th><th>Candidate</th><th>Score</th><th>Coverage</th><th>Change</th></tr></thead><tbody>${itemRows}</tbody></table>` : "<p>No rubric item changed.</p>"}</body></html>`;
+<h2>Areas</h2><div class="table-scroll"><table><thead><tr><th>Area</th><th>Status</th><th>Base score</th><th>Candidate</th><th>Δ score</th><th>Base coverage</th><th>Candidate</th><th>Δ coverage</th></tr></thead><tbody>${metricRows(comparison.areas.map((area) => ({ ...area, name: area.title })))}</tbody></table></div>
+<h2>Tags</h2><div class="table-scroll"><table><thead><tr><th>Tag</th><th>Status</th><th>Base score</th><th>Candidate</th><th>Δ score</th><th>Base coverage</th><th>Candidate</th><th>Δ coverage</th></tr></thead><tbody>${metricRows(comparison.tags.map((tag) => ({ ...tag, name: tag.tag })))}</tbody></table></div>
+<h2>Rubric decisions and evidence</h2><div class="filters"><label>Show <select id="change-filter"><option value="all">All items</option><option value="changed">Changed items</option><option value="regressed">Regressions</option><option value="lost_coverage">Lost coverage</option></select></label><label><input type="checkbox" id="critical-filter"> Critical gates only</label></div><p id="filter-count" aria-live="polite">${comparison.items.length} items</p>${items || "<p>No rubric items.</p>"}`;
+  return reportDocument(
+    `${comparison.candidate.project} comparison`,
+    body,
+    `
+const change = document.getElementById('change-filter');
+const critical = document.getElementById('critical-filter');
+function filterItems() {
+  let visible = 0;
+  for (const item of document.querySelectorAll('[data-comparison-item]')) {
+    const matches = change.value === 'all' || (change.value === 'changed' ? item.dataset.change !== 'unchanged' : item.dataset.change === change.value);
+    item.hidden = !matches || (critical.checked && item.dataset.critical !== 'true');
+    if (!item.hidden) visible++;
+  }
+  document.getElementById('filter-count').textContent = visible + ' items';
+}
+change.addEventListener('change', filterItems);
+critical.addEventListener('change', filterItems);
+`,
+  );
 }
 
 export function writeComparisonArtifacts(
   outputDir: string,
   comparison: ComparisonReport,
+  sources?: { baselineFile: string; candidateFile: string },
 ): { json: string; html: string } {
   const resolved = path.resolve(outputDir);
   fs.mkdirSync(resolved, { recursive: true });
   const json = path.join(resolved, "comparison.json");
   const html = path.join(resolved, "comparison.html");
   writeJson(json, comparison);
-  fs.writeFileSync(html, comparisonHtml(comparison));
+  fs.writeFileSync(
+    html,
+    comparisonHtml(comparison, sources && { ...sources, outputDir: resolved }),
+  );
   return { json, html };
 }
 

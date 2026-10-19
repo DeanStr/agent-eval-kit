@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import vm from "node:vm";
 import { scoreArea } from "../src/scoring.js";
 import type { EvalConfig, EvalSpec, ScenarioEvidence } from "../src/types.js";
 import {
@@ -12,6 +13,7 @@ import {
   loadComparisonInput,
   loadResumableRunReport,
   writeComparisonArtifacts,
+  comparisonHtml,
 } from "../src/compare.js";
 import type {
   AreaResult,
@@ -263,6 +265,203 @@ test("comparison artifacts can be loaded from run directories and written as JSO
   const artifacts = writeComparisonArtifacts(path.join(root, "out"), comparison);
   assert.equal(JSON.parse(fs.readFileSync(artifacts.json, "utf8")).candidate.runId, "candidate");
   assert.match(fs.readFileSync(artifacts.html, "utf8"), /evaluation comparison/);
+});
+
+test("comparison decisions retain reasoning, gate state and only relevant evidence with portable links", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-comparison-evidence-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const baseline = report("base", [item("R1", "pass")], 100, 100);
+  const candidate = report("candidate", [item("R1", "fail")], 0, 100);
+  for (const [side, run] of [
+    ["baseline", baseline],
+    ["candidate", candidate],
+  ] as const) {
+    const directory = path.join(root, side);
+    fs.mkdirSync(path.join(directory, "S1/shots"), { recursive: true });
+    fs.mkdirSync(path.join(directory, "inputs/textCandidates"), { recursive: true });
+    fs.writeFileSync(path.join(directory, "S1/shots/cited.png"), "image fixture");
+    fs.writeFileSync(
+      path.join(directory, "inputs/textCandidates/sample.txt"),
+      `${side} text <script>alert(1)</script>`,
+    );
+    const area = run.areas[0]!;
+    area.items[0]!.reasoning = `${side} reasoning <script>unsafe()</script>`;
+    area.items[0]!.evidenceRefs = [
+      "S1/evidence.json#observation-1",
+      "S1/shots/cited.png",
+      "inputs/textCandidates/sample.txt",
+    ];
+    area.gates = [
+      {
+        itemId: "R1",
+        status: side === "baseline" ? "passed" : "failed",
+        verdict: area.items[0]!.verdict,
+        reason: "Must pass",
+      },
+    ];
+    area.scenarios = [
+      {
+        scenarioId: "S1",
+        summary: "Observed",
+        observations: [`${side} observed text`],
+        screenshots: [{ path: "shots/unrelated.png" }],
+        transcript: [],
+      } as unknown as ScenarioEvidence,
+    ];
+    fs.writeFileSync(path.join(directory, "S1/evidence.json"), "{}");
+  }
+  const comparison = compareReports(baseline, candidate);
+  assert.equal(comparison.items[0]!.baseline!.reasoning, baseline.areas[0]!.items[0]!.reasoning);
+  assert.equal(comparison.items[0]!.candidate!.gate!.status, "failed");
+  const artifacts = writeComparisonArtifacts(path.join(root, "elsewhere/output"), comparison, {
+    baselineFile: path.join(root, "baseline/report.json"),
+    candidateFile: path.join(root, "candidate/report.json"),
+  });
+  const html = fs.readFileSync(artifacts.html, "utf8");
+  assert.match(html, /baseline reasoning &lt;script&gt;/);
+  assert.match(html, /candidate reasoning &lt;script&gt;/);
+  assert.match(html, /baseline observed text/);
+  assert.match(html, /candidate text &lt;script&gt;/);
+  assert.match(html, /href="\.\.\/\.\.\/baseline\/S1\/evidence.json#observation-1"/);
+  assert.match(html, /src="\.\.\/\.\.\/candidate\/S1\/shots\/cited.png"/);
+  assert.doesNotMatch(html, /unrelated.png|<script>unsafe|<script>alert/);
+  assert.equal(
+    JSON.parse(fs.readFileSync(artifacts.json, "utf8")).items[0].candidate.gate.status,
+    "failed",
+  );
+});
+
+test("comparison filters select regressions, lost coverage and unchanged critical gates", () => {
+  const baseline = report(
+    "base",
+    [item("regression", "pass"), item("coverage", "pass"), item("gate", "pass")],
+    100,
+    100,
+  );
+  const candidate = report(
+    "candidate",
+    [item("regression", "fail"), item("coverage", "cannot_judge"), item("gate", "pass")],
+    50,
+    67,
+  );
+  candidate.areas[0]!.gates = [
+    { itemId: "gate", status: "passed", verdict: "pass", reason: "Required" },
+  ];
+  const comparison = compareReports(baseline, candidate);
+  const html = comparisonHtml(comparison);
+  assert.match(html, /gate.*Critical gate/);
+  const rows = comparison.items.map((item) => ({
+    id: item.id,
+    dataset: {
+      change: item.change,
+      critical: String(Boolean(item.baseline?.gate || item.candidate?.gate)),
+    },
+    hidden: false,
+  }));
+  const callbacks: Array<() => void> = [];
+  const change = {
+    value: "all",
+    addEventListener: (_name: string, callback: () => void) => callbacks.push(callback),
+  };
+  const critical = {
+    checked: false,
+    addEventListener: (_name: string, callback: () => void) => callbacks.push(callback),
+  };
+  const count = { textContent: "" };
+  const elements = { "change-filter": change, "critical-filter": critical, "filter-count": count };
+  vm.runInNewContext(html.match(/<script>([\s\S]*)<\/script>/)![1]!, {
+    document: {
+      getElementById: (id: keyof typeof elements) => elements[id],
+      querySelectorAll: () => rows,
+    },
+  });
+  const visible = () => rows.filter((row) => !row.hidden).map((row) => row.id);
+  change.value = "regressed";
+  callbacks[0]!();
+  assert.deepEqual(visible(), ["regression"]);
+  change.value = "lost_coverage";
+  callbacks[0]!();
+  assert.deepEqual(visible(), ["coverage"]);
+  critical.checked = true;
+  callbacks[1]!();
+  assert.deepEqual(visible(), []);
+  change.value = "all";
+  callbacks[0]!();
+  assert.deepEqual(visible(), ["gate"]);
+  assert.equal(count.textContent, "1 items");
+});
+
+test("comparisons distinguish human adjudication from the original automatic explanation", () => {
+  const original = {
+    ...item("R1", "cannot_judge"),
+    reasoning: "Automatic evidence was insufficient <original>",
+    confidence: "low" as const,
+  };
+  const baseline = report("baseline", [original], null, 0);
+  const judged = {
+    ...item("R1", "pass"),
+    reasoning: original.reasoning,
+    source: "adjudication" as const,
+    adjudication: {
+      schemaVersion: 1 as const,
+      areaId: "core",
+      itemId: "R1",
+      verdict: "pass" as const,
+      reviewer: "Reviewer <human>",
+      reviewedAt: "2026-10-19T12:00:00Z",
+      rationale: "The human observation confirms the behavior <reviewed>",
+      evidence: [
+        {
+          kind: "human" as const,
+          path: `adjudication-evidence/${"a".repeat(64)}`,
+          description: "Human observation",
+          filename: "observation.txt",
+          observedAt: "2026-10-19T11:00:00Z",
+          sha256: "a".repeat(64),
+          bytes: 10,
+        },
+      ],
+      original,
+      originalSha256: "b".repeat(64),
+      criterionSha256: "c".repeat(64),
+      basisArtifactRootSha256: "d".repeat(64),
+      supersedes: null,
+      previousHash: null,
+      revisionHash: "e".repeat(64),
+    },
+  };
+  const candidate = report("candidate", [judged], 100, 100);
+  const comparison = compareReports(baseline, candidate);
+  assert.equal(
+    comparison.items[0]!.candidate!.adjudication!.rationale,
+    judged.adjudication.rationale,
+  );
+  assert.equal(
+    comparison.items[0]!.candidate!.adjudication!.original.reasoning,
+    original.reasoning,
+  );
+  assert.equal(comparison.items[0]!.candidate!.adjudication!.revisionHash, "e".repeat(64));
+  assert.ok(
+    comparison.items[0]!.candidate!.evidence.some(
+      ({ ref }) => ref === judged.adjudication.evidence[0]!.path,
+    ),
+  );
+  const html = comparisonHtml(comparison);
+  assert.match(html, /Human adjudication: pass/);
+  assert.match(html, /Reviewer &lt;human&gt;/);
+  assert.match(html, /The human observation confirms the behavior &lt;reviewed&gt;/);
+  assert.match(html, /Original automatic decision: <strong>cannot_judge<\/strong>/);
+  assert.match(html, /Automatic evidence was insufficient &lt;original&gt;/);
+  const hybrid = structuredClone(candidate);
+  hybrid.areas[0]!.items[0]!.adjudication!.original.verdict = "pass";
+  hybrid.areas[0]!.items[0]!.adjudication!.original.components = {
+    automatic: "cannot_judge",
+    manual: "pass",
+  };
+  assert.match(
+    comparisonHtml(compareReports(baseline, hybrid)),
+    /Original automatic decision: <strong>cannot_judge<\/strong>/,
+  );
 });
 
 test("withheld scores produce an unavailable, CI-failing score delta", () => {

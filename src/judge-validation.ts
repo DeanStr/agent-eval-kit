@@ -12,12 +12,19 @@ import {
   writeJson,
 } from "./io.js";
 import { judgeCollected } from "./judge-run.js";
+import {
+  judgeValidationHtml,
+  type ValidationReportEvidence,
+  type ValidationReviewedEvidence,
+} from "./judge-validation-report.js";
+import { evidencePreviews } from "./report-presentation.js";
+import { scenarioEvidenceSchema } from "./artifact-schemas.js";
 import { loadCollection } from "./collection.js";
 import { loadSelectedSpecs, loadFixtures } from "./specs.js";
 import { loadRunState } from "./run/state.js";
 import { throwIfCancelled } from "./cancellation.js";
 import { evaluatorInputPaths } from "./run/inputs.js";
-import type { EvalSpec } from "./types.js";
+import type { EvalSpec, ScenarioEvidence } from "./types.js";
 import { validationMetrics, verdictOutcome, type ValidationOutcome } from "./validation-metrics.js";
 
 const text = z.string().trim().min(1);
@@ -217,6 +224,49 @@ function verifyBundle(directory: string, expected: string) {
   return index;
 }
 
+/** Preserve the original label basis even when judges replace reference inputs. */
+function snapshotReviewedEvidence(
+  item: ValidationDataset["cases"][number] & { directory: string },
+  refs: string[],
+  output: string,
+): ValidationReviewedEvidence {
+  const index = verifyBundle(item.directory, item.evidence.rootSha256);
+  const entries = new Map(index.entries.map((entry) => [entry.path, entry]));
+  const verified = new Map<string, Buffer>();
+  const read = (relative: string) => {
+    const cached = verified.get(relative);
+    if (cached) return cached;
+    const entry = entries.get(relative)!;
+    const bytes = fs.readFileSync(path.join(item.directory, relative));
+    if (bytes.length !== entry.bytes || sha256(bytes) !== entry.sha256)
+      throw new Error(
+        `Reviewer evidence changed during snapshot: ${item.id}/${relative}; start a new validation`,
+      );
+    verified.set(relative, bytes);
+    return bytes;
+  };
+  const scenarios = index.entries
+    .filter((entry) => /^[^/]+\/evidence\.json$/.test(entry.path))
+    .map((entry) => scenarioEvidenceSchema.parse(json(read(entry.path))) as ScenarioEvidence);
+  const citations = evidencePreviews(refs, scenarios);
+  const directory = path.join(output, "review", "evidence", item.id);
+  fs.mkdirSync(directory, { recursive: true });
+  const artifacts: typeof index.entries = [];
+  for (const citation of citations) {
+    const relative = (
+      citation.scope === "area" ? `areas/${item.area}/${citation.ref}` : citation.ref
+    ).split("#", 1)[0]!;
+    const entry = entries.get(relative);
+    if (!entry || artifacts.some((artifact) => artifact.path === relative)) continue;
+    const file = path.join(directory, relative);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, read(relative), { flag: "wx", mode: 0o600 });
+    artifacts.push(entry);
+  }
+  writeJson(`${directory}.json`, { evidenceRootSha256: item.evidence.rootSha256, artifacts });
+  return { directory, citations };
+}
+
 /** Review files and original judgements are read only here, never passed to judgeCollected. */
 export async function runJudgeValidation(options: {
   datasetFile: string;
@@ -281,11 +331,30 @@ export async function runJudgeValidation(options: {
   fs.writeFileSync(path.join(output, "review", "dataset.json"), datasetBytes);
   fs.writeFileSync(path.join(output, "review", "labels.json"), labelBytes);
   fs.writeFileSync(path.join(output, "review", "configurations.json"), configurationBytes);
+  const reviewed = cases.map((item) => {
+    try {
+      const label = labels.labels.find((label) => label.caseId === item.id)!;
+      return {
+        ok: true as const,
+        evidence: snapshotReviewedEvidence(item, label.evidence.refs, output),
+      };
+    } catch (error) {
+      return { ok: false as const, error };
+    }
+  });
+  const reviewedEvidenceByCase = new Map(
+    cases.flatMap((item, index) => {
+      const review = reviewed[index]!;
+      return review.ok ? [[item.id, review.evidence] as const] : [];
+    }),
+  );
   // Load every planned judge before the first invocation. Later cases may not
   // silently pick up edits to rubric files, datasets, references or methods.
   const prepared = configs.map((candidate) =>
-    cases.map((item) => {
+    cases.map((item, caseIndex) => {
       try {
+        const review = reviewed[caseIndex]!;
+        if (!review.ok) throw review.error;
         if (sha256(fs.readFileSync(candidate.file)) !== candidate.sha256)
           throw new Error(`Judge configuration changed: ${candidate.file}; start a new comparison`);
         verifyBundle(item.directory, item.evidence.rootSha256);
@@ -336,6 +405,8 @@ export async function runJudgeValidation(options: {
     }),
   );
   const observations: ValidationObservation[] = [];
+  // Render from verified results without re-reading prior runs on every update.
+  const evidenceByRun = new Map<string, ValidationReportEvidence>();
   const summarize = () => {
     const report = {
       schemaVersion: 1,
@@ -361,6 +432,10 @@ export async function runJudgeValidation(options: {
       ],
     };
     writeJson(path.join(output, "validation-results.json"), report);
+    fs.writeFileSync(
+      path.join(output, "validation-results.html"),
+      judgeValidationHtml(report, dataset, labels, output, evidenceByRun, reviewedEvidenceByCase),
+    );
     return report;
   };
   summarize();
@@ -404,6 +479,13 @@ export async function runJudgeValidation(options: {
           const judgement = matches[0]!;
           planned.assertInputs();
           verifyBundle(item.directory, item.evidence.rootSha256);
+          const scenarios = result.report.areas.find((area) => area.id === item.area)!.scenarios;
+          evidenceByRun.set(result.runDir, {
+            citations: evidencePreviews(
+              [...judgement.evidenceRefs, ...(judgement.comparisons ?? [])],
+              scenarios,
+            ),
+          });
           observations.push({
             ...identity,
             ...verdictOutcome(judgement.verdict),

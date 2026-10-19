@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -41,6 +42,135 @@ test("validation denominators retain abstentions and errors without inventing de
   assert.equal(metrics.decisionCoverage.count, 3);
   assert.deepEqual(metrics.unsupportedDecisions, { count: 1, denominator: 2, rate: 0.5 });
   assert.equal(validationMetrics([]).falsePasses.rate, null);
+});
+
+test("reviewer evidence retains pinned reference bytes when configurations replace references", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-reviewed-reference-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const project = path.join(root, "project");
+  fs.mkdirSync(project);
+  const spec = (reference: string) => ({
+    id: "core",
+    title: "Core",
+    description: "Reference replacement",
+    weight: 100,
+    scenarios: [],
+    rubric: [
+      {
+        id: "CHECK",
+        criterion: "Match the reference",
+        passCriteria: "Matches",
+        weight: 1,
+        grader: {
+          type: "text-rubric",
+          inputs: {
+            draft: { file: { text: "A draft" } },
+            source: { file: { text: reference }, role: "reference" },
+          },
+          voting: { minimumVotes: 1, maximumVotes: 1, agreement: 1 },
+        },
+      },
+    ],
+  });
+  fs.writeFileSync(
+    path.join(project, "original.yaml"),
+    YAML.stringify(spec("ORIGINAL_REVIEWED_REFERENCE")),
+  );
+  fs.writeFileSync(
+    path.join(project, "replacement.yaml"),
+    YAML.stringify(spec("DIFFERENT_CANDIDATE_REFERENCE")),
+  );
+  const config = {
+    version: 1,
+    project: { name: "Reference validation", root: "." },
+    target: { kind: "repository" },
+    agent: { provider: "mock" },
+    judge: { provider: "mock" },
+    paths: { specs: "original.yaml", runs: "../collections" },
+  };
+  const configFile = path.join(project, "evalkit.yaml");
+  fs.writeFileSync(configFile, YAML.stringify(config));
+  fs.writeFileSync(
+    path.join(project, "replacement-config.yaml"),
+    YAML.stringify({ ...config, paths: { ...config.paths, specs: "replacement.yaml" } }),
+  );
+  const collection = await runEvaluation({
+    config: loadConfig(configFile),
+    configFile,
+    specs: loadSpecs(path.join(project, "original.yaml")),
+    fixtures: {},
+    collectOnly: true,
+  });
+  const rootSha256 = assertArtifactIntegrity(collection.runDir, { require: true })!.rootSha256;
+  const ref = `inputs/textReferences/${sha256("CHECK/source")}.txt`;
+  writeJson(path.join(root, "cases.json"), {
+    version: 1,
+    cases: [
+      {
+        id: "one",
+        group: "family",
+        split: "development",
+        evidence: { directory: collection.runDir, rootSha256 },
+        area: "core",
+        rubric: "CHECK",
+        sources: [],
+      },
+    ],
+  });
+  writeJson(path.join(root, "labels.json"), {
+    version: 1,
+    labels: [
+      {
+        caseId: "one",
+        evidenceRootSha256: rootSha256,
+        area: "core",
+        rubric: "CHECK",
+        reviewer: { name: "Reference reviewer", kind: "human" },
+        application: {
+          verdict: "unknown",
+          rationale: "No independent application result",
+          sources: ["Review note"],
+        },
+        evidence: {
+          verdict: "cannot_judge",
+          rationale: "The original reference is insufficient",
+          refs: [ref],
+        },
+      },
+    ],
+  });
+  writeJson(path.join(root, "configurations.json"), {
+    version: 1,
+    configurations: [
+      { id: "original", config: configFile },
+      { id: "replacement", config: path.join(project, "replacement-config.yaml") },
+    ],
+  });
+  const result = await runJudgeValidation({
+    datasetFile: path.join(root, "cases.json"),
+    labelsFile: path.join(root, "labels.json"),
+    configurationsFile: path.join(root, "configurations.json"),
+    output: path.join(root, "comparison"),
+  });
+  assert.ok(result.report.observations.every((observation) => observation.status === "abstained"));
+  const html = fs.readFileSync(path.join(result.output, "validation-results.html"), "utf8");
+  const reviewed = html.slice(
+    html.indexOf("<h3>Reviewed expectations"),
+    html.indexOf('<div class="decisions">'),
+  );
+  assert.match(reviewed, /ORIGINAL_REVIEWED_REFERENCE/);
+  assert.doesNotMatch(reviewed, /DIFFERENT_CANDIDATE_REFERENCE/);
+  assert.match(html, /DIFFERENT_CANDIDATE_REFERENCE/);
+  const snapshot = fs.readFileSync(path.join(result.output, "review/evidence/one", ref), "utf8");
+  assert.equal(snapshot, "ORIGINAL_REVIEWED_REFERENCE");
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(result.output, "review/evidence/one.json"), "utf8"),
+  );
+  assert.equal(manifest.evidenceRootSha256, rootSha256);
+  assert.equal(
+    manifest.artifacts.find((artifact: { path: string }) => artifact.path === ref).sha256,
+    sha256(snapshot),
+  );
 });
 
 test("reference results require real verdicts and distinguish missing evidence from abstention", () => {
@@ -487,6 +617,10 @@ test("validation reuses identical sealed evidence, isolates labels, and retains 
     path.join(bin, "claude"),
     `#!/usr/bin/env node
 if (process.argv.includes('--version')) console.log('Claude Code validation-test');
+else if (process.argv.includes('wait')) {
+  require('node:fs').writeFileSync(${JSON.stringify(path.join(root, "waiting.pid"))}, String(process.pid));
+  setInterval(() => {}, 1000);
+}
 else if (process.argv.includes('empty-reasoning')) {
   const judgement = { verdict: 'cannot_judge', confidence: 'low', reasoning: '', evidenceRefs: [] };
   const structured = {
@@ -539,6 +673,18 @@ else { console.error('fixture judge crashed before producing a judgement'); proc
       output: path.join(root, "comparison"),
     });
   const result = await run();
+  const html = fs.readFileSync(path.join(result.output, "validation-results.html"), "utf8");
+  assert.match(html, /Reviewed expectations/);
+  assert.match(html, /Evidence-supported expectation: cannot_judge/);
+  assert.match(html, /Known application outcome: pass/);
+  assert.match(html, /first: cannot_judge/);
+  assert.match(html, /error: execution error/);
+  assert.match(html, /Attempt diagnostic/);
+  assert.match(html, /KNOWN_OUTCOME_SECRET/);
+  assert.match(html, /LABEL_RATIONALE_SECRET/);
+  assert.match(html, /False passes/);
+  assert.match(html, /0\/0 \(unavailable\)/);
+  assert.match(html, /href="attempts\/first\/one\/runs\//);
   assert.deepEqual(
     result.report.observations.map((item) => item.status),
     ["abstained", "abstained", "execution_error", "execution_error", "abstained"],
@@ -655,6 +801,125 @@ else { console.error('fixture judge crashed before producing a judgement'); proc
   assert.equal(Object.hasOwn(journal[3], "score"), false);
   assert.equal(journal[4].verdicts.CHECK, "cannot_judge");
 
+  // Execution errors fail; reviewer disagreement does not enforce product gates.
+  const cliFile = path.resolve(import.meta.dirname, "../src/cli.ts");
+  const cliArgs = (
+    output: string,
+    configurations = "configurations.json",
+    labelFile = "labels.json",
+  ) => [
+    "--import",
+    "tsx",
+    cliFile,
+    "judge",
+    "validate",
+    "--dataset",
+    path.join(root, "cases.json"),
+    "--labels",
+    path.join(root, labelFile),
+    "--configurations",
+    path.join(root, configurations),
+    "--output",
+    path.join(root, output),
+  ];
+  const cliError = spawnSync(process.execPath, cliArgs("cli-error"), {
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+  assert.ifError(cliError.error);
+  assert.equal(cliError.status, 1, cliError.stdout + cliError.stderr);
+  assert.ok(fs.existsSync(path.join(root, "cli-error/validation-results.html")));
+  writeJson(path.join(root, "cli-configurations.json"), {
+    version: 1,
+    configurations: [{ id: "first", config: configFile }],
+  });
+  writeJson(path.join(root, "disagreement-labels.json"), {
+    ...labels,
+    labels: [
+      {
+        ...labels.labels[0],
+        evidence: {
+          verdict: "fail",
+          rationale: "A deliberately different reviewed expectation",
+          refs: ["OBSERVE/evidence.json"],
+        },
+      },
+    ],
+  });
+  const cliDisagreement = spawnSync(
+    process.execPath,
+    cliArgs("cli-disagreement", "cli-configurations.json", "disagreement-labels.json"),
+    { encoding: "utf8", timeout: 30_000 },
+  );
+  assert.ifError(cliDisagreement.error);
+  assert.equal(cliDisagreement.status, 0, cliDisagreement.stdout + cliDisagreement.stderr);
+  assert.match(
+    fs.readFileSync(path.join(root, "cli-disagreement/validation-results.html"), "utf8"),
+    /Differs from evidence expectation/,
+  );
+
+  if (process.platform !== "win32") {
+    const waiting = path.join(project, "waiting.yaml");
+    fs.writeFileSync(
+      waiting,
+      YAML.stringify({
+        ...config,
+        judge: { provider: "claude", model: "wait", timeoutSeconds: 15 },
+      }),
+    );
+    writeJson(path.join(root, "waiting-configurations.json"), {
+      version: 1,
+      configurations: [
+        { id: "waiting", config: waiting },
+        { id: "pending", config: configFile },
+      ],
+    });
+    for (const signal of ["SIGINT", "SIGTERM"] as const) {
+      const marker = path.join(root, "waiting.pid");
+      fs.rmSync(marker, { force: true });
+      const child = spawn(
+        process.execPath,
+        cliArgs(`cli-${signal}`, "waiting-configurations.json"),
+        { stdio: ["ignore", "pipe", "pipe"] },
+      );
+      let output = "";
+      child.stdout.on("data", (chunk) => {
+        output += chunk;
+      });
+      child.stderr.on("data", (chunk) => {
+        output += chunk;
+      });
+      const exited = new Promise<number | null>((resolve, reject) => {
+        child.once("error", reject);
+        child.once("close", resolve);
+      });
+      try {
+        const deadline = Date.now() + 10_000;
+        while (!fs.existsSync(marker) && Date.now() < deadline && child.exitCode === null)
+          await delay(20);
+        assert.ok(fs.existsSync(marker), output);
+        child.kill(signal);
+        assert.equal(await exited, signal === "SIGINT" ? 130 : 143, output);
+        assert.throws(() => process.kill(Number(fs.readFileSync(marker, "utf8")), 0), /ESRCH/);
+        const partial = JSON.parse(
+          fs.readFileSync(path.join(root, `cli-${signal}/validation-results.json`), "utf8"),
+        );
+        assert.equal(partial.observations.length, 1);
+        assert.equal(partial.observations[0].status, "execution_error");
+        assert.equal(Object.hasOwn(partial.observations[0], "actual"), false);
+        const partialHtml = fs.readFileSync(
+          path.join(root, `cli-${signal}/validation-results.html`),
+          "utf8",
+        );
+        assert.match(partialHtml, /Comparison incomplete/);
+        assert.match(partialHtml, /Not attempted/);
+      } finally {
+        if (child.exitCode === null) child.kill("SIGKILL");
+        await exited;
+      }
+    }
+  }
+
   const originalSpec = fs.readFileSync(path.join(project, "spec.yaml"));
   writeJson(path.join(root, "drift-cases.json"), {
     ...dataset,
@@ -713,13 +978,31 @@ else { console.error('fixture judge crashed before producing a judgement'); proc
     }),
     /outside judge inputs/,
   );
-  fs.appendFileSync(path.join(collection.runDir, "OBSERVE/evidence.json"), " ");
+  fs.appendFileSync(
+    path.join(collection.runDir, "OBSERVE/evidence.json"),
+    " TAMPERED_REVIEW_PREVIEW",
+  );
+  writeJson(path.join(root, "corrupt-labels.json"), {
+    ...labels,
+    labels: [
+      {
+        ...labels.labels[0],
+        evidence: { ...labels.labels[0]!.evidence, refs: ["OBSERVE/evidence.json"] },
+      },
+    ],
+  });
   const corrupted = await runJudgeValidation({
     datasetFile: path.join(root, "cases.json"),
-    labelsFile: path.join(root, "labels.json"),
+    labelsFile: path.join(root, "corrupt-labels.json"),
     configurationsFile: path.join(root, "configurations.json"),
     output: path.join(root, "corruption"),
   });
   assert.ok(corrupted.report.observations.every((item) => item.status === "execution_error"));
   assert.ok(corrupted.report.results.every((item) => item.metrics.abstentions.count === 0));
+  const corruptedHtml = fs.readFileSync(
+    path.join(root, "corruption/validation-results.html"),
+    "utf8",
+  );
+  assert.match(corruptedHtml, /Reviewer evidence previews unavailable/);
+  assert.doesNotMatch(corruptedHtml, /TAMPERED_REVIEW_PREVIEW/);
 });

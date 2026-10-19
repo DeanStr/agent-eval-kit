@@ -32,6 +32,8 @@ test("command and subcommand help lists exact accepted options without loading a
     [["validate"], "--suite", "--run"],
     [["list"], "--config", "--scenarios"],
     [["doctor"], "--providers", "--agent"],
+    [["judge"], "--evidence", "--dataset"],
+    [["judge", "validate"], "--dataset", "--evidence"],
     [["reference", "list"], "--suite", "--reviewer"],
   ] as const) {
     const result = runCli(os.tmpdir(), [...args, "--help"]);
@@ -48,6 +50,24 @@ test("command and subcommand help lists exact accepted options without loading a
     () => commandHelp("undocumented", undefined, ["help"], new Set(["help"])),
     /Missing CLI usage for undocumented/,
   );
+});
+
+test("judge validation CLI rejects missing values, unknown subcommands, mixed modes and extra arguments", () => {
+  for (const args of [
+    ["judge", "validate"],
+    ["judge", "validate", "--dataset"],
+    ["judge", "validate", "--evidence", "collection"],
+    ["judge", "--dataset", "cases.json"],
+    ["judge", "typo"],
+    ["judge", "validate", "extra"],
+  ]) {
+    const result = runCli(os.tmpdir(), args);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(
+      result.stderr,
+      /requires --dataset|--dataset requires a value|Unknown flag|Unknown judge subcommand|Unexpected positional/,
+    );
+  }
 });
 
 test("collect and campaign JSON previews validate without running graders or creating output", (t) => {

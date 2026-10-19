@@ -126,6 +126,7 @@ Replace the directory placeholders below with the paths printed by your commands
 | `aek collect --resume <collection-directory>` | Recover an unfinished collection. |
 | `aek judge --evidence <collection-directory>` | Create a new scored run from sealed evidence. |
 | `aek judge --resume <judging-directory>` | Recover an interrupted judging run. |
+| `aek judge validate --dataset cases.json --labels labels.json --configurations configurations.json --output new-directory` | Compare configurations with reviewed evidence labels; retain JSON and HTML reports. |
 | `aek verify --run <run-directory>` | Check retained artifact integrity. |
 | `aek rescore --run <run-directory>` | Apply permitted scoring changes to a completed run without another provider call. |
 | `aek finalize --run <run-directory> --reviewer YOUR_NAME` | Apply edits from `manual-results.json` and record review history. |
@@ -161,6 +162,22 @@ See [authentication](../README.md#authentication) and [email](email.md).
 `compare` also accepts `--max-score-drop` and `--max-coverage-drop` in percentage
 points. Incompatible evaluations produce an audit report with numeric deltas
 withheld and exit 2. `--allow-incompatible` records an exploratory override.
+
+`comparison.html` shows baseline/candidate reasoning, confidence, critical-gate
+state, cited evidence links, and relevant screenshot/text previews. Use its
+regression, lost-coverage, and critical-gate filters to narrow the review, or
+inspect unchanged decisions. Links resolve from the output directory; retain
+the source runs alongside the report. Promoted baselines omit private evidence,
+so previews are available only for retained artifacts.
+Human adjudications show the reviewer rationale and provenance alongside the
+original automatic explanation.
+
+`aek judge validate` has a separate [reviewed-label workflow](judge-validation.md):
+it writes `validation-results.json` and `validation-results.html`, requires a new
+output directory, and exits 1 for invalid input or execution errors. Reviewer
+disagreement does not cause acceptance failure; product compatibility, score
+thresholds, and critical gates are not validation acceptance rules. SIGINT and
+SIGTERM retain partial reports and exit 130/143.
 
 Release baseline promotion defaults to the complete required suite, split `all`,
 100% coverage, and passed gates. A normal `development` run does not meet that

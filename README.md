@@ -200,6 +200,18 @@ aek judge --evidence .agent-eval/runs/<collection-id> --judge claude
 See [collecting and judging separately](docs/evidence-workflows.md) for evidence
 compatibility, rubric changes, recovery, and baseline promotion policies.
 
+Compare judge configurations against separate reviewed evidence labels with the
+installed CLI:
+
+```sh
+aek judge validate --dataset cases.json --labels labels.json \
+  --configurations configurations.json --output new-validation-directory
+```
+
+This writes JSON metrics and an HTML review of expectations, decisions,
+explanations, and evidence. See [judge validation](docs/judge-validation.md) for
+the input contracts, exit semantics, and a packaged offline example.
+
 ## Guided project authoring
 
 Install the authoring skill into your project's agent skill directory:
@@ -668,6 +680,12 @@ aek compare \
 ```
 
 This writes `comparison.json` and a standalone `comparison.html` below the candidate run's `comparisons/vs-<baseline-run-id>/` directory. The report includes overall, area, tag, and rubric-item deltas; item changes distinguish improvements, regressions, gained/lost coverage, additions, and removals.
+
+The HTML report also shows baseline/candidate reasoning, confidence, critical
+gates, evidence links, and relevant screenshot/text previews. Filter the review
+to regressions, lost coverage, or critical gates; unchanged decisions remain
+inspectable. Evidence links are relative to the output location and require the
+retained source artifacts. Promoted snapshots omit private reasoning and evidence.
 
 Rubric items retain weighted score and coverage measurements, so hybrid regressions are detected even when both aggregate verdicts are `partial`. Campaign case coverage is judgeable repetitions divided by all attempted repetitions, including failed runs; pending runs are excluded. `--fail-on-regression` detects partial case coverage loss and decreases in campaign mean evidence coverage. See [release validation](docs/release-validation.md#comparison-and-recovery-corrections-013) for artifact regeneration and interrupted-lock recovery.
 

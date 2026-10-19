@@ -1,5 +1,35 @@
 # Bounded judge validation
 
+## Installed offline example
+
+From a project with `agent-eval-kit` installed, run:
+
+```sh
+node node_modules/agent-eval-kit/examples/judge-validation/run.mjs ./judge-validation-demo
+```
+
+The destination must be new. This uses Node and the installed CLI, with no tsx,
+browser, subscription login, or model calls. It creates three synthetic collected
+command results (pass, fail, and withheld evidence), separate reviewer labels,
+and two mock configurations. Command results are reused from each sealed
+collection. The configurations therefore agree; this demonstrates the reporting
+and validation contracts, not model accuracy. Open
+`judge-validation-demo/comparison/validation-results.html` to review expectations,
+decisions, reasoning, evidence previews, and metrics. Synthetic labels explicitly
+record an agent reviewer. From a checkout, run `pnpm build`, then
+`node examples/judge-validation/run.mjs ./judge-validation-demo`.
+
+To rerun the installed command with edited configurations, use a new output:
+
+```sh
+aek judge validate --dataset judge-validation-demo/cases.json \
+  --labels judge-validation-demo/labels.json \
+  --configurations judge-validation-demo/configurations.json \
+  --output judge-validation-demo/comparison-next
+```
+
+## Source-checkout exercises
+
 Run from this source checkout with dependencies installed. Preparation uses the
 existing collect-only runner; comparison uses detached judging. Real comparisons
 require Codex subscription access; both preparations need Playwright Chromium.

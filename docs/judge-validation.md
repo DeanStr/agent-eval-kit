@@ -1,20 +1,43 @@
 # Validate judges against reviewed evidence
 
-From a source checkout, `pnpm judge:validate` compares configurations using the
+`aek judge validate` compares configurations using the
 existing `aek collect` / `aek judge` implementation. Collection happens once per
 case. Each configuration receives the same pinned collection bytes in a separate
 judging run. Setup, browser actions, collectors and command graders do not rerun.
 
 ```sh
-pnpm judge:validate --dataset cases.json --labels labels.json \
+aek judge validate --dataset cases.json --labels labels.json \
   --configurations configurations.json --output NEW_DIRECTORY
 ```
 
 The output retains ordinary sealed judge runs, per-attempt diagnostics,
-`validation-results.json`, and separate reviewer-input snapshots under `review/`.
+`validation-results.json`, `validation-results.html`, and separate reviewer-input
+snapshots under `review/`. The HTML report shows reviewed evidence expectations
+and known application outcomes separately, each configuration's decisions,
+explanations, evidence links and previews, and aggregate metrics overall and by
+split. Errors retain diagnostics without a decision; unattempted cases remain
+visible in interrupted reports and do not enter metric denominators.
+Reviewer citations are copied from the pinned collection into `review/evidence/`,
+with source hashes recorded in per-case manifests. They remain distinct from
+each configuration's replacement references and never enter judge inputs.
 It refuses to overwrite an existing experiment. Exit 1 means an execution error
 or invalid workflow input. Disagreement with reviewer labels is reported in the
 metrics and does not itself change the exit status.
+SIGINT and SIGTERM retain partial JSON/HTML reports and exit 130 and 143.
+Use `aek judge validate --help` for the exact options. Source checkouts can also
+use `pnpm judge:validate`.
+
+The distributed package includes an offline example that needs no model login,
+browser, or development dependencies:
+
+```sh
+node node_modules/agent-eval-kit/examples/judge-validation/run.mjs ./judge-validation-demo
+```
+
+It creates synthetic pass/fail/withheld collections, reviewed sidecars, and two
+configurations, then invokes the installed CLI and writes the HTML report.
+This demonstrates the workflow rather than model accuracy. See the
+[example guide](../examples/judge-validation/README.md).
 
 All candidate specs, referenced inputs, fixtures, and configuration files are
 pinned before the first judge invocation and checked before and after each

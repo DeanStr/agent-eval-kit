@@ -38,7 +38,9 @@
     "examples/skill-comparison/**/*.mjs",
     "examples/skill-comparison/**/*.md",
     "examples/skill-comparison/*.json",
-    "examples/skill-comparison/*.yaml"
+    "examples/skill-comparison/*.yaml",
+    "examples/judge-validation/run.mjs",
+    "examples/judge-validation/README.md"
   ],
   "engines": {
     "node": ">=20.19.0"

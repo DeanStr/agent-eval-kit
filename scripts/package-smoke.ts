@@ -89,6 +89,36 @@ try {
   );
   const cli = path.join(consumer, "node_modules/.bin/aek");
   assert.match(await run(cli, ["--help"], consumer), /Agent Eval Kit/);
+  const validationHelp = await run(cli, ["judge", "validate", "--help"], consumer);
+  assert.match(validationHelp, /--dataset/);
+  assert.doesNotMatch(validationHelp, /--evidence/);
+  assert.ok(fs.existsSync(path.join(installed, "docs/judge-validation.md")));
+  assert.ok(fs.existsSync(path.join(installed, "examples/judge-validation/README.md")));
+  const validationExample = path.join(scratch, "judge-validation-example");
+  await run(
+    process.execPath,
+    [path.join(installed, "examples/judge-validation/run.mjs"), validationExample],
+    consumer,
+  );
+  const validation = JSON.parse(
+    fs.readFileSync(path.join(validationExample, "comparison/validation-results.json"), "utf8"),
+  );
+  assert.equal(validation.observations.length, 6);
+  assert.deepEqual(
+    validation.observations.map((item: { status: string }) => item.status),
+    ["judged", "judged", "abstained", "judged", "judged", "abstained"],
+  );
+  for (const result of validation.results) {
+    assert.equal(result.metrics.exactMatches.count, 3);
+    assert.equal(result.metrics.executionErrors.count, 0);
+  }
+  const validationHtml = fs.readFileSync(
+    path.join(validationExample, "comparison/validation-results.html"),
+    "utf8",
+  );
+  assert.match(validationHtml, /Reviewed expectations/);
+  assert.match(validationHtml, /The synthetic observation records pass/);
+  assert.match(validationHtml, /href="attempts\/original\/case-1\/runs\//);
   // Follow the installed first-run guide with a disposable target outside the
   // consumer, retaining the installed command's working directory throughout.
   const firstExample = path.join(scratch, "first-run-example");
@@ -514,7 +544,7 @@ console.log(JSON.stringify({ version: 1, outcome: 'completed', summary: 'Sent no
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
   console.log(
-    "Package smoke passed: tarball install, offline first-run scores/coverage/gates/comparison, direct two-image comparison, authoring skill/map/calibration, text datasets/suites/selection/reference promotion, file and email collector/checker pass and failure, executable bin, init, validate, run, collect, judge, release promotion, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
+    "Package smoke passed: tarball install, offline first-run scores/coverage/gates/comparison, installed judge validation and offline report example, direct two-image comparison, authoring skill/map/calibration, text datasets/suites/selection/reference promotion, file and email collector/checker pass and failure, executable bin, init, validate, run, collect, judge, release promotion, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
   );
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });
