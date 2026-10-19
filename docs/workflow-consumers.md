@@ -26,6 +26,18 @@ trials require the caller's model runner controls and appropriate project criter
 
 ## Melbourne workload
 
+The whole-viewer successor uses `evals/route-benchmark/`: Melbourne owns its
+ordinary six-view moving route, runtime-health checks and independent callback
+reconciliation; AEK owns explicit counterbalanced acquisition, the shared GPU
+resource lock, evidence, gates and paired reports. It consumes exact compiled
+current viewers rather than the earlier portable-hash fixture. The application
+records the actually launched browser executable and keeps application submission
+timings separate from harness time. Its A/A integration check is descriptive;
+it makes no scene, physical display FPS, visual-acceptance or speedup claim.
+
+The portable-hash integration below is historical workflow validation and is not
+the current Melbourne workload.
+
 `evals/aek-benchmark/` consumes Melbourne's actual portable SHA-256 and worker-pool
 implementations (source baseline `9ce0a9a8a614a4669d263568248ac6a3fa7856b4`).
 The reviewed observer runs a single selected role per fresh visit, with fixed

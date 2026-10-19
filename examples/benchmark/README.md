@@ -1,5 +1,50 @@
 # Project-owned benchmarks
 
+For measurements sensitive to visit order or shared hardware, use the controlled
+experiment runner:
+
+```sh
+node examples/benchmark/experiment.mjs /tmp/new-experiment recipe.json
+```
+
+```json
+{
+  "version": 1,
+  "candidates": {"baseline": "before/evalkit.yaml", "candidate": "after/evalkit.yaml"},
+  "baseline": "baseline",
+  "blocks": [["baseline", "candidate"], ["candidate", "baseline"]],
+  "resource": "/path/to/shared-resource/gpu",
+  "timeoutSeconds": 1800,
+  "measurement": {"scenarioId": "WORKLOAD", "fileLabel": "measurements"}
+}
+```
+
+Config and resource paths resolve relative to the recipe. Every block visits
+each named candidate exactly once; two or more blocks are required. Acquisition
+is serial. All experiments using the same resource directory share the existing
+AEK process lock, across projects and output directories. The lock remains held
+until active subprocess cleanup finishes. It coordinates participating AEK
+experiments; it cannot exclude unrelated host activity.
+
+The public `agent-eval-kit/benchmark/experiment` export provides
+`runBenchmarkExperiment(output, recipe, {baseDirectory, signal})`, the recipe
+schema, and `counterbalancedBlocks(candidateIds, repetitions)`. Library callers
+own signal handling. The packaged entry point forwards SIGINT/SIGTERM through
+AEK's existing cancellation machinery.
+
+Each visit is an ordinary AEK run with its normal source/evaluator snapshots,
+collection, gates and integrity checks. Candidate inputs must remain fixed.
+An execution error stops later acquisition and retains the failed and unattempted
+visits. A correctness failure remains a failed gate even if the candidate is
+faster. Output includes the acquisition ledger, per-candidate campaigns, ordinary
+benchmark comparisons and descriptive differences paired by block. An interrupted
+experiment is retained, not automatically resumed or pooled into a new run.
+Ordering reduces one source of drift; neither this schedule nor two repetitions
+establish statistical confidence or performance acceptance.
+
+The older runner below uses sequential whole campaigns and is suitable only when
+that acquisition order is an intentional part of the application protocol.
+
 Build candidates before measurement. Keep workload scripts, data, reset logic,
 instrumentation and correctness/performance acceptance criteria in the application
 repo. An ordinary command collector invokes the project's measurement script and

@@ -40,6 +40,7 @@ It supports:
 - parameterized case matrices, diagnostic strata, and fingerprinted development/evaluation splits;
 - repeated-run campaigns with rubric/case/stratum stability, whole-run bootstrap intervals, and paired case-level campaign comparisons;
 - reusable [prompt/skill experiments](examples/skill-comparison/README.md) and [project-owned benchmarks](examples/benchmark/README.md), retaining every attempt and measurement changes alongside correctness gates;
+- explicit counterbalanced multi-candidate benchmark experiments with shared resource exclusion and per-block differences;
 - compatibility-checked comparisons and append-only promoted baseline snapshots;
 - minimal public exports with an automatic privacy lint that never echoes matched secret values;
 - interchangeable agent and judge providers, so you can use Codex to test and Claude, Grok, or Cursor to judge.
