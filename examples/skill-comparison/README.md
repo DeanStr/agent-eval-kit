@@ -7,7 +7,8 @@ the resulting artifacts; it does not execute candidate instructions as scenarios
 
 The task adds a discount while preserving quantity and empty-cart behavior.
 `fixture/cart.test.mjs` remains an ordinary runnable Node test suite, visible to
-candidates and protected from replacement. Private checks independently cover
+candidates and kept unchanged. The task directs candidates to put additional tests
+in separate files. Private checks independently cover
 omitted/zero/full discounts and rounding the subtotal once across multiple
 quantities and cart lines. Two separate 5-cent lines discounted 50% must total
 5 cents; rounding each line separately incorrectly produces 6. The calibration
