@@ -68,6 +68,30 @@ pnpm aek verify --run /path/to/repaired-run
 Partial improvements may still exit 2: all three criteria are critical gates.
 A score increase does not authorize acceptance while another gate fails.
 
+Record each improvement decision with the project-owned helper:
+
+```sh
+cp examples/improvement-exercise/decision.example.json /tmp/aek-decision.json
+# Edit the hypothesis, change, 1-based journal line numbers, comparison paths,
+# outcome (accepted/rejected/unresolved), and reason using the actual evidence.
+node examples/improvement-exercise/record-decision.mjs .agent-eval/experiments/marketing-improvement /tmp/aek-decision.json
+```
+
+`decisions.ndjson` links hypothesis → concrete change → journal attempts and AEK
+comparisons → outcome → reason. It snapshots the referenced journal entries and
+comparison reports with hashes, preserving target/evaluator provenance and errors.
+Append another record with the same decision ID to resolve or revise a decision;
+the new record links the previous record's hash. Nothing is overwritten or
+automatically promoted. For a failed execution, keep `comparisons: []`, link the
+failed attempt, and explain the unresolved or rejected decision without a score.
+Comparison snapshots must match the linked journal runs' evaluator, score, and
+coverage. Acceptance requires a compatible comparison whose candidate completed
+successfully with full coverage, a visible score, and passed gates. Earlier failed
+attempts can remain linked as history; they do not support acceptance. Legacy
+entries without gate evidence need a fresh run before acceptance. The reviewer
+still checks the actual product evidence and reason for the change. Hypotheses
+and decisions are review records, not another feature map or an optimiser.
+
 The map in `project/.aek-authoring/plan.json` can retain good and defect run
 references per check. `aek author status` verifies them. Its scope deliberately
 has no `reviewedBy`: the exercise must not invent a human's review of its chosen

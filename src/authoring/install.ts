@@ -38,7 +38,12 @@ export function installAuthoringSkill(directory: string): string {
       fs
         .readFileSync(authoringGuide, "utf8")
         .replaceAll("../skills/aek-author/references/plan.md", "../plan.md")
-        .replaceAll("../skills/aek-author/references/generation.md", "../generation.md"),
+        .replaceAll("../skills/aek-author/references/generation.md", "../generation.md")
+        .replaceAll("../skills/aek-author/references/maintenance.md", "../maintenance.md")
+        .replaceAll(
+          "../skills/aek-author/templates/review-note.md",
+          "../../templates/review-note.md",
+        ),
     );
     fs.mkdirSync(target); // Exclusive reservation: concurrent installs and existing files fail.
     reserved = true;

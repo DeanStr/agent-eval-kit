@@ -1,0 +1,26 @@
+id: cart
+title: Discount task
+weight: 100
+description: Fixed independent artifact evaluation, outside candidate execution.
+scenarios:
+  - id: OBSERVE
+    name: Observe the completed artifact
+    kind: command
+    instructions: Execute only the sealed cart module with the fixed observation inputs.
+    collect:
+      command: node evals/collect.mjs
+      methodFiles: [evals/collect.mjs, evals/docker-runner.mjs, evals/runtime.json]
+      sources: { cart: artifact/cart.mjs }
+      files: [values]
+rubric:
+  - id: TOTALS
+    criterion: Preserve ordinary totals and implement final-subtotal discounts.
+    weight: 1
+    gate: true
+    scenarios: [OBSERVE]
+    grader:
+      type: command
+      output: json
+      command: node evals/check.mjs
+      methodFiles: [evals/check.mjs]
+    passCriteria: Quantity, empty, omitted/zero/full discount, and round-once totals across both multiple quantities and multiple cart lines match the independently specified integer cents.

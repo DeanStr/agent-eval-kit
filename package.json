@@ -34,7 +34,11 @@
     "examples/authoring/*.yaml",
     "examples/authoring/*.json",
     "examples/authoring/*.md",
-    "examples/authoring/specs/*.yaml"
+    "examples/authoring/specs/*.yaml",
+    "examples/skill-comparison/**/*.mjs",
+    "examples/skill-comparison/**/*.md",
+    "examples/skill-comparison/*.json",
+    "examples/skill-comparison/*.yaml"
   ],
   "engines": {
     "node": ">=20.19.0"

@@ -62,6 +62,21 @@ try {
     consumer,
   );
   const installed = path.join(consumer, "node_modules/agent-eval-kit");
+  for (const file of [
+    "run.mjs",
+    "docker-runner.mjs",
+    "collect.mjs",
+    "check.mjs",
+    "spec.yaml",
+    "controls.example.json",
+    "README.md",
+    "fixture/TASK.md",
+    "fixture/cart.mjs",
+    "fixture/cart.test.mjs",
+    "variants/plain.md",
+    "variants/reviewed.md",
+  ])
+    assert.ok(fs.statSync(path.join(installed, "examples/skill-comparison", file)).isFile(), file);
   assert.equal(
     fs.existsSync(path.join(installed, "src")),
     false,
@@ -169,6 +184,8 @@ try {
   // The authoring workflow must work entirely from the installed package.
   await run(cli, ["author", "install", "--directory", skillDirectory], consumer);
   assert.ok(fs.existsSync(path.join(skillDirectory, "aek-author", "references", "plan.md")));
+  assert.ok(fs.existsSync(path.join(skillDirectory, "aek-author", "references", "maintenance.md")));
+  assert.ok(fs.existsSync(path.join(skillDirectory, "aek-author", "templates", "review-note.md")));
   assert.ok(
     fs.existsSync(path.join(skillDirectory, "aek-author", "references", "docs", "authoring.md")),
   );

@@ -180,6 +180,8 @@ test("authoring skill installs with its resources and refuses overwrites", (t) =
     "agents/openai.yaml",
     "references/plan.md",
     "references/generation.md",
+    "references/maintenance.md",
+    "templates/review-note.md",
     "references/docs/authoring.md",
     "references/docs/existing-tests.md",
     "references/README.md",
@@ -191,6 +193,14 @@ test("authoring skill installs with its resources and refuses overwrites", (t) =
   assert.match(
     fs.readFileSync(path.join(installed, "references/docs/authoring.md"), "utf8"),
     /\(\.\.\/plan\.md\)/,
+  );
+  assert.match(
+    fs.readFileSync(path.join(installed, "references/docs/authoring.md"), "utf8"),
+    /\(\.\.\/maintenance\.md\)/,
+  );
+  assert.match(
+    fs.readFileSync(path.join(installed, "references/docs/authoring.md"), "utf8"),
+    /\(\.\.\/\.\.\/templates\/review-note\.md\)/,
   );
   fs.writeFileSync(path.join(installed, "local-notes.md"), "my customizations");
   assert.throws(() => installAuthoringSkill(root), /Refusing to overwrite/);

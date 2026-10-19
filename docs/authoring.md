@@ -77,6 +77,41 @@ a valid variation the evaluator should accept, within the authorized budget.
 The agent reports configuration validity, execution, product outcomes, and
 calibration separately.
 
+## Maintain an existing suite
+
+Ask your agent:
+
+> Use $aek-author to review this suite since its last maintenance review. Inspect
+> current interfaces for unmapped workflows, preserve agreed expectations, and
+> carry unfinished work forward.
+
+The agent reads the map, status, prior review, and outstanding work. It reviews
+commits since the recorded revision, staged/unstaged changes and untracked files,
+then surveys today's interfaces, docs, and tests for omissions even outside that
+diff. With no previous review it establishes an initial baseline and states what
+history is unknown. Requirement IDs and agreed expectations persist; an intended
+behavior change needs an authoritative product decision, not just changed code.
+
+Reviews live in `.aek-authoring/reviews/`, using the shipped
+[review-note template](../skills/aek-author/templates/review-note.md). They record
+reviewed revision, scope, working changes and their content evidence, sources,
+findings, runs, and outstanding work. The existing `plan.json` remains the only
+feature map. Notes distinguish new coverage gaps, intended behavior changes,
+collection problems, evaluator mistakes, product regressions, unresolved intent,
+and unavailable evidence. A broken collector remains an execution error; a valid
+blocked observation reduces coverage. Neither becomes a fabricated product score.
+
+The agent exercises affected checks and ordinary tests. Changed evaluators need
+fresh good/defect calibration with a fixed method and important valid variations.
+Superseded trials, rationale, method identity, and original run paths stay under
+`.aek-authoring/history/`; sealed runs remain intact. Unfinished work carries into
+the next review. See the [maintenance workflow](../skills/aek-author/references/maintenance.md).
+
+Review freshness describes the scope and exact state actually inspected.
+Historical calibration describes earlier examples against an evaluator. A map can
+report `calibrated` while new workflows remain unreviewed; `ready` does not assert
+freshness. This workflow adds no map fields or CLI commands.
+
 ## Saved project map and commands
 
 The editable map lives in `.aek-authoring/plan.json`. This directory is reserved

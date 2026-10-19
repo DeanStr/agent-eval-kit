@@ -1,0 +1,9 @@
+{
+  "id": "repair-acceptance",
+  "hypothesis": "Requiring evidence before acceptance will correct the guidance failure without changing playback.",
+  "change": "Edit only project/site/index.html to repair the recommendation; preserve collector and rubric.",
+  "attempts": [6, 7],
+  "comparisons": ["runs/REPAIRED-ID/comparisons/vs-COMBINED-ID/comparison.json"],
+  "outcome": "unresolved",
+  "reason": "Replace these example references with actual attempts and inspect evidence, coverage, gates, and comparison before deciding."
+}

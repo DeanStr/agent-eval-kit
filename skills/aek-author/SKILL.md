@@ -1,6 +1,6 @@
 ---
 name: aek-author
-description: Discover a project's user jobs and requirements, interview the user about missing expectations, and create or extend a runnable Agent Eval Kit evaluation suite with saved decisions and calibration. Use for whole-project evaluation setup, converting stories into evals, or continuing an existing authoring map.
+description: Discover a project's user jobs and requirements, interview the user about missing expectations, and create, extend, or maintain a runnable Agent Eval Kit evaluation suite with saved decisions and calibration. Use for whole-project evaluation setup, converting stories into evals, continuing an existing authoring map, or reviewing evaluation coverage after product changes.
 ---
 
 # Author project evaluations
@@ -24,6 +24,15 @@ rubrics. For a new map use `aek author init --project <root>`; use `--mode featu
 for a bounded feature request. No eval config is needed to start discovery.
 Read [the map contract](references/plan.md) before writing the map. Write changes
 atomically, re-read before updating, and preserve other contributors' edits.
+
+For a maintenance request, read [maintenance](references/maintenance.md) and use
+the [review-note template](templates/review-note.md). Read the previous review and
+carry its unfinished work forward. Establish a dated baseline if none exists;
+never invent a prior review revision. Inspect both changes since that review and
+the current interfaces for workflows that the existing map missed. Save revision,
+scope, dirty-worktree evidence, classifications, results, and next work under
+`.aek-authoring/`. Keep `plan.json` as the only feature map; review freshness is a
+separate, scoped assessment from the historical calibration reported by status.
 
 ## Discover the whole scope
 
@@ -124,3 +133,11 @@ Finish with the generated file paths, validated commands, decisions still needed
 setup blockers, map status, actual pilot/calibration results, and the next action.
 Separate project inventory progress from rubric evidence coverage and product
 score. A calibration pair demonstrates that example, not statistical judge accuracy.
+
+During maintenance, preserve requirement IDs and agreed expectations. Change an
+expectation only with an authoritative product decision and its source. Classify
+new coverage gaps, intended behavior changes, collection problems, evaluator
+mistakes, product regressions, unresolved intent, and unavailable evidence
+separately. Exercise affected checks and recalibrate changed evaluators, retaining
+superseded trials and rationale in history. Execution errors remain errors; a
+broken collection procedure is neither a product failure nor a valid abstention.

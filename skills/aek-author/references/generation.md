@@ -163,6 +163,10 @@ required manual reviews. Repeated judge agreement measures consistency, not trut
 
 ## Updating a project
 
+For a maintenance review, follow [the maintenance workflow](maintenance.md) and
+start a [review note](../templates/review-note.md). Survey current interfaces as
+well as revision changes, and carry forward unfinished work.
+
 Read the map and run status at the beginning of the next session. Preserve exact
 answers and stable IDs; append new decisions/requirements and reopen affected
 questions when the user changes intent. Track gaps at project level while working

@@ -1,0 +1,10 @@
+{
+  "image": "your-codex-runner@sha256:REPLACE_WITH_64_HEX_DIGEST",
+  "model": "REPLACE_WITH_AVAILABLE_PINNED_MODEL",
+  "effort": "high",
+  "timeoutSeconds": 180,
+  "repetitions": 3,
+  "authFile": "/absolute/path/to/codex/auth.json",
+  "network": "aek-model-only",
+  "proxyUrl": "http://model-proxy:8080"
+}
