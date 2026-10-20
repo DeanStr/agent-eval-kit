@@ -1,5 +1,26 @@
 # Release validation
 
+## Current browser origin checks (0.6.1)
+
+Browser MCP preflight now reads Chromium's current frame URL instead of relying
+on Playwright's cached URL. A completion request can reach the MCP process before
+queued navigation notifications after a redirect; the stale URL previously let
+completion reach missing-checkpoint validation instead of blocking the off-origin
+page. Browser metadata remains available while navigation replaces the document's
+execution context, and the check preserves URL fragments. Inspection failures
+remain execution errors instead of falling back to cached origin information.
+
+The regression test pauses the MCP process while Chromium completes an off-origin
+redirect, queues completion, and verifies the blocked outcome without capturing
+off-origin evidence. A separate test verifies that failed URL inspection detaches
+the browser protocol session and propagates an execution error.
+
+The fix passed all 672 tests, formatting, lint, typecheck, both browser smoke
+suites, all seven deterministic reference variants, and production-package smoke
+in [CI on Node 20.19.0, 22, and 24](https://github.com/DeanStr/agent-eval-kit/actions/runs/39372704593).
+The 0.6.1 archive also passes production-install smoke before publication with its
+SHA-256 checksum. Existing release archives and consumer pins remain unchanged.
+
 ## Benchmark experiment CLI (0.6.0)
 
 `aek benchmark experiment --recipe recipe.json --output new-directory` exposes
