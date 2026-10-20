@@ -9,7 +9,7 @@ import { loadSealedDefinitions, validateEvaluationInputs } from "./run/inputs.js
 import path from "node:path";
 import YAML from "yaml";
 import { captureAuth } from "./auth.js";
-import { withCliSignals } from "./cancellation.js";
+import { cancellationSignal, CliInterruptionError, withCliSignals } from "./cancellation.js";
 import { listPromotedBaselines, loadPromotedBaseline, promoteBaseline } from "./baselines.js";
 import { loadCampaignState, runCampaign } from "./campaign-run.js";
 import {
@@ -120,6 +120,7 @@ function allowedCliFlags(args: Args): string[] {
     "adjudicate",
     "auth",
     "baseline",
+    "benchmark",
     "reference",
     "campaign",
     "compare",
@@ -167,6 +168,9 @@ function allowedCliFlags(args: Args): string[] {
   ];
   let allowed: string[] = [];
   switch (args.command) {
+    case "benchmark":
+      allowed = ["recipe", "output"];
+      break;
     case "image":
       if (
         args.positionals[0] !== "compare" &&
@@ -306,6 +310,7 @@ function allowedCliFlags(args: Args): string[] {
 function validateCliShape(args: Args): void {
   const allowed = allowedCliFlags(args);
   const subcommands: Record<string, string[]> = {
+    benchmark: ["experiment"],
     image: ["compare"],
     author: ["install", "init", "status", "validate"],
     baseline: ["promote", "list"],
@@ -353,9 +358,16 @@ function validateCliShape(args: Args): void {
     if (args.flags[flag] !== undefined) percentageFlag(args, flag);
   const maximumPositionals =
     args.command === "init" ||
-    ["image", "author", "baseline", "reference", "campaign", "privacy", "judge"].includes(
-      args.command,
-    )
+    [
+      "image",
+      "author",
+      "baseline",
+      "benchmark",
+      "reference",
+      "campaign",
+      "privacy",
+      "judge",
+    ].includes(args.command)
       ? 1
       : 0;
   if (args.positionals.length > maximumPositionals) {
@@ -431,6 +443,8 @@ Usage: aek <command> [flags]
   campaign --resume directory      Continue unstarted repetitions with original options
   campaign compare --baseline campaign --candidate campaign
       [--output directory] [--fail-on-regression] [--allow-incompatible]
+  benchmark experiment --recipe recipe.json --output new-directory
+                                   Compare candidates in explicit blocks under a shared resource lock
   reference promote --run directory --name name --reviewer name [--config file] [--suite name]
   reference list [--config file] [--suite name]
   verify --run directory           Verify checksums for retained run artifacts
@@ -727,6 +741,42 @@ async function main(): Promise<void> {
   if (args.command === "image") {
     const { imageCompareCommand } = await import("./visual/direct.js");
     await imageCompareCommand(args.flags);
+    return;
+  }
+  if (args.command === "benchmark") {
+    assertEvaluationPlatform();
+    const recipeInput = stringFlag(args, "recipe");
+    const outputInput = stringFlag(args, "output");
+    if (!recipeInput) throw new Error("benchmark experiment requires --recipe <recipe.json>");
+    if (!outputInput) throw new Error("benchmark experiment requires --output <new-directory>");
+    const recipeFile = path.resolve(recipeInput);
+    const output = path.resolve(outputInput);
+    let recipe: unknown;
+    try {
+      recipe = JSON.parse(fs.readFileSync(recipeFile, "utf8"));
+    } catch (error) {
+      throw new Error(
+        `Cannot read benchmark recipe ${recipeFile}: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+    const { runBenchmarkExperiment } = await import("./benchmark-experiment.js");
+    const summary = await runBenchmarkExperiment(output, recipe, {
+      baseDirectory: path.dirname(recipeFile),
+      ...omitUndefined({ signal: cancellationSignal() }),
+      onProgress: (message) => console.error(message),
+    });
+    const completed = summary.visits.filter((visit) => visit.status === "complete").length;
+    const failed = summary.visits.filter((visit) => visit.status === "error").length;
+    console.log(
+      `Experiment outcome: ${summary.outcome} (${completed} completed, ${failed} failed, ${summary.unattempted.length} unattempted visits).`,
+    );
+    if (summary.error) console.error(summary.error);
+    console.log(`Report: ${path.join(output, "experiment.html")}`);
+    console.log(`Summary: ${path.join(output, "summary.json")}`);
+    if (!cancellationSignal()?.aborted)
+      process.exitCode =
+        summary.outcome === "compared" ? 0 : summary.outcome === "execution_error" ? 1 : 2;
     return;
   }
   if (
@@ -1340,10 +1390,13 @@ async function main(): Promise<void> {
   }
 }
 
-const execute = ["image", "run", "campaign", "collect", "judge"].includes(process.argv[2] ?? "")
+const execute = ["image", "run", "campaign", "benchmark", "collect", "judge"].includes(
+  process.argv[2] ?? "",
+)
   ? () => withCliSignals(main)
   : main;
 execute().catch((error) => {
+  if (error instanceof CliInterruptionError) return;
   console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
   if (process.exitCode !== 130 && process.exitCode !== 143)
     process.exitCode = error instanceof PromotionPolicyError ? 2 : 1;

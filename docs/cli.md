@@ -151,6 +151,7 @@ See [authentication](../README.md#authentication) and [email](email.md).
 | `aek campaign --repetitions 5` | Execute the same evaluation sequentially and report stability. |
 | `aek campaign --resume <campaign-directory>` | Continue unstarted repetitions using verified original options and results. |
 | `aek campaign compare --baseline <old-campaign> --candidate <new-campaign>` | Compare repeated-run results. |
+| `aek benchmark experiment --recipe <recipe.json> --output <new-directory>` | Interleave multiple benchmark candidates in explicit blocks under a shared resource lock. |
 | `aek baseline promote --run <run-directory> --name main --reviewer YOUR_NAME` | Save an immutable baseline under the configured promotion policy. |
 | `aek baseline list` | List promoted baselines. |
 | `aek compare --baseline-name main --candidate <new-run>` | Compare against a promoted baseline. |
@@ -184,6 +185,33 @@ Release baseline promotion defaults to the complete required suite, split `all`,
 split requirement. See [promotion policy](evidence-workflows.md#baseline-promotion-policy)
 before promoting. Promoting a text reference is a separate workflow from accepting
 a scored release baseline.
+
+## Controlled benchmark experiments
+
+```sh
+aek benchmark experiment \
+  --recipe evals/benchmark.json \
+  --output .agent-eval/experiments/trial-1
+```
+
+Use `run` for one evaluation, `campaign` to repeat one configuration, and
+`benchmark experiment` to compare multiple prepared candidates with an explicit
+visit order. The JSON recipe declares candidate configs, the baseline, blocks,
+shared resource directory, per-visit timeout, and measurement selection. See the
+[benchmark guide](../examples/benchmark/README.md) for the recipe and workload contracts.
+
+Both `--recipe` and `--output` are required. Candidate config and resource paths
+resolve relative to the recipe file; output resolves from the working directory.
+The final output directory must be new. The command reports preparation and each
+visit's block, candidate and status to stderr, then prints the outcome, visit
+counts and paths to `experiment.html` and `summary.json` to stdout.
+
+Exit codes are 0 for compared, 2 for requirement failure or inconclusive evidence,
+and 1 for input/execution errors. `compared` does not establish statistical
+confidence or automatic performance acceptance. SIGINT/SIGTERM stop acquisition,
+retain failed and unattempted visits, await cleanup and exit 130/143. After a
+parent crash, the resource lock requires manual recovery as described in the
+benchmark guide. Interrupted experiments are retained and cannot be resumed.
 
 ## Campaign recovery
 

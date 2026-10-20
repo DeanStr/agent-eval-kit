@@ -40,7 +40,7 @@ It supports:
 - parameterized case matrices, diagnostic strata, and fingerprinted development/evaluation splits;
 - repeated-run campaigns with rubric/case/stratum stability, whole-run bootstrap intervals, and paired case-level campaign comparisons;
 - reusable [prompt/skill experiments](examples/skill-comparison/README.md) and [project-owned benchmarks](examples/benchmark/README.md), retaining every attempt and measurement changes alongside correctness gates;
-- explicit counterbalanced multi-candidate benchmark experiments with shared resource exclusion and per-block differences;
+- explicit counterbalanced multi-candidate benchmark experiments through `aek benchmark experiment`, with shared resource exclusion and per-block differences;
 - compatibility-checked comparisons and append-only promoted baseline snapshots;
 - minimal public exports with an automatic privacy lint that never echoes matched secret values;
 - interchangeable agent and judge providers, so you can use Codex to test and Claude, Grok, or Cursor to judge.
@@ -647,6 +647,17 @@ remain in the results. See [campaign recovery](docs/cli.md#campaign-recovery).
 Each repetition remains a normal independently receipted run. `campaign.json` and `campaign.html` report completion failures, score and coverage mean/median/range/standard deviation, deterministic 95% percentile-bootstrap intervals using the complete run as the resampling unit, critical-gate pass rate, and rubric, case, and stratum verdict stability. Aggregate metrics are withheld if evaluator or strict target-input fingerprints differ. Campaigns are deliberately sequential to avoid subscription concurrency and rate-limit surprises. Intervals are descriptive and small repetition counts remain unstable. A campaign does not reset a deployed target's database: use idempotent scenarios, isolated test tenants, or a lifecycle setup command that restores state between runs.
 
 An incompatible campaign exits with status `2` even if every individual repetition passes its numeric thresholds; execution failures take precedence with status `1`. Hybrid rubric stability counts a full pass only after every required automatic and manual share passes. Pending hybrid reviews retain automatic credit and `components.automatic`, while their aggregate verdict is `cannot_judge` until review is complete. Case and stratum diagnostics continue to describe automatic judgements.
+
+For project-owned benchmarks that compare multiple candidates with controlled
+visit order and a shared resource, use:
+
+```sh
+aek benchmark experiment --recipe evals/benchmark.json --output .agent-eval/experiments/trial-1
+```
+
+The command reports each visit's progress and prints the final report and summary
+paths. See the [benchmark guide](examples/benchmark/README.md) for the recipe,
+correctness gates and limits of the descriptive comparisons.
 
 Compare two campaigns over matching stable cases:
 

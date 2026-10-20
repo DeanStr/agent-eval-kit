@@ -24,6 +24,7 @@ const descriptions: Record<string, string> = {
   "text-cases": "Comma-separated area/dataset/case selectors; skipped cases reduce coverage.",
   repetitions: "Total campaign attempts, at least 2 (default: 3).",
   output: "Output directory; creation commands require a new destination.",
+  recipe: "Benchmark experiment JSON; candidate config and resource paths resolve relative to it.",
   run: "Existing run directory.",
   evidence: "Completed, sealed collection directory.",
   dataset: "Judge-validation dataset JSON with pinned collection identities.",
@@ -83,6 +84,7 @@ const usages: Record<string, string> = {
   collect: "[options] [--resume directory]",
   campaign: "[options] | --resume directory",
   "campaign compare": "--baseline campaign --candidate campaign [options]",
+  "benchmark experiment": "--recipe recipe.json --output new-directory",
   judge: "--evidence collection [options] | --resume judging-directory [options]",
   "judge validate":
     "--dataset cases.json --labels labels.json --configurations configurations.json --output new-directory",
@@ -112,6 +114,7 @@ export function commandHelp(
   booleans: Set<string>,
 ): string {
   const groups: Record<string, string[]> = {
+    benchmark: ["experiment"],
     image: ["compare"],
     author: ["install", "init", "status", "validate"],
     baseline: ["promote", "list"],
@@ -137,6 +140,8 @@ export function commandHelp(
   const exit =
     key === "judge validate"
       ? "Exit: 0 completed (reviewer disagreements do not fail); 1 input/execution error; 130/143 interrupted."
-      : "Exit: 0 completed; 1 input/execution error; 2 acceptance failure; 130/143 interrupted.";
+      : key === "benchmark experiment"
+        ? "Uses explicit candidate blocks and a shared resource lock. Output resolves from the working directory. Reports descriptive differences; no automatic performance acceptance.\n\nExit: 0 compared; 1 input/execution error; 2 requirement failure or inconclusive; 130/143 interrupted."
+        : "Exit: 0 completed; 1 input/execution error; 2 acceptance failure; 130/143 interrupted.";
   return `Usage: aek ${key} ${commandUsage(key)}\n\nOptions:\n${lines.join("\n")}\n\n${command === "judge" && !positional ? "Also: aek judge validate --help for reviewed-evidence validation.\n\n" : ""}${exit}`;
 }

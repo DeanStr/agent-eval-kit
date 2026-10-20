@@ -89,3 +89,23 @@ test("interrupted acquisition guards are never automatically reclaimed", async (
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("manual recovery preserves stale locks until the caller explicitly removes them", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-lock-manual-"));
+  const file = path.join(root, ".run.lock");
+  const owner = JSON.stringify({ pid: 2147483647, token: "stale" });
+  fs.writeFileSync(file, owner);
+  try {
+    await assert.rejects(
+      withRunLock(root, () => assert.fail("stale lock reclaimed"), { recoverStale: false }),
+      /Stop all processes from the interrupted experiment/,
+    );
+    assert.equal(fs.readFileSync(file, "utf8"), owner);
+    assert.equal(fs.existsSync(path.join(root, ".run.lock-acquisition")), false);
+    fs.unlinkSync(file);
+    await withRunLock(root, () => {}, { recoverStale: false });
+    assert.equal(fs.existsSync(file), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -100,7 +100,11 @@ function pairedTable(pairs: PairedMetric[]): string {
 export async function runBenchmarkExperiment(
   output: string,
   definition: unknown,
-  options: { baseDirectory?: string; signal?: AbortSignal } = {},
+  options: {
+    baseDirectory?: string;
+    signal?: AbortSignal;
+    onProgress?: (message: string) => void;
+  } = {},
 ) {
   const recipe = benchmarkExperimentSchema.parse(definition);
   const base = path.resolve(options.baseDirectory ?? process.cwd());
@@ -123,10 +127,14 @@ export async function runBenchmarkExperiment(
     candidate: id,
     measurement: recipe.measurement,
   });
-  return withRunLock(resource, async () => {
+  const run = async () => {
     options.signal?.throwIfAborted();
     if (fs.existsSync(output))
       throw new Error(`EEXIST: experiment output already exists: ${output}`);
+    // Non-Git receipts include directory entries. Prepare output ancestors
+    // before fingerprinting so our own setup cannot look like target mutation.
+    // The output directory itself remains unreserved until preflight succeeds.
+    fs.mkdirSync(path.dirname(output), { recursive: true });
     const startedAt = new Date().toISOString();
     const visits: Visit[] = [];
     const records: Record<string, CampaignRunRecord[]> = Object.fromEntries(
@@ -144,6 +152,7 @@ export async function runBenchmarkExperiment(
     try {
       for (const [id, file] of Object.entries(recipe.candidates)) {
         options.signal?.throwIfAborted();
+        options.onProgress?.(`Preparing candidate ${id}`);
         const invocation = request(id, file);
         const result = await withCancellation(options.signal ?? new AbortController().signal, () =>
           spawnCaptured({
@@ -194,6 +203,9 @@ export async function runBenchmarkExperiment(
         const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
         try {
           signal.throwIfAborted();
+          options.onProgress?.(
+            `Block ${index + 1}/${recipe.blocks.length} · candidate ${id} · running`,
+          );
           const resultFile = path.join(output, "visits", `${index + 1}-${id}.json`);
           const processRegistryFile = resultFile + ".processes.json";
           writeJson(processRegistryFile, []);
@@ -262,6 +274,9 @@ export async function runBenchmarkExperiment(
           });
         }
         checkpoint();
+        options.onProgress?.(
+          `Block ${index + 1}/${recipe.blocks.length} · candidate ${id} · ${visit.status}`,
+        );
         if (error) break acquisition;
       }
     }
@@ -359,5 +374,7 @@ export async function runBenchmarkExperiment(
       `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Benchmark experiment</title><style>body{font:15px/1.5 system-ui;max-width:1200px;margin:2rem auto;padding:0 1rem}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:.5rem;text-align:left}.table-scroll{overflow-x:auto}section{margin:2rem 0}</style></head><body><h1>Benchmark experiment</h1><p>Outcome: ${escapeHtml(outcome)}</p><p>Serial acquisition; one visit per candidate in each block. Application timings remain separate from AEK duration.</p><ol>${recipe.blocks.map((block) => `<li>${block.map(escapeHtml).join(" → ")}</li>`).join("")}</ol><p>${escapeHtml(error ?? "")}</p><ul>${comparisons.map((c) => `<li><a href="${escapeHtml(c.report)}">${escapeHtml(c.candidate)}</a>: ${escapeHtml(c.outcome)}</li>`).join("")}</ul><p>Unattempted visits: ${unattempted.length}. <a href="experiment.json">Acquisition ledger</a> · <a href="summary.json">Summary</a></p><h2>Paired block differences</h2><p>Each difference compares the candidate run mean with the baseline run mean in the same block. For metrics where lower is preferred, negative differences are improvements; where higher is preferred, positive differences are improvements.</p><p>${escapeHtml(pairedLimitation)}</p>${pairedReports.join("")}</body></html>`,
     );
     return summary;
-  });
+  };
+  // Parent death cannot establish that its detached workers have stopped.
+  return withRunLock(resource, run, { recoverStale: false });
 }

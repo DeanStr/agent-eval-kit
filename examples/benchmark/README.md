@@ -4,8 +4,15 @@ For measurements sensitive to visit order or shared hardware, use the controlled
 experiment runner:
 
 ```sh
-node examples/benchmark/experiment.mjs /tmp/new-experiment recipe.json
+aek benchmark experiment --recipe recipe.json --output /tmp/new-experiment
 ```
+
+Use `npx aek` for a local npm installation or `pnpm exec aek` with pnpm.
+`aek benchmark experiment --help` lists the options. The command prints preparation
+and per-visit progress to stderr, then the outcome, visit counts, HTML report path
+and JSON summary path to stdout. Exit codes are 0 for compared, 2 for requirement
+failure or inconclusive evidence, 1 for input/execution errors, and 130/143 for
+SIGINT/SIGTERM. A compared outcome is descriptive, not automatic performance acceptance.
 
 ```json
 {
@@ -19,7 +26,8 @@ node examples/benchmark/experiment.mjs /tmp/new-experiment recipe.json
 }
 ```
 
-Config and resource paths resolve relative to the recipe. Every block visits
+Config and resource paths resolve relative to the recipe; `--output` resolves
+from the working directory. Every block visits
 each named candidate exactly once; two or more blocks are required. Acquisition
 is serial. All experiments using the same resource directory share the existing
 AEK process lock, across projects and output directories. The lock remains held
@@ -28,12 +36,20 @@ experiments; it cannot exclude unrelated host activity.
 Workers persist their active command and target process groups. If a worker
 stalls or exits before cleaning up, the experiment parent drains those groups
 before releasing the resource or starting another visit.
+If the experiment parent crashes or is forcibly killed, the next experiment
+refuses to reclaim its resource lock: detached workers and collectors may have
+survived. Stop all processes from the interrupted experiment and confirm they
+have exited before removing `<resource>/.run.lock` and retrying. The visit's
+`*.processes.json` lists command and target process groups; its run's
+`run-state.json` records the worker PID.
 
 The public `agent-eval-kit/benchmark/experiment` export provides
-`runBenchmarkExperiment(output, recipe, {baseDirectory, signal})`, the recipe
+`runBenchmarkExperiment(output, recipe, {baseDirectory, signal, onProgress})`, the recipe
 schema, and `counterbalancedBlocks(candidateIds, repetitions)`. Library callers
-own signal handling. The packaged entry point forwards SIGINT/SIGTERM through
-AEK's existing cancellation machinery.
+own signal handling; the optional `onProgress(message)` callback receives preparation
+and visit status messages. The CLI forwards SIGINT/SIGTERM through AEK's existing
+cancellation machinery. The packaged `examples/benchmark/experiment.mjs` entry
+point remains available with positional `<output-directory> <recipe.json>` arguments.
 
 Block ordering and fresh processes are automatic in this experiment runner;
 neither requires an opt-in flag. Ordinary `aek run` and `aek campaign` commands
@@ -42,9 +58,15 @@ acquire sequential whole campaigns.
 
 Each preparation and visit loads its config in a fresh process, with the caller's
 original environment and that project's own `.env`. Candidate dotenv values never
-modify the caller or another candidate. Original managed AEK artifact directories
-stay excluded when runs are relocated to the experiment output. Failed preflight
-leaves the requested output path available for a corrected retry.
+modify the caller or another candidate. The config-adjacent `.env` is checked
+before and after every visit, even when the config is outside `project.root`;
+changes, creation, or removal are execution errors.
+Original managed AEK artifact directories stay excluded when runs are relocated
+to the experiment output. Missing output parent directories are created before
+candidate fingerprinting, including for non-Git projects with custom run paths.
+Failed preflight may leave those parents but leaves the requested output directory
+available for a corrected retry. The final directory is reserved exclusively after
+preflight and must not already exist.
 
 `counterbalancedBlocks` alternates forward/reverse order. With three or more
 candidates, reversal alone does not rotate every candidate through every position:

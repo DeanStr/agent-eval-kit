@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import YAML from "yaml";
@@ -14,6 +14,7 @@ import {
   runBenchmarkExperiment,
 } from "../src/benchmark-experiment.js";
 import { withRunLock } from "../src/run/state.js";
+import { terminateProcessGroup } from "../src/process-tree.js";
 
 function pairedRows(root: string): string[][] {
   const document = parse(fs.readFileSync(path.join(root, "output/experiment.html"), "utf8"));
@@ -288,6 +289,48 @@ test("symlink resource aliases still exclude acquisition", async (t) => {
   });
 });
 
+test("parent death refuses resource recovery while its detached worker and collector survive", {
+  timeout: 30_000,
+}, async (t) => {
+  const { root, recipe } = fixture(t, undefined, "hang");
+  const recipeFile = path.join(root, "recipe.json");
+  const output = path.join(root, "output");
+  fs.writeFileSync(recipeFile, JSON.stringify(recipe));
+  const child = spawn(process.execPath, ["examples/benchmark/experiment.mjs", output, recipeFile], {
+    cwd: process.cwd(),
+    stdio: "ignore",
+  });
+  const exited = once(child, "exit");
+  let workerPid: number | undefined;
+  try {
+    await waitForFile(path.join(root, "started"));
+    const ledger = JSON.parse(fs.readFileSync(path.join(output, "experiment.json"), "utf8"));
+    workerPid = JSON.parse(
+      fs.readFileSync(path.join(ledger.visits[0].runDir, "run-state.json"), "utf8"),
+    ).pid as number;
+    child.kill("SIGKILL");
+    await exited;
+    process.kill(workerPid, 0);
+    const collectorPid = Number(fs.readFileSync(path.join(root, "started"), "utf8"));
+    process.kill(collectorPid, 0);
+    const lockFile = path.join(recipe.resource, ".run.lock");
+    const lock = fs.readFileSync(lockFile, "utf8");
+    await assert.rejects(
+      runBenchmarkExperiment(path.join(root, "other"), recipe),
+      /Detached workers or collectors may still be running.*before removing this lock/,
+    );
+    assert.equal(fs.readFileSync(lockFile, "utf8"), lock);
+    assert.equal(fs.existsSync(path.join(root, "other")), false);
+    process.kill(workerPid, 0);
+    process.kill(collectorPid, 0);
+  } finally {
+    child.kill("SIGKILL");
+    await exited;
+    if (workerPid !== undefined) await terminateProcessGroup(workerPid);
+    stopFixtureProcess(path.join(root, "started"));
+  }
+});
+
 test("candidate dotenv values remain isolated from other candidates and the caller", async (t) => {
   const { root, recipe } = fixture(t, undefined, "env");
   assert.equal(process.env.AEK_EXPERIMENT_TEST_VALUE, undefined);
@@ -305,12 +348,153 @@ test("candidate dotenv values remain isolated from other candidates and the call
   assert.equal(process.env.AEK_EXPERIMENT_TEST_VALUE, undefined);
 });
 
+for (const phase of ["before", "during"] as const) {
+  test(`external config dotenv changes ${phase} a visit stop the experiment`, async (t) => {
+    const { root, recipe } = fixture(t);
+    const observations = path.join(root, "observations.json");
+    const baselineEnv = path.join(root, "configs/baseline/.env");
+    assert.equal(process.env.AEK_EXPERIMENT_TEST_VALUE, undefined);
+    for (const [id, file] of Object.entries(recipe.candidates)) {
+      const configDirectory = path.join(root, "configs", id);
+      fs.mkdirSync(configDirectory, { recursive: true });
+      const config = YAML.parse(fs.readFileSync(file, "utf8"));
+      config.project.root = path.dirname(file);
+      recipe.candidates[id] = path.join(configDirectory, "evalkit.yaml");
+      fs.writeFileSync(recipe.candidates[id]!, YAML.stringify(config));
+      fs.unlinkSync(file);
+      fs.writeFileSync(path.join(configDirectory, ".env"), "AEK_EXPERIMENT_TEST_VALUE=one\n");
+      fs.appendFileSync(
+        path.join(config.project.root, "collect.mjs"),
+        `
+const log=${JSON.stringify(observations)};
+const visits=fs.existsSync(log)?JSON.parse(fs.readFileSync(log,'utf8')):[];
+visits.push(process.env.AEK_EXPERIMENT_TEST_VALUE);
+fs.writeFileSync(log,JSON.stringify(visits));
+if(visits.length===${phase === "during" ? 1 : 2})fs.writeFileSync(${JSON.stringify(baselineEnv)},'AEK_EXPERIMENT_TEST_VALUE=two\\n');
+`,
+      );
+    }
+    const result = await runBenchmarkExperiment(path.join(root, "output"), recipe);
+    assert.equal(result.outcome, "execution_error");
+    assert.match(result.error!, new RegExp(`inputs changed ${phase} visit: baseline`));
+    assert.deepEqual(
+      JSON.parse(fs.readFileSync(observations, "utf8")),
+      phase === "during" ? ["one"] : ["one", "one", "one"],
+    );
+    assert.equal(result.visits.at(-1)!.status, "error");
+    if (phase === "before") assert.equal(result.visits.at(-1)!.runDir, undefined);
+    assert.equal(process.env.AEK_EXPERIMENT_TEST_VALUE, undefined);
+  });
+}
+
+for (const runs of [".agent-eval/runs", "custom-runs"]) {
+  test(`fresh nested output works with ${runs} and existing output stays reserved`, async (t) => {
+    const { root, recipe } = fixture(t);
+    for (const file of Object.values(recipe.candidates)) {
+      const config = YAML.parse(fs.readFileSync(file, "utf8"));
+      config.paths.runs = runs;
+      fs.writeFileSync(file, YAML.stringify(config));
+    }
+    const output = path.join(root, "baseline/.agent-eval/experiments/trial-1");
+    assert.equal(fs.existsSync(path.dirname(output)), false);
+    const result = await runBenchmarkExperiment(output, recipe);
+    assert.equal(result.outcome, "compared");
+    const summary = fs.readFileSync(path.join(output, "summary.json"), "utf8");
+    await assert.rejects(runBenchmarkExperiment(output, recipe), /EEXIST/);
+    assert.equal(fs.readFileSync(path.join(output, "summary.json"), "utf8"), summary);
+  });
+}
+
+test("custom run paths still detect target changes beside the experiment output", async (t) => {
+  const { root, recipe } = fixture(t);
+  for (const file of Object.values(recipe.candidates)) {
+    const config = YAML.parse(fs.readFileSync(file, "utf8"));
+    config.paths.runs = "custom-runs";
+    fs.writeFileSync(file, YAML.stringify(config));
+    fs.appendFileSync(
+      path.join(path.dirname(file), "collect.mjs"),
+      "\nfs.writeFileSync('.agent-eval/experiments/target-input.json','changed');",
+    );
+  }
+  const result = await runBenchmarkExperiment(
+    path.join(root, "baseline/.agent-eval/experiments/trial-1"),
+    recipe,
+  );
+  assert.equal(result.outcome, "execution_error");
+  assert.match(result.error!, /inputs changed during visit: baseline/);
+  assert.equal(result.unattempted.length, 3);
+});
+
+for (const [mode, outcome, exit] of [
+  ["pass", "compared", 0],
+  ["wrong", "requirement_failure", 2],
+  ["units", "inconclusive", 2],
+  ["crash", "execution_error", 1],
+] as const) {
+  test(`benchmark CLI reports ${outcome}, ordered progress and exit ${exit}`, (t) => {
+    const { root, recipe } = fixture(t, undefined, mode);
+    const recipes = path.join(root, "recipes"),
+      cwd = path.join(root, "launch");
+    fs.mkdirSync(recipes);
+    fs.mkdirSync(cwd);
+    // A recipe-driven command must not load evalkit.yaml from its working directory.
+    fs.writeFileSync(path.join(cwd, "evalkit.yaml"), "invalid: config");
+    const file = path.join(recipes, "experiment.json");
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        ...recipe,
+        candidates: Object.fromEntries(
+          Object.entries(recipe.candidates).map(([id, config]) => [
+            id,
+            path.relative(recipes, config),
+          ]),
+        ),
+        resource: "../resource",
+      }),
+    );
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.resolve(import.meta.dirname, "../dist/cli.js"),
+        "benchmark",
+        "experiment",
+        "--recipe",
+        "../recipes/experiment.json",
+        "--output",
+        "results/experiment",
+      ],
+      { cwd, encoding: "utf8", timeout: 60_000 },
+    );
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, exit, result.stdout + result.stderr);
+    const output = path.join(cwd, "results/experiment");
+    const summary = JSON.parse(fs.readFileSync(path.join(output, "summary.json"), "utf8"));
+    assert.equal(summary.outcome, outcome);
+    assert.match(result.stdout, new RegExp(`Experiment outcome: ${outcome}`));
+    assert.ok(result.stdout.includes(`Report: ${path.join(output, "experiment.html")}`));
+    assert.ok(result.stdout.includes(`Summary: ${path.join(output, "summary.json")}`));
+    assert.ok(fs.existsSync(path.join(output, "experiment.html")));
+    assert.deepEqual(
+      result.stderr.split("\n").filter((line) => line.endsWith("· running")),
+      summary.visits.map(
+        (visit: { block: number; candidate: string }) =>
+          `Block ${visit.block}/2 · candidate ${visit.candidate} · running`,
+      ),
+    );
+    assert.match(result.stderr, /Preparing candidate baseline/);
+    assert.match(result.stderr, /Block 1\/2 · candidate baseline · complete/);
+    assert.equal(fs.existsSync(path.join(root, "resource/.run.lock")), false);
+    assert.equal(summary.unattempted.length, mode === "crash" ? 2 : 0);
+  });
+}
+
 test("preflight failure leaves the requested output available for a corrected retry", async (t) => {
   const { root, recipe } = fixture(t);
   const file = recipe.candidates.candidate!,
     body = fs.readFileSync(file);
   fs.writeFileSync(file, "invalid: config");
-  const output = path.join(root, "output");
+  const output = path.join(root, "new-parent/output");
   await assert.rejects(runBenchmarkExperiment(output, recipe));
   assert.equal(fs.existsSync(output), false);
   assert.equal(fs.existsSync(path.join(recipe.resource, ".run.lock")), false);
@@ -442,47 +626,52 @@ test("a stalled worker cannot leave detached processes alive after resource rele
   }
 });
 
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  test(`packaged experiment retains ${signal} status and releases its resource`, async (t) => {
-    const { root, recipe } = fixture(t, undefined, "stubborn");
-    const recipeFile = path.join(root, "recipe.json"),
-      output = path.join(root, "output");
-    fs.writeFileSync(recipeFile, JSON.stringify(recipe));
-    const child = spawn(
-      process.execPath,
-      ["examples/benchmark/experiment.mjs", output, recipeFile],
-      { cwd: process.cwd(), stdio: ["ignore", "ignore", "pipe"] },
-    );
-    let stderr = "";
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    const closed = once(child, "close");
-    let signalled = false;
-    const timer = setInterval(() => {
-      if (!signalled && fs.existsSync(path.join(root, "started"))) {
-        signalled = true;
-        child.kill(signal);
+for (const entryPoint of ["example", "CLI"]) {
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    test(`experiment ${entryPoint} retains ${signal} status and releases its resource`, async (t) => {
+      const { root, recipe } = fixture(t, undefined, "stubborn");
+      const recipeFile = path.join(root, "recipe.json"),
+        output = path.join(root, "output");
+      fs.writeFileSync(recipeFile, JSON.stringify(recipe));
+      const child = spawn(
+        process.execPath,
+        entryPoint === "CLI"
+          ? ["dist/cli.js", "benchmark", "experiment", "--recipe", recipeFile, "--output", output]
+          : ["examples/benchmark/experiment.mjs", output, recipeFile],
+        { cwd: process.cwd(), stdio: ["ignore", "ignore", "pipe"] },
+      );
+      let stderr = "";
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+      });
+      const closed = once(child, "close");
+      let signalled = false;
+      const timer = setInterval(() => {
+        if (!signalled && fs.existsSync(path.join(root, "started"))) {
+          signalled = true;
+          child.kill(signal);
+        }
+      }, 20);
+      try {
+        const [code] = await closed;
+        assert.equal(code, signal === "SIGINT" ? 130 : 143, stderr);
+        assert.doesNotMatch(stderr, /^Error:|uncaught|^\s+at\s/m);
+        assert.match(stderr, new RegExp(`Received ${signal}`));
+        assert.throws(
+          () => process.kill(Number(fs.readFileSync(path.join(root, "started"), "utf8")), 0),
+          /ESRCH/,
+          "the collector must stop before the CLI exits",
+        );
+        assert.equal(fs.existsSync(path.join(recipe.resource, ".run.lock")), false);
+        assert.equal(
+          JSON.parse(fs.readFileSync(path.join(output, "summary.json"), "utf8")).unattempted.length,
+          3,
+        );
+      } finally {
+        clearInterval(timer);
+        if (child.exitCode === null) child.kill("SIGKILL");
+        stopFixtureProcess(path.join(root, "started"));
       }
-    }, 20);
-    try {
-      const [code] = await closed;
-      assert.equal(code, signal === "SIGINT" ? 130 : 143, stderr);
-      assert.doesNotMatch(stderr, /^Error:|uncaught|at file:/m);
-      assert.throws(
-        () => process.kill(Number(fs.readFileSync(path.join(root, "started"), "utf8")), 0),
-        /ESRCH/,
-        "the collector must stop before the CLI exits",
-      );
-      assert.equal(fs.existsSync(path.join(recipe.resource, ".run.lock")), false);
-      assert.equal(
-        JSON.parse(fs.readFileSync(path.join(output, "summary.json"), "utf8")).unattempted.length,
-        3,
-      );
-    } finally {
-      clearInterval(timer);
-      if (child.exitCode === null) child.kill("SIGKILL");
-      stopFixtureProcess(path.join(root, "started"));
-    }
-  });
+    });
+  }
 }

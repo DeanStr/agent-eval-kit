@@ -1,6 +1,7 @@
 // One fresh process per preparation/visit keeps project .env loading and every
 // lifecycle/provider/collector subprocess in that candidate's environment.
 import path from "node:path";
+import fs from "node:fs";
 import { loadConfig } from "./config.js";
 import { loadFixtures, loadSpecs, selectSpecs } from "./specs.js";
 import { buildRunReceipt } from "./receipts.js";
@@ -8,7 +9,7 @@ import { runEvaluation } from "./runner.js";
 import { withCliSignals } from "./cancellation.js";
 import { loadBenchmarkRun } from "./benchmark.js";
 import { campaignRunRecord } from "./campaign.js";
-import { writeJson } from "./io.js";
+import { sha256, stableJson, writeJson } from "./io.js";
 import { withProcessRegistry } from "./process-registry.js";
 
 const request = JSON.parse(process.argv[2]!) as {
@@ -22,7 +23,27 @@ const request = JSON.parse(process.argv[2]!) as {
   measurement: { scenarioId: string; fileLabel: string };
 };
 
+function dotenvFingerprint(): string | null {
+  const file = path.join(path.dirname(request.configFile), ".env");
+  try {
+    return sha256(fs.readFileSync(file));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+function inputFingerprint(
+  options: Parameters<typeof buildRunReceipt>[0],
+  dotenv = dotenvFingerprint(),
+): string {
+  return sha256(stableJson({ inputs: buildRunReceipt(options).inputFingerprint, dotenv }));
+}
+
 function prepare() {
+  // Config-adjacent dotenv files can live outside the project tree receipt.
+  // Capture the input before loadConfig consumes it, including its absence.
+  const dotenv = dotenvFingerprint();
   const config = loadConfig(request.configFile);
   const relative = path.relative(config.project.root, request.output);
   if (
@@ -47,7 +68,7 @@ function prepare() {
       ...(path.basename(managedRoot) === ".agent-eval" ? [managedRoot] : []),
     ],
   };
-  return { options, fingerprint: buildRunReceipt(options).inputFingerprint };
+  return { options, fingerprint: inputFingerprint(options, dotenv) };
 }
 
 let runDir: string | undefined;
@@ -70,7 +91,7 @@ try {
         });
         if (!result.report) throw new Error("Benchmark evaluation produced no report");
         loadBenchmarkRun(result.runDir, request.measurement);
-        if (buildRunReceipt(options).inputFingerprint !== fingerprint)
+        if (inputFingerprint(options) !== fingerprint)
           throw new Error(
             `Candidate or evaluator inputs changed during visit: ${request.candidate}`,
           );

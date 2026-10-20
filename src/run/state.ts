@@ -89,7 +89,7 @@ export function processIsAlive(pid: number): boolean {
   }
 }
 
-function acquireRunLock(runDir: string): () => void {
+function acquireRunLock(runDir: string, recoverStale: boolean): () => void {
   // Serialize acquisition, including stale-owner recovery. Without this guard,
   // a contender that read an old lock can unlink another contender's new lock.
   // Never reclaim this guard automatically: a crash during this very short
@@ -104,13 +104,13 @@ function acquireRunLock(runDir: string): () => void {
     );
   }
   try {
-    return acquireGuardedRunLock(runDir);
+    return acquireGuardedRunLock(runDir, recoverStale);
   } finally {
     fs.rmdirSync(guard);
   }
 }
 
-function acquireGuardedRunLock(runDir: string): () => void {
+function acquireGuardedRunLock(runDir: string, recoverStale: boolean): () => void {
   const file = path.join(runDir, ".run.lock");
   const token = crypto.randomUUID();
   for (;;) {
@@ -134,6 +134,11 @@ function acquireGuardedRunLock(runDir: string): () => void {
       }
       if (processIsAlive(owner.pid)) {
         throw new Error(`Run is locked by active process ${owner.pid}: ${runDir}`);
+      }
+      if (!recoverStale) {
+        throw new Error(
+          `Run lock owner ${owner.pid} exited: ${file}. Detached workers or collectors may still be running. Stop all processes from the interrupted experiment and confirm they have exited before removing this lock and retrying.`,
+        );
       }
       try {
         fs.unlinkSync(file);
@@ -168,8 +173,12 @@ function acquireGuardedRunLock(runDir: string): () => void {
   }
 }
 
-export async function withRunLock<T>(runDir: string, action: () => T | Promise<T>): Promise<T> {
-  const release = acquireRunLock(path.resolve(runDir));
+export async function withRunLock<T>(
+  runDir: string,
+  action: () => T | Promise<T>,
+  options: { recoverStale?: boolean } = {},
+): Promise<T> {
+  const release = acquireRunLock(path.resolve(runDir), options.recoverStale ?? true);
   try {
     return await action();
   } finally {

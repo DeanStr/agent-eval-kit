@@ -19,6 +19,7 @@ test("CLI without arguments prints help successfully", () => {
   const result = runCli(kitRoot, []);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Agent Eval Kit/);
+  assert.match(result.stdout, /benchmark experiment --recipe/);
 });
 
 test("command and subcommand help lists exact accepted options without loading a project", () => {
@@ -27,6 +28,7 @@ test("command and subcommand help lists exact accepted options without loading a
     [["collect"], "--json", "--judge-model"],
     [["campaign"], "--resume", "--changed-since"],
     [["campaign", "compare"], "--allow-incompatible", "--resume"],
+    [["benchmark", "experiment"], "--recipe", "--config"],
     [["baseline", "list"], "--suite", "--include-images"],
     [["adjudicate"], "--fail-under-coverage", "--headed"],
     [["validate"], "--suite", "--run"],
@@ -46,10 +48,50 @@ test("command and subcommand help lists exact accepted options without loading a
   const invalid = runCli(os.tmpdir(), ["baseline", "typo", "--help"]);
   assert.equal(invalid.status, 1);
   assert.match(invalid.stderr, /baseline requires/);
+  const benchmark = runCli(os.tmpdir(), ["benchmark", "--help"]);
+  assert.equal(benchmark.status, 0, benchmark.stderr);
+  assert.match(benchmark.stdout, /aek benchmark experiment --recipe recipe.json --output/);
   assert.throws(
     () => commandHelp("undocumented", undefined, ["help"], new Set(["help"])),
     /Missing CLI usage for undocumented/,
   );
+});
+
+test("benchmark CLI rejects invalid arguments before reading configs or creating output", (t) => {
+  const root = temporary();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const [args, message] of [
+    [[], /benchmark requires experiment/],
+    [["typo"], /benchmark requires experiment/],
+    [["experiment"], /requires --recipe/],
+    [["experiment", "--recipe"], /--recipe requires a value/],
+    [["experiment", "--recipe="], /requires --recipe/],
+    [["experiment", "--recipe", "recipe.json"], /requires --output/],
+    [["experiment", "--recipe", "recipe.json", "--output"], /--output requires a value/],
+    [["experiment", "--recipe", "recipe.json", "--output="], /requires --output/],
+    [["experiment", "--dry-run"], /Unknown flag: --dry-run/],
+    [["experiment", "--config", "evalkit.yaml"], /Unknown flag: --config/],
+    [["experiment", "extra"], /Unexpected positional/],
+  ] as const) {
+    const result = runCli(root, ["benchmark", ...args]);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stderr, message);
+  }
+  assert.deepEqual(fs.readdirSync(root), []);
+  fs.writeFileSync(path.join(root, "recipe.json"), "{invalid");
+  const malformed = runCli(root, [
+    "benchmark",
+    "experiment",
+    "--recipe",
+    "recipe.json",
+    "--output",
+    "output",
+  ]);
+  assert.equal(malformed.status, 1);
+  assert.ok(
+    malformed.stderr.includes(`Cannot read benchmark recipe ${path.join(root, "recipe.json")}`),
+  );
+  assert.equal(fs.existsSync(path.join(root, "output")), false);
 });
 
 test("judge validation CLI rejects missing values, unknown subcommands, mixed modes and extra arguments", () => {

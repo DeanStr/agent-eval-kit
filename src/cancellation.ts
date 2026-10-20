@@ -21,13 +21,20 @@ export async function cancellableDelay(milliseconds: number): Promise<void> {
   await delay(milliseconds, undefined, { signal: cancellationSignal() });
 }
 
+export class CliInterruptionError extends Error {
+  constructor(signal: "SIGINT" | "SIGTERM") {
+    super(`Evaluation interrupted by ${signal}`);
+    this.name = "CliInterruptionError";
+  }
+}
+
 export async function withCliSignals(action: () => Promise<void>): Promise<void> {
   const controller = new AbortController();
   const interrupt = (signal: "SIGINT" | "SIGTERM") => {
     if (controller.signal.aborted) return;
     process.exitCode = signal === "SIGINT" ? 130 : 143;
     console.error(`Received ${signal}; stopping active evaluation processes…`);
-    controller.abort(new Error(`Evaluation interrupted by ${signal}`));
+    controller.abort(new CliInterruptionError(signal));
   };
   const onInterrupt = () => interrupt("SIGINT");
   const onTerminate = () => interrupt("SIGTERM");

@@ -196,11 +196,13 @@ console.log(JSON.stringify({verdict:r.valid?'pass':'fail',confidence:'high',reas
       measurement: { scenarioId: "WORKLOAD", fileLabel: "measurements" },
     }),
   );
-  await run(
-    process.execPath,
-    [path.join(installed, "examples/benchmark/experiment.mjs"), experimentOutput, experimentRecipe],
+  const experimentCli = await run(
+    path.join(consumer, "node_modules/.bin/aek"),
+    ["benchmark", "experiment", "--recipe", experimentRecipe, "--output", experimentOutput],
     consumer,
   );
+  assert.match(experimentCli, /Experiment outcome: compared/);
+  assert.ok(experimentCli.includes(`Report: ${path.join(experimentOutput, "experiment.html")}`));
   const experiment = JSON.parse(
     fs.readFileSync(path.join(experimentOutput, "summary.json"), "utf8"),
   );
