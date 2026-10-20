@@ -78,7 +78,14 @@ export async function runBenchmarkExperiment(
   fs.mkdirSync(resource, { recursive: true });
   resource = fs.realpathSync(resource);
   const environment = { ...process.env };
-  const worker = fileURLToPath(new URL("./benchmark-experiment-worker.js", import.meta.url));
+  // Resolve the packaged worker even when a development TS loader imports this
+  // module from src/. Tests build the same distribution before execution.
+  const worker = fileURLToPath(
+    new URL(
+      "./benchmark-experiment-worker.js",
+      import.meta.resolve("agent-eval-kit/benchmark/experiment"),
+    ),
+  );
   const request = (id: string, file: string) => ({
     configFile: path.resolve(base, file),
     output,

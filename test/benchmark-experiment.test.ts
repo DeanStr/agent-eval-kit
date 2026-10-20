@@ -10,8 +10,7 @@ import {
   benchmarkExperimentSchema,
   counterbalancedBlocks,
   runBenchmarkExperiment,
-  // Exercise the packaged process boundary, including the compiled visit worker.
-} from "../dist/benchmark-experiment.js";
+} from "../src/benchmark-experiment.js";
 import { withRunLock } from "../src/run/state.js";
 
 function fixture(t: test.TestContext, variants = ["baseline", "candidate"], mode = "pass") {
