@@ -52,12 +52,16 @@ test("offscreen opaque previews reject full-page capture; visible viewport captu
     );
     assert.deepEqual(fs.readdirSync(path.join(directory, "screenshots")), []);
     await session.page.evaluate(() => scrollTo(0, 1300));
+    // Raw JS scrolling can resolve before the opaque frame's viewport settles.
+    // Wait for Playwright's element stability checks before testing its pixels.
+    await session.page.locator("iframe.preview").scrollIntoViewIfNeeded();
     for (const fullPage of [false, true]) {
       const shot = await session.screenshot("visible", fullPage);
       if (!fullPage) assert.doesNotMatch(shot.notes, /Full-page screenshot was clipped/);
+      const magenta = await magentaPixels(Buffer.from(shot.base64, "base64"));
       assert.ok(
-        (await magentaPixels(Buffer.from(shot.base64, "base64"))) > 200000,
-        "the real opaque iframe pixels must appear",
+        magenta > 200000,
+        `the real opaque iframe pixels must appear (${magenta}; fullPage=${fullPage})`,
       );
     }
     assert.equal(await session.page.locator("iframe").getAttribute("sandbox"), "");
