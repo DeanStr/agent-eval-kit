@@ -32,8 +32,22 @@ schema, and `counterbalancedBlocks(candidateIds, repetitions)`. Library callers
 own signal handling. The packaged entry point forwards SIGINT/SIGTERM through
 AEK's existing cancellation machinery.
 
+Each preparation and visit loads its config in a fresh process, with the caller's
+original environment and that project's own `.env`. Candidate dotenv values never
+modify the caller or another candidate. Original managed AEK artifact directories
+stay excluded when runs are relocated to the experiment output. Failed preflight
+leaves the requested output path available for a corrected retry.
+
+`counterbalancedBlocks` alternates forward/reverse order. With three or more
+candidates, reversal alone does not rotate every candidate through every position:
+the middle candidate can remain in the middle. Supply explicit rotated blocks
+when position balancing is required by the application protocol.
+
 Each visit is an ordinary AEK run with its normal source/evaluator snapshots,
-collection, gates and integrity checks. Candidate inputs must remain fixed.
+collection, gates and integrity checks. Candidate inputs must remain fixed,
+including across setup/start commands. Build targets before the experiment; reset
+or seed work must leave authenticated target inputs unchanged. A changed target is
+an execution error rather than a refreshed baseline for later visits.
 An execution error stops later acquisition and retains the failed and unattempted
 visits. A correctness failure remains a failed gate even if the candidate is
 faster. Output includes the acquisition ledger, per-candidate campaigns, ordinary

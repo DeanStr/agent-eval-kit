@@ -1,23 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { loadConfig } from "./config.js";
-import { loadFixtures, loadSpecs, selectSpecs } from "./specs.js";
-import { buildRunReceipt } from "./receipts.js";
-import { runEvaluation } from "./runner.js";
 import { withCancellation } from "./cancellation.js";
+import { spawnCaptured } from "./providers/process.js";
 import { withRunLock } from "./run/state.js";
-import {
-  buildCampaignReport,
-  campaignRunRecord,
-  writeCampaignArtifacts,
-  type CampaignRunRecord,
-} from "./campaign.js";
-import {
-  compareBenchmarkCampaigns,
-  loadBenchmarkRun,
-  writeBenchmarkComparison,
-} from "./benchmark.js";
+import { buildCampaignReport, writeCampaignArtifacts, type CampaignRunRecord } from "./campaign.js";
+import { compareBenchmarkCampaigns, writeBenchmarkComparison } from "./benchmark.js";
 import { escapeHtml } from "./report-presentation.js";
 import { writeJson } from "./io.js";
 
@@ -83,48 +73,66 @@ export async function runBenchmarkExperiment(
 ) {
   const recipe = benchmarkExperimentSchema.parse(definition);
   const base = path.resolve(options.baseDirectory ?? process.cwd());
-  const resource = path.resolve(base, recipe.resource);
+  let resource = path.resolve(base, recipe.resource);
   output = path.resolve(output);
   fs.mkdirSync(resource, { recursive: true });
+  resource = fs.realpathSync(resource);
+  const environment = { ...process.env };
+  const worker = fileURLToPath(new URL("./benchmark-experiment-worker.js", import.meta.url));
+  const request = (id: string, file: string) => ({
+    configFile: path.resolve(base, file),
+    output,
+    candidate: id,
+    measurement: recipe.measurement,
+  });
   return withRunLock(resource, async () => {
-    fs.mkdirSync(output); // Never replace an earlier experiment.
+    options.signal?.throwIfAborted();
+    if (fs.existsSync(output))
+      throw new Error(`EEXIST: experiment output already exists: ${output}`);
     const startedAt = new Date().toISOString();
     const visits: Visit[] = [];
     const records: Record<string, CampaignRunRecord[]> = Object.fromEntries(
       Object.keys(recipe.candidates).map((id) => [id, []]),
     );
-    const prepared = Object.fromEntries(
-      Object.entries(recipe.candidates).map(([id, file]) => {
-        const configFile = path.resolve(base, file);
-        const config = loadConfig(configFile);
-        const relative = path.relative(config.project.root, output);
-        if (
-          !relative.startsWith(".." + path.sep) &&
-          relative !== ".." &&
-          !path.isAbsolute(relative) &&
-          relative.split(path.sep)[0] !== ".agent-eval"
-        )
-          throw new Error("Experiment output inside a project must be beneath .agent-eval");
-        config.paths.runs = path.join(output, "runs", id);
-        const specs = selectSpecs(loadSpecs(config.paths.specs), undefined, false);
-        const fixtures = loadFixtures(config.paths.fixtures);
-        const runOptions = {
-          config,
-          configFile,
-          specs,
-          fixtures,
-          split: "all" as const,
-          ignoredTargetPaths: [output],
-        };
-        const fingerprint = buildRunReceipt(runOptions).inputFingerprint;
-        return [id, { runOptions, fingerprint }];
-      }),
-    );
+    const preflight = fs.mkdtempSync(path.join(os.tmpdir(), "aek-experiment-preflight-"));
+    const prepared: Record<
+      string,
+      {
+        invocation: ReturnType<typeof request>;
+        fingerprint: string;
+        project: string;
+      }
+    > = {};
+    try {
+      for (const [id, file] of Object.entries(recipe.candidates)) {
+        options.signal?.throwIfAborted();
+        const invocation = request(id, file);
+        const result = await withCancellation(options.signal ?? new AbortController().signal, () =>
+          spawnCaptured({
+            command: process.execPath,
+            args: [worker, JSON.stringify(invocation)],
+            cwd: base,
+            env: environment,
+            timeoutSeconds: 60,
+            stdoutFile: path.join(preflight, `${id}.stdout`),
+            stderrFile: path.join(preflight, `${id}.stderr`),
+          }),
+        );
+        if (result.exitCode !== 0 || result.signal || result.timedOut)
+          throw new Error(result.stderr.trim() || `Candidate preflight failed: ${id}`);
+        const candidate = JSON.parse(result.stdout) as { fingerprint: string; project: string };
+        prepared[id] = { invocation, ...candidate };
+      }
+    } finally {
+      fs.rmSync(preflight, { recursive: true, force: true });
+    }
+    options.signal?.throwIfAborted();
+    fs.mkdirSync(output); // Preflight never occupies the requested output path.
     writeJson(path.join(output, "recipe.json"), {
       ...recipe,
       resource,
       candidates: Object.fromEntries(
-        Object.entries(prepared).map(([id, entry]) => [id, entry.runOptions.configFile]),
+        Object.entries(prepared).map(([id, entry]) => [id, entry.invocation.configFile]),
       ),
     });
     let error: string | undefined;
@@ -148,23 +156,47 @@ export async function runBenchmarkExperiment(
         const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
         try {
           signal.throwIfAborted();
-          if (buildRunReceipt(entry.runOptions).inputFingerprint !== entry.fingerprint)
-            throw new Error(`Candidate or evaluator inputs changed before visit: ${id}`);
-          const result = await withCancellation(signal, () =>
-            runEvaluation({
-              ...entry.runOptions,
-              onRunCreated: (directory) => {
-                visit.runDir = directory;
-                checkpoint();
+          const resultFile = path.join(output, "visits", `${index + 1}-${id}.json`);
+          const child = await withCancellation(signal, () =>
+            spawnCaptured({
+              command: process.execPath,
+              args: [
+                worker,
+                JSON.stringify({
+                  ...entry.invocation,
+                  block: index + 1,
+                  fingerprint: entry.fingerprint,
+                  resultFile,
+                }),
+              ],
+              cwd: base,
+              env: environment,
+              timeoutSeconds: recipe.timeoutSeconds,
+              stdoutFile: resultFile + ".stdout",
+              stderrFile: resultFile + ".stderr",
+              onLine(stream, line) {
+                if (stream === "stdout" && line.startsWith("AEK_EXPERIMENT_RUN:")) {
+                  const created = JSON.parse(line.slice("AEK_EXPERIMENT_RUN:".length)) as {
+                    runDir: string;
+                  };
+                  visit.runDir = created.runDir;
+                  checkpoint();
+                }
               },
             }),
           );
           signal.throwIfAborted();
-          if (!result.report) throw new Error("Benchmark evaluation produced no report");
-          loadBenchmarkRun(result.runDir, recipe.measurement);
-          if (buildRunReceipt(entry.runOptions).inputFingerprint !== entry.fingerprint)
-            throw new Error(`Candidate or evaluator inputs changed during visit: ${id}`);
-          records[id]!.push(campaignRunRecord(index + 1, result.runDir, result.report));
+          const result = fs.existsSync(resultFile)
+            ? (JSON.parse(fs.readFileSync(resultFile, "utf8")) as {
+                record?: CampaignRunRecord;
+                error?: string;
+              })
+            : undefined;
+          if (child.exitCode !== 0 || child.signal || child.timedOut || !result?.record)
+            throw new Error(
+              result?.error ?? `Candidate process failed: ${id}; see ${resultFile}.stderr`,
+            );
+          records[id]!.push(result.record);
           visit.status = "complete";
         } catch (failure) {
           error = failure instanceof Error ? failure.message : String(failure);
@@ -186,7 +218,7 @@ export async function runBenchmarkExperiment(
         path.join(output, "campaigns", id),
         buildCampaignReport({
           campaignId: id,
-          project: prepared[id]!.runOptions.config.project.name,
+          project: prepared[id]!.project,
           startedAt,
           plannedRepetitions: recipe.blocks.length,
           runs,
