@@ -9,6 +9,7 @@ import { withCliSignals } from "./cancellation.js";
 import { loadBenchmarkRun } from "./benchmark.js";
 import { campaignRunRecord } from "./campaign.js";
 import { writeJson } from "./io.js";
+import { withProcessRegistry } from "./process-registry.js";
 
 const request = JSON.parse(process.argv[2]!) as {
   configFile: string;
@@ -17,6 +18,7 @@ const request = JSON.parse(process.argv[2]!) as {
   block?: number;
   fingerprint?: string;
   resultFile?: string;
+  processRegistryFile?: string;
   measurement: { scenarioId: string; fileLabel: string };
 };
 
@@ -56,23 +58,27 @@ try {
   } else {
     if (fingerprint !== request.fingerprint)
       throw new Error(`Candidate or evaluator inputs changed before visit: ${request.candidate}`);
-    await withCliSignals(async () => {
-      const result = await runEvaluation({
-        ...options,
-        onRunCreated(directory) {
-          runDir = directory;
-          writeJson(request.resultFile!, { runDir });
-          console.log(`AEK_EXPERIMENT_RUN:${JSON.stringify({ runDir })}`);
-        },
-      });
-      if (!result.report) throw new Error("Benchmark evaluation produced no report");
-      loadBenchmarkRun(result.runDir, request.measurement);
-      if (buildRunReceipt(options).inputFingerprint !== fingerprint)
-        throw new Error(`Candidate or evaluator inputs changed during visit: ${request.candidate}`);
-      writeJson(request.resultFile!, {
-        record: campaignRunRecord(request.block!, result.runDir, result.report),
-      });
-    });
+    await withProcessRegistry(request.processRegistryFile!, () =>
+      withCliSignals(async () => {
+        const result = await runEvaluation({
+          ...options,
+          onRunCreated(directory) {
+            runDir = directory;
+            writeJson(request.resultFile!, { runDir });
+            console.log(`AEK_EXPERIMENT_RUN:${JSON.stringify({ runDir })}`);
+          },
+        });
+        if (!result.report) throw new Error("Benchmark evaluation produced no report");
+        loadBenchmarkRun(result.runDir, request.measurement);
+        if (buildRunReceipt(options).inputFingerprint !== fingerprint)
+          throw new Error(
+            `Candidate or evaluator inputs changed during visit: ${request.candidate}`,
+          );
+        writeJson(request.resultFile!, {
+          record: campaignRunRecord(request.block!, result.runDir, result.report),
+        });
+      }),
+    );
   }
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);

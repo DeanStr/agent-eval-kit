@@ -5,13 +5,63 @@ import path from "node:path";
 import test from "node:test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { setTimeout as delay } from "node:timers/promises";
 import YAML from "yaml";
+import { parse, type DefaultTreeAdapterMap } from "parse5";
 import {
   benchmarkExperimentSchema,
   counterbalancedBlocks,
   runBenchmarkExperiment,
 } from "../src/benchmark-experiment.js";
 import { withRunLock } from "../src/run/state.js";
+
+function pairedRows(root: string): string[][] {
+  const document = parse(fs.readFileSync(path.join(root, "output/experiment.html"), "utf8"));
+  const rows: string[][] = [];
+  const text = (node: DefaultTreeAdapterMap["node"]): string =>
+    "value" in node ? node.value : "childNodes" in node ? node.childNodes.map(text).join("") : "";
+  const visit = (node: DefaultTreeAdapterMap["node"]) => {
+    if ("tagName" in node && node.tagName === "tr") {
+      rows.push(
+        node.childNodes
+          .filter((child) => "tagName" in child && ["td", "th"].includes(child.tagName))
+          .map(text),
+      );
+    } else if ("childNodes" in node) node.childNodes.forEach(visit);
+  };
+  visit(document);
+  return rows.filter((row) => row[0] !== "Block");
+}
+
+function stopFixtureProcess(marker: string): void {
+  if (!fs.existsSync(marker)) return;
+  const pid = Number(fs.readFileSync(marker, "utf8"));
+  assert.ok(Number.isSafeInteger(pid) && pid > 0, `Invalid fixture PID in ${marker}`);
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
+}
+
+async function waitForFile(file: string): Promise<void> {
+  const deadline = Date.now() + 20_000;
+  while (!fs.existsSync(file) && Date.now() < deadline) await delay(20);
+  assert.ok(fs.existsSync(file), `Missing process marker: ${file}`);
+}
+
+function addStubbornTarget(candidates: Record<string, string>): void {
+  for (const file of Object.values(candidates)) {
+    fs.writeFileSync(
+      path.join(path.dirname(file), "wait.mjs"),
+      `import fs from 'node:fs';process.on('SIGTERM',()=>{});fs.writeFileSync('../target-started',String(process.pid));setInterval(()=>{},1000);`,
+    );
+    const config = YAML.parse(fs.readFileSync(file, "utf8"));
+    config.target.start = { command: "node wait.mjs" };
+    config.target.ready = { command: "test -f ../target-started", intervalMs: 20 };
+    fs.writeFileSync(file, YAML.stringify(config));
+  }
+}
 
 function fixture(t: test.TestContext, variants = ["baseline", "candidate"], mode = "pass") {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-experiment-"));
@@ -39,12 +89,12 @@ function fixture(t: test.TestContext, variants = ["baseline", "candidate"], mode
       `import fs from 'node:fs';import path from 'node:path';
 const c=JSON.parse(fs.readFileSync(process.env.AEK_COLLECT_CONTEXT,'utf8')), s=JSON.parse(fs.readFileSync(c.sources.subject.path,'utf8'));
 if(s.mode==='crash'&&s.id==='candidate')throw Error('Collector crashed');
-if(s.mode==='hang'){fs.writeFileSync(path.resolve('..','started'),'');await new Promise(()=>{setInterval(()=>{},1000)});}
+if(['hang','stubborn'].includes(s.mode)){if(s.mode==='stubborn')process.on('SIGTERM',()=>fs.writeFileSync(path.resolve('..','terminating'),''));fs.writeFileSync(path.resolve('..','started'),String(process.pid));await new Promise(()=>{setInterval(()=>{},1000)});}
 if(s.mode==='mutate')fs.appendFileSync('subject.json',' ');
 if(s.mode==='managed'){fs.mkdirSync('.agent-eval/old-run',{recursive:true});fs.appendFileSync('.agent-eval/old-run/log','another run');}
 let value=s.id==='baseline'?10:5;
 if(s.mode==='paired'){const log=path.resolve('..','observations.json'),visits=fs.existsSync(log)?JSON.parse(fs.readFileSync(log,'utf8')):[],n=visits.filter(id=>id===s.id).length;value=s.id==='baseline'?[10,20][n]:[5,12][n];visits.push(s.id);fs.writeFileSync(log,JSON.stringify(visits));}
-const m={version:1,candidate:{id:s.id,revision:s.id},workload:{id:'work',sha256:'a'.repeat(64)},method:{id:'timer',sha256:'b'.repeat(64)},environment:{hardware:'fixture'},work:{unit:'items',requested:1,completed:1},outcome:{state:'completed'},metrics:[{id:'time',unit:'ms',preferredDirection:'lower',scope:'application',observation:{state:'observed',samples:[value]}}],correctness:[{scenarioId:'WORKLOAD',fileLabel:'raw'}]};
+const m={version:1,candidate:{id:s.id,revision:s.id},workload:{id:'work',sha256:'a'.repeat(64)},method:{id:'timer',sha256:'b'.repeat(64)},environment:{hardware:'fixture'},work:{unit:'items',requested:1,completed:1},outcome:{state:'completed'},metrics:[{id:'time',unit:s.mode==='units'&&s.id==='candidate'?'s':'ms',preferredDirection:'lower',scope:'application',observation:{state:'observed',samples:[value]}}],correctness:[{scenarioId:'WORKLOAD',fileLabel:'raw'}]};
 if(s.mode==='env'&&process.env.AEK_EXPERIMENT_TEST_VALUE!==s.id)throw Error('Candidate environment leaked');
 fs.writeFileSync(path.join(c.outputDir,'measurements.json'),JSON.stringify(m));fs.writeFileSync(path.join(c.outputDir,'raw.json'),JSON.stringify({valid:!(s.mode==='wrong'&&s.id==='candidate')}));
 console.log(JSON.stringify({version:1,outcome:'completed',summary:'Observed',observations:['Real subprocess fixture'],files:['measurements','raw'].map(label=>({label,path:label+'.json',filename:label+'.json',mediaType:'application/json'}))}));`,
@@ -151,6 +201,16 @@ test("multi-candidate acquisition is counterbalanced and pairs complete runs by 
     pairs.pairs[0].blocks.map((b: { delta: number }) => b.delta),
     [-5, -8],
   );
+  assert.deepEqual(pairedRows(root), [
+    ["1", "time", "application", "ms (lower)", "10", "5", "-5"],
+    ["2", "time", "application", "ms (lower)", "20", "12", "-8"],
+    ["1", "time", "application", "ms (lower)", "10", "5", "-5"],
+    ["2", "time", "application", "ms (lower)", "20", "12", "-8"],
+  ]);
+  const html = fs.readFileSync(path.join(root, "output/experiment.html"), "utf8");
+  assert.match(html, /candidate vs baseline/);
+  assert.match(html, /href="comparisons\/candidate\/paired-differences.json"/);
+  assert.match(html, /no statistical confidence or automatic performance acceptance/);
   assert.equal(fs.existsSync(path.join(recipe.resource, ".run.lock")), false);
   await assert.rejects(runBenchmarkExperiment(path.join(root, "output"), recipe), /EEXIST/);
 });
@@ -169,6 +229,38 @@ test("execution failure retains the failed visit and leaves later visits unattem
   assert.equal(result.visits.length, 2);
   assert.equal(result.visits[1]!.status, "error");
   assert.equal(result.unattempted.length, 2);
+  assert.deepEqual(pairedRows(root), [
+    ["1", "time", "application", "ms (lower)", "10", "unavailable", "unavailable"],
+    ["2", "time", "application", "ms (lower)", "unavailable", "unavailable", "unavailable"],
+  ]);
+});
+
+test("paired HTML retains raw values but withholds differences for incompatible methods", async (t) => {
+  const { root, recipe } = fixture(t);
+  const configFile = recipe.candidates.candidate!;
+  const config = YAML.parse(fs.readFileSync(configFile, "utf8"));
+  config.instructions = "Different evaluation method";
+  fs.writeFileSync(configFile, YAML.stringify(config));
+  const result = await runBenchmarkExperiment(path.join(root, "output"), recipe);
+  assert.equal(result.outcome, "inconclusive");
+  assert.deepEqual(pairedRows(root), [
+    ["1", "time", "application", "ms (lower)", "10", "5", "unavailable"],
+    ["2", "time", "application", "ms (lower)", "10", "5", "unavailable"],
+  ]);
+  assert.match(
+    fs.readFileSync(path.join(root, "output/experiment.html"), "utf8"),
+    /Measurement validity: incompatible/,
+  );
+});
+
+test("paired HTML never labels values from incompatible units with the baseline unit", async (t) => {
+  const { root, recipe } = fixture(t, undefined, "units");
+  const result = await runBenchmarkExperiment(path.join(root, "output"), recipe);
+  assert.equal(result.outcome, "inconclusive");
+  assert.deepEqual(pairedRows(root), [
+    ["1", "time", "application", "ms (lower)", "10", "unavailable", "unavailable"],
+    ["2", "time", "application", "ms (lower)", "10", "unavailable", "unavailable"],
+  ]);
 });
 
 test("a shared resource excludes a second experiment with a different output directory", async (t) => {
@@ -265,9 +357,94 @@ test("cancellation drains the collector and releases the resource before returni
   }
 });
 
+for (const reason of ["cancellation", "timeout"] as const) {
+  test(`${reason} retains the resource until stubborn collector and target cleanup finish`, {
+    timeout: 45_000,
+  }, async (t) => {
+    const { root, recipe } = fixture(t, undefined, "stubborn");
+    if (reason === "timeout") recipe.timeoutSeconds = 10;
+    addStubbornTarget(recipe.candidates);
+    const controller = new AbortController();
+    const output = path.join(root, "output");
+    const running = runBenchmarkExperiment(output, recipe, { signal: controller.signal });
+    // Observe rejection immediately while waiting for the subprocess markers.
+    void running.catch(() => {});
+    try {
+      await waitForFile(path.join(root, "started"));
+      if (reason === "cancellation") controller.abort(new Error("Stopped stubborn processes"));
+      await waitForFile(path.join(root, "terminating"));
+      await assert.rejects(
+        runBenchmarkExperiment(path.join(root, "other"), recipe),
+        /locked by active process/,
+      );
+      const result = await running;
+      assert.equal(result.outcome, "execution_error");
+      assert.equal(result.visits.length, 1);
+      assert.equal(result.unattempted.length, 3);
+      for (const marker of ["started", "target-started"]) {
+        const pid = Number(fs.readFileSync(path.join(root, marker), "utf8"));
+        assert.throws(() => process.kill(pid, 0), /ESRCH/, `${marker} is still alive`);
+      }
+      const runDir = result.visits[0]!.runDir!;
+      assert.equal(
+        JSON.parse(fs.readFileSync(path.join(runDir, "run-state.json"), "utf8")).status,
+        "failed",
+        "the worker must finish failure handling before it exits",
+      );
+      assert.equal(fs.existsSync(path.join(runDir, ".run.lock")), false);
+      assert.equal(fs.existsSync(path.join(recipe.resource, ".run.lock")), false);
+    } finally {
+      controller.abort();
+      await running.catch(() => {});
+      for (const marker of ["started", "target-started"]) {
+        stopFixtureProcess(path.join(root, marker));
+      }
+    }
+  });
+}
+
+test("a stalled worker cannot leave detached processes alive after resource release", {
+  timeout: 45_000,
+}, async (t) => {
+  const { root, recipe } = fixture(t, undefined, "stubborn");
+  addStubbornTarget(recipe.candidates);
+  const output = path.join(root, "output");
+  const controller = new AbortController();
+  const running = runBenchmarkExperiment(output, recipe, { signal: controller.signal });
+  void running.catch(() => {});
+  try {
+    await waitForFile(path.join(root, "started"));
+    const ledger = JSON.parse(fs.readFileSync(path.join(output, "experiment.json"), "utf8"));
+    const state = JSON.parse(
+      fs.readFileSync(path.join(ledger.visits[0].runDir, "run-state.json"), "utf8"),
+    );
+    fs.writeFileSync(path.join(root, "worker.pid"), String(state.pid));
+    process.kill(state.pid, "SIGSTOP");
+    controller.abort(new Error("Stopped stalled worker"));
+    await assert.rejects(
+      runBenchmarkExperiment(path.join(root, "other"), recipe),
+      /locked by active process/,
+    );
+    const result = await running;
+    assert.equal(result.outcome, "execution_error");
+    assert.equal(result.unattempted.length, 3);
+    for (const marker of ["started", "target-started"]) {
+      const pid = Number(fs.readFileSync(path.join(root, marker), "utf8"));
+      assert.throws(() => process.kill(pid, 0), /ESRCH/, `${marker} survived its worker`);
+    }
+    assert.equal(fs.existsSync(path.join(recipe.resource, ".run.lock")), false);
+  } finally {
+    controller.abort();
+    stopFixtureProcess(path.join(root, "worker.pid"));
+    await running.catch(() => {});
+    stopFixtureProcess(path.join(root, "started"));
+    stopFixtureProcess(path.join(root, "target-started"));
+  }
+});
+
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   test(`packaged experiment retains ${signal} status and releases its resource`, async (t) => {
-    const { root, recipe } = fixture(t, undefined, "hang");
+    const { root, recipe } = fixture(t, undefined, "stubborn");
     const recipeFile = path.join(root, "recipe.json"),
       output = path.join(root, "output");
     fs.writeFileSync(recipeFile, JSON.stringify(recipe));
@@ -292,6 +469,11 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
       const [code] = await closed;
       assert.equal(code, signal === "SIGINT" ? 130 : 143, stderr);
       assert.doesNotMatch(stderr, /^Error:|uncaught|at file:/m);
+      assert.throws(
+        () => process.kill(Number(fs.readFileSync(path.join(root, "started"), "utf8")), 0),
+        /ESRCH/,
+        "the collector must stop before the CLI exits",
+      );
       assert.equal(fs.existsSync(path.join(recipe.resource, ".run.lock")), false);
       assert.equal(
         JSON.parse(fs.readFileSync(path.join(output, "summary.json"), "utf8")).unattempted.length,
@@ -300,6 +482,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     } finally {
       clearInterval(timer);
       if (child.exitCode === null) child.kill("SIGKILL");
+      stopFixtureProcess(path.join(root, "started"));
     }
   });
 }

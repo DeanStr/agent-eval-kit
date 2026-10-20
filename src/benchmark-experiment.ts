@@ -10,6 +10,8 @@ import { buildCampaignReport, writeCampaignArtifacts, type CampaignRunRecord } f
 import { compareBenchmarkCampaigns, writeBenchmarkComparison } from "./benchmark.js";
 import { escapeHtml } from "./report-presentation.js";
 import { writeJson } from "./io.js";
+import { PROCESS_TREE_CLEANUP_MS } from "./process-tree.js";
+import { drainProcessRegistry } from "./process-registry.js";
 
 const name = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/);
 export const benchmarkExperimentSchema = z
@@ -59,6 +61,35 @@ interface Visit {
   status: "running" | "complete" | "error";
   runDir?: string;
   error?: string;
+}
+
+interface PairedMetric {
+  id: string;
+  unit: string;
+  scope: string;
+  preferredDirection: "lower" | "higher";
+  blocks: {
+    block: number;
+    baseline: number | null;
+    candidate: number | null;
+    delta: number | null;
+  }[];
+}
+
+const pairedLimitation =
+  "Descriptive within-block differences; no statistical confidence or automatic performance acceptance.";
+
+function pairedTable(pairs: PairedMetric[]): string {
+  if (!pairs.length) return "<p>No measurements are available.</p>";
+  const rows = pairs
+    .flatMap((metric) =>
+      metric.blocks.map(
+        (block) =>
+          `<tr><td>${block.block}</td><th scope="row">${escapeHtml(metric.id)}</th><td>${escapeHtml(metric.scope)}</td><td>${escapeHtml(metric.unit)} (${metric.preferredDirection})</td><td>${block.baseline ?? "unavailable"}</td><td>${block.candidate ?? "unavailable"}</td><td>${block.delta ?? "unavailable"}</td></tr>`,
+      ),
+    )
+    .join("");
+  return `<div class="table-scroll"><table><thead><tr><th>Block</th><th>Metric</th><th>Scope</th><th>Unit (preferred)</th><th>Baseline mean</th><th>Candidate mean</th><th>Difference (candidate − baseline)</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 /**
@@ -164,34 +195,48 @@ export async function runBenchmarkExperiment(
         try {
           signal.throwIfAborted();
           const resultFile = path.join(output, "visits", `${index + 1}-${id}.json`);
-          const child = await withCancellation(signal, () =>
-            spawnCaptured({
-              command: process.execPath,
-              args: [
-                worker,
-                JSON.stringify({
-                  ...entry.invocation,
-                  block: index + 1,
-                  fingerprint: entry.fingerprint,
-                  resultFile,
-                }),
-              ],
-              cwd: base,
-              env: environment,
-              timeoutSeconds: recipe.timeoutSeconds,
-              stdoutFile: resultFile + ".stdout",
-              stderrFile: resultFile + ".stderr",
-              onLine(stream, line) {
-                if (stream === "stdout" && line.startsWith("AEK_EXPERIMENT_RUN:")) {
-                  const created = JSON.parse(line.slice("AEK_EXPERIMENT_RUN:".length)) as {
-                    runDir: string;
-                  };
-                  visit.runDir = created.runDir;
-                  checkpoint();
-                }
-              },
-            }),
-          );
+          const processRegistryFile = resultFile + ".processes.json";
+          writeJson(processRegistryFile, []);
+          let child: Awaited<ReturnType<typeof spawnCaptured>>;
+          try {
+            child = await withCancellation(signal, () =>
+              spawnCaptured({
+                command: process.execPath,
+                args: [
+                  worker,
+                  JSON.stringify({
+                    ...entry.invocation,
+                    block: index + 1,
+                    fingerprint: entry.fingerprint,
+                    resultFile,
+                    processRegistryFile,
+                  }),
+                ],
+                cwd: base,
+                env: environment,
+                timeoutSeconds: recipe.timeoutSeconds,
+                // Allow separate windows for command cleanup, lifecycle cleanup,
+                // and run finalization. A leaf process's grace races the worker's
+                // own TERM/KILL escalation for its detached children.
+                terminationGraceMs: 3 * PROCESS_TREE_CLEANUP_MS,
+                stdoutFile: resultFile + ".stdout",
+                stderrFile: resultFile + ".stderr",
+                onLine(stream, line) {
+                  if (stream === "stdout" && line.startsWith("AEK_EXPERIMENT_RUN:")) {
+                    const created = JSON.parse(line.slice("AEK_EXPERIMENT_RUN:".length)) as {
+                      runDir: string;
+                    };
+                    visit.runDir = created.runDir;
+                    checkpoint();
+                  }
+                },
+              }),
+            );
+          } finally {
+            // The worker may have been forcibly stopped. Its detached groups
+            // remain ours until they have exited, independently of its cleanup.
+            await drainProcessRegistry(processRegistryFile);
+          }
           signal.throwIfAborted();
           const result = fs.existsSync(resultFile)
             ? (JSON.parse(fs.readFileSync(resultFile, "utf8")) as {
@@ -232,6 +277,7 @@ export async function runBenchmarkExperiment(
         }),
       );
     }
+    const pairedReports: string[] = [];
     const comparisons = Object.keys(prepared)
       .filter((id) => id !== recipe.baseline)
       .map((id) => {
@@ -242,30 +288,51 @@ export async function runBenchmarkExperiment(
           recipe.measurement,
         );
         writeBenchmarkComparison(directory, comparison);
-        const pairs = comparison.measurements.map((metric) => ({
-          id: metric.id,
-          unit: metric.unit,
-          scope: metric.scope,
-          blocks: recipe.blocks.map((_, index) => {
-            const before = metric.baseline.runs.find((run) => run.ordinal === index + 1);
-            const after = metric.candidate.runs.find((run) => run.ordinal === index + 1);
-            const delta =
-              comparison.validity.status === "compatible" && before && after
-                ? after.mean - before.mean
-                : null;
-            return {
-              block: index + 1,
-              baseline: before?.mean ?? null,
-              candidate: after?.mean ?? null,
-              delta,
-            };
-          }),
-        }));
+        const pairs = comparison.measurements.map((metric) => {
+          const matchingRuns = (side: "baseline" | "candidate") =>
+            metric[side].runs.filter((run) => {
+              const attempt = comparison[side].attempts.find(
+                (entry) => entry.ordinal === run.ordinal,
+              );
+              if (!attempt || !("measurements" in attempt) || !attempt.measurements) return false;
+              const observed = attempt.measurements.metrics.find((entry) => entry.id === metric.id);
+              return (
+                observed?.unit === metric.unit &&
+                observed.scope === metric.scope &&
+                observed.preferredDirection === metric.preferredDirection
+              );
+            });
+          const baselineRuns = matchingRuns("baseline"),
+            candidateRuns = matchingRuns("candidate");
+          return {
+            id: metric.id,
+            unit: metric.unit,
+            scope: metric.scope,
+            preferredDirection: metric.preferredDirection,
+            blocks: recipe.blocks.map((_, index) => {
+              const before = baselineRuns.find((run) => run.ordinal === index + 1);
+              const after = candidateRuns.find((run) => run.ordinal === index + 1);
+              const delta =
+                comparison.validity.status === "compatible" && before && after
+                  ? after.mean - before.mean
+                  : null;
+              return {
+                block: index + 1,
+                baseline: before?.mean ?? null,
+                candidate: after?.mean ?? null,
+                delta,
+              };
+            }),
+          };
+        });
         writeJson(path.join(directory, "paired-differences.json"), {
           pairs,
-          limitation:
-            "Descriptive within-block differences; no statistical confidence or automatic performance acceptance.",
+          limitation: pairedLimitation,
         });
+        const pairedData = path.relative(output, path.join(directory, "paired-differences.json"));
+        pairedReports.push(
+          `<section><h3>${escapeHtml(id)} vs ${escapeHtml(recipe.baseline)}</h3><p>Outcome: ${escapeHtml(comparison.outcome)} · Measurement validity: ${escapeHtml(comparison.validity.status)}</p>${comparison.validity.reasons.length ? `<p>${escapeHtml(comparison.validity.reasons.join("; "))}</p>` : ""}${pairedTable(pairs)}<p><a href="${escapeHtml(pairedData)}">Paired differences (JSON)</a></p></section>`,
+        );
         return {
           candidate: id,
           outcome: comparison.outcome,
@@ -289,7 +356,7 @@ export async function runBenchmarkExperiment(
     writeJson(path.join(output, "summary.json"), summary);
     fs.writeFileSync(
       path.join(output, "experiment.html"),
-      `<!doctype html><meta charset="utf-8"><title>Benchmark experiment</title><h1>${escapeHtml(outcome)}</h1><p>Serial acquisition; one visit per candidate in each block. Application timings remain separate from AEK duration.</p><ol>${recipe.blocks.map((block) => `<li>${block.map(escapeHtml).join(" → ")}</li>`).join("")}</ol><p>${escapeHtml(error ?? "")}</p><ul>${comparisons.map((c) => `<li><a href="${escapeHtml(c.report)}">${escapeHtml(c.candidate)}</a>: ${escapeHtml(c.outcome)}</li>`).join("")}</ul><p>Unattempted visits: ${unattempted.length}. <a href="experiment.json">Acquisition ledger</a> · <a href="summary.json">Summary</a></p>`,
+      `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Benchmark experiment</title><style>body{font:15px/1.5 system-ui;max-width:1200px;margin:2rem auto;padding:0 1rem}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:.5rem;text-align:left}.table-scroll{overflow-x:auto}section{margin:2rem 0}</style></head><body><h1>Benchmark experiment</h1><p>Outcome: ${escapeHtml(outcome)}</p><p>Serial acquisition; one visit per candidate in each block. Application timings remain separate from AEK duration.</p><ol>${recipe.blocks.map((block) => `<li>${block.map(escapeHtml).join(" → ")}</li>`).join("")}</ol><p>${escapeHtml(error ?? "")}</p><ul>${comparisons.map((c) => `<li><a href="${escapeHtml(c.report)}">${escapeHtml(c.candidate)}</a>: ${escapeHtml(c.outcome)}</li>`).join("")}</ul><p>Unattempted visits: ${unattempted.length}. <a href="experiment.json">Acquisition ledger</a> · <a href="summary.json">Summary</a></p><h2>Paired block differences</h2><p>Each difference compares the candidate run mean with the baseline run mean in the same block. For metrics where lower is preferred, negative differences are improvements; where higher is preferred, positive differences are improvements.</p><p>${escapeHtml(pairedLimitation)}</p>${pairedReports.join("")}</body></html>`,
     );
     return summary;
   });

@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { shellInvocation, spawnCaptured } from "./providers/process.js";
 import { terminateProcessTree } from "./process-tree.js";
+import { trackProcessGroup } from "./process-registry.js";
 import { cancellableDelay, cancellationSignal, throwIfCancelled } from "./cancellation.js";
 import type { EvalConfig } from "./types.js";
 import { assertEvaluationPlatform } from "./platform.js";
@@ -259,12 +260,14 @@ export async function startLifecycle(
   });
 
   const signal = cancellationSignal();
+  let releaseProcessGroup = () => {};
   let stopping: Promise<void> | undefined;
   const stop = () =>
     (stopping ??= terminateProcessTree(child).finally(() => {
       signal?.removeEventListener("abort", onAbort);
       fs.closeSync(stdout);
       fs.closeSync(stderr);
+      releaseProcessGroup();
     }));
   // The runner also awaits stop(), so cleanup errors remain observable.
   const onAbort = () => {
@@ -273,6 +276,7 @@ export async function startLifecycle(
   signal?.addEventListener("abort", onAbort, { once: true });
 
   try {
+    releaseProcessGroup = trackProcessGroup(child);
     await waitUntilReady(config, runDir, child, () => startError);
     options.onReady?.();
     const assertRunning = () => {

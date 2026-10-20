@@ -6,6 +6,7 @@ import path from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import { terminateProcessTree } from "../process-tree.js";
+import { trackProcessGroup } from "../process-registry.js";
 import { cancellationSignal } from "../cancellation.js";
 import { assertEvaluationPlatform } from "../platform.js";
 
@@ -58,11 +59,18 @@ export async function spawnCaptured(options: {
   stdin?: string;
   env?: NodeJS.ProcessEnv;
   timeoutSeconds: number;
+  /** Allow an orchestrator to drain its own detached children before escalation. */
+  terminationGraceMs?: number;
   stdoutFile: string;
   stderrFile: string;
   onLine?: (stream: "stdout" | "stderr", line: string) => void;
 }): Promise<SpawnResult> {
   assertEvaluationPlatform();
+  if (
+    options.terminationGraceMs !== undefined &&
+    (!Number.isSafeInteger(options.terminationGraceMs) || options.terminationGraceMs <= 0)
+  )
+    throw new Error("Process termination grace must be a positive integer in milliseconds");
   const signal = cancellationSignal();
   signal?.throwIfAborted();
   fs.mkdirSync(path.dirname(options.stdoutFile), { recursive: true });
@@ -106,6 +114,7 @@ export async function spawnCaptured(options: {
     let timedOut = false;
     let settled = false;
     let termination: Promise<void> | undefined;
+    let releaseProcessGroup = () => {};
 
     const capture = (current: string, chunk: string) => {
       const next = current + chunk;
@@ -246,6 +255,11 @@ export async function spawnCaptured(options: {
       } catch (terminationError) {
         cleanupError = terminationError as Error;
       }
+      try {
+        releaseProcessGroup();
+      } catch (registryError) {
+        cleanupError ??= registryError as Error;
+      }
       if (cleanupError) {
         reject(
           outputError
@@ -268,7 +282,7 @@ export async function spawnCaptured(options: {
 
     const stop = () => {
       if (termination !== undefined) return;
-      termination = terminateProcessTree(child);
+      termination = terminateProcessTree(child, options.terminationGraceMs);
       void termination.then(
         () => {
           // A detached descendant outside our process group may have inherited
@@ -311,6 +325,12 @@ export async function spawnCaptured(options: {
     child.on("close", (exitCode, signal) => {
       void finish({ exitCode, signal, timedOut, stdout, stderr });
     });
+
+    try {
+      releaseProcessGroup = trackProcessGroup(child);
+    } catch (registryError) {
+      failOutput(registryError);
+    }
 
     // A fast-exiting process may close stdin before end() completes. Its exit
     // status is the useful result; avoid turning that common EPIPE into an

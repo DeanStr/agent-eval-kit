@@ -25,12 +25,20 @@ is serial. All experiments using the same resource directory share the existing
 AEK process lock, across projects and output directories. The lock remains held
 until active subprocess cleanup finishes. It coordinates participating AEK
 experiments; it cannot exclude unrelated host activity.
+Workers persist their active command and target process groups. If a worker
+stalls or exits before cleaning up, the experiment parent drains those groups
+before releasing the resource or starting another visit.
 
 The public `agent-eval-kit/benchmark/experiment` export provides
 `runBenchmarkExperiment(output, recipe, {baseDirectory, signal})`, the recipe
 schema, and `counterbalancedBlocks(candidateIds, repetitions)`. Library callers
 own signal handling. The packaged entry point forwards SIGINT/SIGTERM through
 AEK's existing cancellation machinery.
+
+Block ordering and fresh processes are automatic in this experiment runner;
+neither requires an opt-in flag. Ordinary `aek run` and `aek campaign` commands
+retain their existing execution behavior. The older `run.mjs` below continues to
+acquire sequential whole campaigns.
 
 Each preparation and visit loads its config in a fresh process, with the caller's
 original environment and that project's own `.env`. Candidate dotenv values never
@@ -53,6 +61,13 @@ visits. A correctness failure remains a failed gate even if the candidate is
 faster. Output includes the acquisition ledger, per-candidate campaigns, ordinary
 benchmark comparisons and descriptive differences paired by block. An interrupted
 experiment is retained, not automatically resumed or pooled into a new run.
+Open `experiment.html` to inspect each block's baseline mean, candidate mean and
+candidate-minus-baseline difference, with units, preferred direction, timing
+scope and comparison validity. Missing values and withheld differences are shown
+as unavailable. Each comparison links to its `paired-differences.json` data.
+Values whose units, scope or preferred direction differ from the displayed metric
+definition are also withheld; the original observations remain in the ordinary
+benchmark comparison JSON.
 Ordering reduces one source of drift; neither this schedule nor two repetitions
 establish statistical confidence or performance acceptance.
 

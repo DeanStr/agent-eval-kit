@@ -66,6 +66,26 @@ test("shell execution rejects native Windows instead of guessing at process clea
   });
 });
 
+test("invalid termination grace fails before spawning or opening logs", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-process-invalid-grace-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const terminationGraceMs of [0, -1, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    await assert.rejects(
+      spawnCaptured({
+        command: process.execPath,
+        args: ["-e", "require('node:fs').writeFileSync('started', '')"],
+        cwd: root,
+        timeoutSeconds: 5,
+        terminationGraceMs,
+        stdoutFile: path.join(root, "stdout.log"),
+        stderrFile: path.join(root, "stderr.log"),
+      }),
+      /termination grace must be a positive integer/,
+    );
+  }
+  assert.deepEqual(fs.readdirSync(root), []);
+});
+
 for (const invalidLog of [false, true]) {
   test(`synchronous spawn errors close both logs${invalidLog ? " even when a log cannot open" : ""}`, async (t) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-process-spawn-error-"));
