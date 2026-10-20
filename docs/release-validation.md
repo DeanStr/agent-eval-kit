@@ -1,5 +1,33 @@
 # Release validation
 
+## Controlled benchmark experiments (0.5.1)
+
+Review confirmed cross-candidate dotenv contamination, lost interruption status,
+preflight output reservation and inclusion of prior managed AEK artifacts after
+run relocation. Preparation and visits now run in fresh processes; failed
+preflight leaves the output available, original managed paths stay excluded, and
+SIGINT/SIGTERM retain 130/143 after cleanup. Distinct per-visit fixtures check
+block pairing. Package smoke exercises the installed worker and isolated dotenv
+values, and accepts `--archive` to validate the exact release tarball.
+
+Target mutation remains an intentional execution error, including lifecycle
+mutation: benchmark subjects must be built and fixed before acquisition. The
+original 0.5.0 lock also excluded symlink aliases in a reproduced contention case;
+canonicalization makes the recorded resource identity explicit. The order helper
+intentionally alternates forward/reverse blocks; its middle-position limitation
+for three or more candidates is documented, with explicit rotated blocks available
+to application protocols. No position-independent or statistical claim is made.
+
+Validation passed all 650 tests, including 12 focused experiment tests, plus
+build, typecheck, lint and formatting. Installed-package smoke validates the
+exact 0.5.1 release archive with production dependencies, four real subprocess
+visits and independent gates. One earlier CI assertion expected the outer target
+guard's message; the existing collector guard correctly rejected the changed
+source first. The final test checks rejection and actual mutation without
+requiring which guard fires first. The named 0.5.0 preview remains the exact
+archive used by the initial Melbourne A/A and threshold acquisitions; those
+observations are not relabelled as 0.5.1 acquisition.
+
 ## Requested authoring/image review loop (2026-09-08)
 
 The requested `codex exec review --uncommitted` loop used `gpt-6-astra` with high

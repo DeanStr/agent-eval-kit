@@ -10,6 +10,9 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { spawnCaptured } from "../src/providers/process.js";
 
 const kitRoot = path.resolve(import.meta.dirname, "..");
+const [archiveFlag, archiveInput, ...extraArgs] = process.argv.slice(2);
+if (archiveFlag !== undefined && (archiveFlag !== "--archive" || !archiveInput || extraArgs.length))
+  throw new Error("Usage: pnpm smoke:package [--archive path/to/reviewed.tgz]");
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "aek-package-smoke-"));
 let ordinal = 0;
 async function run(
@@ -37,19 +40,25 @@ async function run(
 }
 
 try {
-  await run(
-    process.execPath,
-    [path.join(kitRoot, "node_modules/typescript/bin/tsc"), "-p", "tsconfig.build.json"],
-    kitRoot,
-  );
-  const packed = JSON.parse(
+  let archive: string;
+  if (archiveInput) {
+    archive = path.resolve(archiveInput);
+    fs.accessSync(archive, fs.constants.R_OK);
+  } else {
     await run(
-      "npm",
-      ["pack", "--ignore-scripts", "--json", "--pack-destination", scratch],
+      process.execPath,
+      [path.join(kitRoot, "node_modules/typescript/bin/tsc"), "-p", "tsconfig.build.json"],
       kitRoot,
-    ),
-  );
-  const archive = path.join(scratch, packed[0].filename);
+    );
+    const packed = JSON.parse(
+      await run(
+        "npm",
+        ["pack", "--ignore-scripts", "--json", "--pack-destination", scratch],
+        kitRoot,
+      ),
+    );
+    archive = path.join(scratch, packed[0].filename);
+  }
   const consumer = path.join(scratch, "consumer");
   fs.mkdirSync(consumer);
   fs.writeFileSync(
@@ -80,8 +89,9 @@ try {
     "variants/reviewed.md",
   ])
     assert.ok(fs.statSync(path.join(installed, "examples/skill-comparison", file)).isFile(), file);
-  for (const file of ["run.mjs", "recipe.example.json", "README.md"])
+  for (const file of ["run.mjs", "experiment.mjs", "recipe.example.json", "README.md"])
     assert.ok(fs.statSync(path.join(installed, "examples/benchmark", file)).isFile(), file);
+  assert.ok(fs.statSync(path.join(installed, "dist/benchmark-experiment-worker.js")).isFile());
   const benchmarkApi = await run(
     process.execPath,
     [
@@ -92,6 +102,112 @@ try {
     consumer,
   );
   assert.equal(benchmarkApi.trim(), "");
+  const experimentRoot = path.join(scratch, "controlled-experiment");
+  fs.mkdirSync(experimentRoot);
+  for (const side of ["baseline", "candidate"]) {
+    const project = path.join(experimentRoot, side);
+    fs.mkdirSync(project);
+    fs.writeFileSync(path.join(project, ".env"), `AEK_PACKAGE_BENCHMARK_SIDE=${side}\n`);
+    fs.writeFileSync(path.join(project, "subject.json"), JSON.stringify({ side }));
+    fs.writeFileSync(
+      path.join(project, "evalkit.yaml"),
+      YAML.stringify({
+        version: 1,
+        project: { name: "Packaged experiment" },
+        target: { kind: "command" },
+        agent: { provider: "mock" },
+        judge: { provider: "mock" },
+        paths: { specs: "spec.yaml" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(project, "collect.mjs"),
+      `
+import fs from 'node:fs';import path from 'node:path';
+const c=JSON.parse(fs.readFileSync(process.env.AEK_COLLECT_CONTEXT,'utf8')),s=JSON.parse(fs.readFileSync(c.sources.subject.path,'utf8'));
+if(process.env.AEK_PACKAGE_BENCHMARK_SIDE!==s.side)throw Error('Environment mixed');
+const m={version:1,candidate:{id:s.side,revision:s.side},workload:{id:'work',sha256:'a'.repeat(64)},method:{id:'timer',sha256:'b'.repeat(64)},environment:{hardware:'fixture'},work:{unit:'items',requested:1,completed:1},outcome:{state:'completed'},metrics:[{id:'time',unit:'ms',preferredDirection:'lower',scope:'application',observation:{state:'observed',samples:[s.side==='baseline'?10:5]}}],correctness:[{scenarioId:'WORKLOAD',fileLabel:'raw'}]};
+fs.writeFileSync(path.join(c.outputDir,'measurements.json'),JSON.stringify(m));fs.writeFileSync(path.join(c.outputDir,'raw.json'),JSON.stringify({valid:true}));
+console.log(JSON.stringify({version:1,outcome:'completed',summary:'Package fixture',observations:['Synthetic values; no performance claim'],files:['measurements','raw'].map(label=>({label,path:label+'.json',filename:label+'.json',mediaType:'application/json'}))}));
+`,
+    );
+    fs.writeFileSync(
+      path.join(project, "check.mjs"),
+      `
+import fs from 'node:fs';import path from 'node:path';
+const d=path.join(process.env.AEK_RUN_DIR,'WORKLOAD'),e=JSON.parse(fs.readFileSync(path.join(d,'evidence.json'),'utf8')),f=e.files.find(f=>f.label==='raw'),r=JSON.parse(fs.readFileSync(path.join(d,f.path),'utf8'));
+console.log(JSON.stringify({verdict:r.valid?'pass':'fail',confidence:'high',reasoning:'Independent package fixture check',evidenceRefs:['WORKLOAD/'+f.path]}));
+`,
+    );
+    fs.writeFileSync(
+      path.join(project, "spec.yaml"),
+      YAML.stringify({
+        id: "bench",
+        title: "Benchmark fixture",
+        description: "Installed process boundary",
+        weight: 100,
+        scenarios: [
+          {
+            id: "WORKLOAD",
+            name: "Fixture",
+            kind: "command",
+            instructions: "Observe the fixture",
+            collect: {
+              command: "node collect.mjs",
+              methodFiles: ["collect.mjs"],
+              sources: { subject: "subject.json" },
+              files: ["measurements", "raw"],
+            },
+          },
+        ],
+        rubric: [
+          {
+            id: "VALID",
+            criterion: "Valid observation",
+            passCriteria: "The fixture is valid",
+            weight: 1,
+            gate: true,
+            scenarios: ["WORKLOAD"],
+            grader: {
+              type: "command",
+              command: "node check.mjs",
+              output: "json",
+              methodFiles: ["check.mjs"],
+            },
+          },
+        ],
+      }),
+    );
+  }
+  const experimentOutput = path.join(experimentRoot, "output"),
+    experimentRecipe = path.join(experimentRoot, "recipe.json");
+  fs.writeFileSync(
+    experimentRecipe,
+    JSON.stringify({
+      version: 1,
+      candidates: { baseline: "baseline/evalkit.yaml", candidate: "candidate/evalkit.yaml" },
+      baseline: "baseline",
+      blocks: [
+        ["baseline", "candidate"],
+        ["candidate", "baseline"],
+      ],
+      resource: "resource",
+      timeoutSeconds: 30,
+      measurement: { scenarioId: "WORKLOAD", fileLabel: "measurements" },
+    }),
+  );
+  await run(
+    process.execPath,
+    [path.join(installed, "examples/benchmark/experiment.mjs"), experimentOutput, experimentRecipe],
+    consumer,
+  );
+  const experiment = JSON.parse(
+    fs.readFileSync(path.join(experimentOutput, "summary.json"), "utf8"),
+  );
+  assert.equal(experiment.outcome, "compared");
+  assert.equal(experiment.visits.length, 4);
+  assert.deepEqual(experiment.unattempted, []);
+  assert.equal(fs.existsSync(path.join(experimentRoot, "resource/.run.lock")), false);
   const benchmarkRecipe = path.join(scratch, "benchmark-recipe");
   fs.mkdirSync(benchmarkRecipe);
   for (const side of ["baseline", "candidate"])

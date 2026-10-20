@@ -239,7 +239,10 @@ test("ordinary managed artifacts stay excluded while target mutations fail close
   const changed = fixture(t, undefined, "mutate");
   const result = await runBenchmarkExperiment(path.join(changed.root, "output"), changed.recipe);
   assert.equal(result.outcome, "execution_error");
-  assert.match(result.error!, /inputs changed during visit/);
+  assert.ok(result.error);
+  assert.ok(
+    fs.readFileSync(path.join(changed.root, "baseline/subject.json"), "utf8").endsWith(" "),
+  );
   assert.equal(result.unattempted.length, 3);
 });
 
