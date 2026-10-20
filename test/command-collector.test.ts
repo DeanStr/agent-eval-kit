@@ -114,6 +114,22 @@ function prepare(value: Awaited<ReturnType<typeof fixture>>) {
   return receipt;
 }
 
+test("target exclusions never hide declared collector sources or method changes", async (t) => {
+  const value = await fixture(t);
+  value.config.target.fingerprint = { exclude: ["source.png", "collect.mjs"] };
+  const receipt = () => buildRunReceipt({ config: value.config, specs: value.specs, fixtures: {} });
+  const first = receipt();
+  fs.appendFileSync(path.join(value.root, "source.png"), Buffer.from("changed delivered bytes"));
+  const sourceChanged = receipt();
+  assert.equal(sourceChanged.target.treeSha256, first.target.treeSha256);
+  assert.notEqual(sourceChanged.inputFingerprint, first.inputFingerprint);
+  assert.equal(sourceChanged.evaluationFingerprint, first.evaluationFingerprint);
+  fs.appendFileSync(path.join(value.root, "collect.mjs"), "\n// extraction method changed\n");
+  const methodChanged = receipt();
+  assert.equal(methodChanged.target.treeSha256, first.target.treeSha256);
+  assert.notEqual(methodChanged.evaluationFingerprint, first.evaluationFingerprint);
+});
+
 test("command evidence reaches LLM and pairwise grading, seals sources, resumes, and promotes images", async (t) => {
   const value = await fixture(t);
   const result = await runEvaluation(value);

@@ -24,6 +24,47 @@ For two local files, use `aek image compare --candidate new.png --reference old.
 blind repeated judging. See [direct image comparison](image-comparison.md) for a
 walkthrough, optional absolute-quality gates, and every command flag.
 
+## Start a controlled visual project
+
+```sh
+aek init --kind visual
+aek validate
+aek run --split all
+```
+
+The installed package generates a self-contained WebGL2 fixture, an explicitly
+selectable Canvas2D renderer, a page adapter, a local Node server, and three suites.
+Install matching Chromium first (`npx --no-install playwright install chromium`).
+Follow the generated `evals/ONBOARDING.md`; its default `checks` suite makes no
+model calls and requires two independent passes, fixed logical time, movement,
+image health, instrumented metrics, and browser diagnostics.
+
+Calibrate with the same evaluator against these target URLs:
+
+| Target | Expected result |
+| --- | --- |
+| `http://127.0.0.1:4189/` | Exit 0; capture passes at 100% coverage. |
+| `http://127.0.0.1:4189/?variant=frozen` | Exit 2; observed movement/duplicate failures at 100% coverage. |
+| `http://127.0.0.1:4189/?variant=blank` | Exit 2; observed image-health failures at 100% coverage. |
+
+Pass a URL with `aek run --split all --url 'URL'`. Add `renderer=canvas` to select
+Canvas2D; WebGL failure never implicitly switches renderers. A broken adapter,
+shader, timeout, or corrupt artifact is execution exit 1, not a product score.
+
+After reviewing a working `checks` run, promote it explicitly with
+`aek baseline promote --suite checks --run RUN --name approved --reviewer NAME --include-images`.
+`aek run --suite baseline --split all` then checks non-regression against those
+approved pixels. It requires a real judge and cannot bootstrap from the candidate.
+`aek run --suite aspirational --split all` independently requires strict preference
+over the supplied illustrative SVG. The working fixture need not beat that target.
+Neither relative comparison establishes absolute quality. A mock judge abstains
+and blocks either model gate; only the deterministic suite can pass offline.
+
+Replace the fixture with your application-owned reset, seed, setup, logical-time,
+readiness, and metric methods. Calibrate your own regions, thresholds, criteria,
+and reviewed references before using either model suite as a release gate.
+The older dashboard example under `examples/visual/` also ships in release archives.
+
 ## Try the example
 
 Release packages include `examples/visual` with its server, dashboard, reference
@@ -94,7 +135,9 @@ window.__AEK_EVAL__ = {
 Each pass starts a new browser/context, restores the same captured persona if configured, calls reset → setSeed → configure, and collects frames after waitUntilStable and a two-frame compositor barrier. Case variables override same-named setup fields. Finite CSS animations are disabled for screenshots; application time advances only through the adapter. Controlled scenarios cannot depend on other scenarios: their state must be established by reset/configure. Existing authentication rules still apply.
 
 `timeoutSeconds` covers the whole controlled scenario, including every pass and
-image processing. `readinessTimeoutSeconds` (default 60) bounds each pass's navigation,
+image processing. It defaults to 60 seconds and accepts an explicit budget up to
+3600 seconds for expensive software-rendered or multi-checkpoint sequences.
+`readinessTimeoutSeconds` (default 60) bounds each pass's navigation,
 ready selector and adapter discovery together, and each frame's stability/compositor
 wait. `screenshotTimeoutSeconds` (default 120) independently bounds each screenshot;
 it does not inherit `browser.actionTimeoutMs`. All stages remain bounded by the
@@ -329,6 +372,15 @@ readable labels, then a separate pairwise rubric for relative preference or
 non-regression. An unavailable absolute gate remains blocking; a pairwise win
 cannot compensate for it. Use concrete requirements rather than arbitrary
 1–10 quality averages.
+
+Keep interface comprehension separate from environmental fidelity. Extra labels,
+metrics, or feature claims must not let weaker rendering win a production-quality
+comparison; a reference need not expose the candidate's controls or mechanics.
+Require the relative preference to agree with the stated fidelity assessment.
+The [visual calibration example](../examples/visual/README.md) supplies a sharp
+control, a blurred scene with readable extra metrics, and an unchanged scene
+with unreadable text. Its six explicit, agent-authored labels exercise the two
+criteria independently through sealed command collections and judge validation.
 
 The [exported-chart example](../examples/artifact/specs/chart.yaml) demonstrates
 this composition. Both candidate and reference begin with the same chart so

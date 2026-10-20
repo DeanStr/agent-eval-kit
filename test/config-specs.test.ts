@@ -94,6 +94,37 @@ target: { kind: web, url: "\${AEK_TEST_MISSING}" }
   assert.throws(() => loadConfig(file), /missing environment variable AEK_TEST_MISSING/);
 });
 
+test("target fingerprint exclusions are canonical project-relative literal paths", (t) => {
+  const root = temporary();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, "evalkit.yaml");
+  const write = (exclude: string[]) =>
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        project: { name: "Exclusions" },
+        target: { kind: "repository", fingerprint: { exclude } },
+      }),
+    );
+  write(["./output/", "generated[1]"]);
+  assert.deepEqual(loadConfig(file).target.fingerprint?.exclude, ["output", "generated[1]"]);
+  for (const exclude of [
+    ["."],
+    ["nested/.."],
+    ["../outside"],
+    ["/tmp/outside"],
+    ["C:\\outside"],
+    ["C:output"],
+    ["C:../outside"],
+    ["C:"],
+    ["output", "./output/"],
+  ]) {
+    write(exclude);
+    assert.throws(() => loadConfig(file), /fingerprint|exclude/);
+  }
+});
+
 test("config rejects credential-bearing target and readiness URLs", () => {
   const root = temporary();
   const file = path.join(root, "evalkit.yaml");

@@ -21,13 +21,14 @@ for a local pnpm install, use `pnpm exec aek`.
 | `aek init --kind repository` | Documentation/source agreement for a named interface | Interface, documented contract, implementation paths |
 | `aek init --kind command` | Deterministic output/exit-status check | Implement `evals/check.mjs` and specify the invocation and expected result |
 | `aek init --kind artifact` | Readability of a delivered PNG | Source PNG path, required content, viewing size |
+| `aek init --kind visual` | Controlled WebGL/Canvas2D capture and separate comparison suites | Application adapter, calibrated image/metric bounds, reviewed baseline and aspirational target |
 
 An optional positional directory chooses the destination. Omitting `--kind`
 selects `web`. Existing destination files are never overwritten; all generated
 files are preflighted before publication, including the guide and helper scripts.
 
-Every starter contains `evalkit.yaml`, `evals/specs/core.yaml`,
-`evals/fixtures.yaml`, and `evals/ONBOARDING.md`. Command and artifact starters
+Every starter contains `evalkit.yaml`, `evals/specs/core.yaml`, and
+`evals/ONBOARDING.md`. Non-visual starters also include `evals/fixtures.yaml`. Command and artifact starters
 also include their helper script. Artifact evaluation uses a repository target
 and a command collector; `artifact` is a starter choice, not a new target kind.
 The PNG must exist before validation. The command checker deliberately raises
@@ -39,6 +40,11 @@ LLM grading. Artifact collection also needs no agent subscription, but its image
 judge uses the configured real provider. The PNG collector checks the source
 signature before copying; other formats require explicit extraction and updated
 provenance.
+
+The [visual starter](visual-evaluation.md#start-a-controlled-visual-project)
+includes a runnable fixture and working/frozen/blank calibration URLs. Its default
+checks suite needs Chromium but no model subscription. Separate baseline and
+aspirational suites use real model judges and keep their acceptance policies distinct.
 
 ## Define the first requirement
 

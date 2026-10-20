@@ -40,6 +40,15 @@ test("project initialization preflights every conflict before writing anything",
   assert.equal(fs.readFileSync(conflict, "utf8"), "user-owned\n");
 });
 
+test("project initialization fails when the filesystem root is unavailable", (t) => {
+  const root = temporary();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  // Simulate an unavailable drive/UNC root without depending on the host OS.
+  t.mock.method(fs, "existsSync", () => false);
+  assert.throws(() => initializeProject(root, "visual"), /No existing filesystem ancestor/);
+  assert.deepEqual(fs.readdirSync(root), []);
+});
+
 const kit = path.resolve(import.meta.dirname, "..");
 function cli(root: string, args: string[], expected = 0) {
   const result = spawnSync(
@@ -74,10 +83,20 @@ for (const kind of STARTER_KINDS) {
     assert.match(
       preview.stdout,
       new RegExp(
-        `\\[${kind === "web" ? "browser" : kind === "artifact" ? "command" : "workspace"}\\]`,
+        `\\[${kind === "web" || kind === "visual" ? "browser" : kind === "artifact" ? "command" : "workspace"}\\]`,
       ),
     );
     assert.equal(fs.existsSync(path.join(root, ".agent-eval/runs")), false);
+
+    if (kind === "visual") {
+      // Exercise the generated default URL/port, not only a rewritten test endpoint.
+      cli(root, ["run", "--split", "all"]);
+      const runs = path.join(root, ".agent-eval/runs");
+      const run = path.join(runs, requireDefined(fs.readdirSync(runs)[0], "visual run"));
+      const report = JSON.parse(fs.readFileSync(path.join(run, "report.json"), "utf8"));
+      assert.equal(report.overallCoveragePct, 100);
+      assert.equal(report.gates.passed, true);
+    }
 
     if (kind === "command") {
       cli(root, ["doctor"]); // No real provider or browser is required.
@@ -132,6 +151,7 @@ test("init preflights guide and helper conflicts for every starter", (t) => {
     ["web", "evals/ONBOARDING.md"],
     ["command", "evals/check.mjs"],
     ["artifact", "evals/collect.mjs"],
+    ["visual", "evals/visual/scene.mjs"],
   ] as const) {
     const root = temporary();
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));

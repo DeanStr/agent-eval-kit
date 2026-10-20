@@ -1,8 +1,9 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { visualStarterFiles } from "./starters/visual.js";
 
-export const STARTER_KINDS = ["web", "repository", "command", "artifact"] as const;
+export const STARTER_KINDS = ["web", "repository", "command", "artifact", "visual"] as const;
 export type StarterKind = (typeof STARTER_KINDS)[number];
 
 function configTemplate(kind: StarterKind): string {
@@ -61,7 +62,7 @@ const authoringNotes = `# Before running, replace this example with one concrete
 # See ../ONBOARDING.md for preparation and good-versus-broken calibration.
 `;
 
-const specs: Record<StarterKind, string> = {
+const specs: Record<Exclude<StarterKind, "visual">, string> = {
   web: `id: core
 title: Primary workflow
 weight: 100
@@ -340,18 +341,25 @@ export function initializeProject(directory: string, requestedKind: string = "we
     throw new Error(`Unknown starter ${requestedKind}; expected ${STARTER_KINDS.join(", ")}`);
   }
   const root = path.resolve(directory);
-  const files: Array<{ target: string; content: string; staged?: string }> = [
-    { target: path.join(root, "evalkit.yaml"), content: configTemplate(kind) },
-    {
-      target: path.join(root, "evals", "specs", "core.yaml"),
-      content: authoringNotes + specs[kind],
-    },
-    { target: path.join(root, "evals", "fixtures.yaml"), content: fixturesTemplate },
-  ];
-  files.push({
-    target: path.join(root, "evals", "ONBOARDING.md"),
-    content: onboardingTemplate(kind),
-  });
+  const files: Array<{ target: string; content: string; staged?: string }> =
+    kind === "visual"
+      ? visualStarterFiles().map(({ relative, content }) => ({
+          target: path.join(root, relative),
+          content,
+        }))
+      : [
+          { target: path.join(root, "evalkit.yaml"), content: configTemplate(kind) },
+          {
+            target: path.join(root, "evals", "specs", "core.yaml"),
+            content: authoringNotes + specs[kind],
+          },
+          { target: path.join(root, "evals", "fixtures.yaml"), content: fixturesTemplate },
+        ];
+  if (kind !== "visual")
+    files.push({
+      target: path.join(root, "evals", "ONBOARDING.md"),
+      content: onboardingTemplate(kind),
+    });
   if (kind === "command")
     files.push({ target: path.join(root, "evals", "check.mjs"), content: commandChecker });
   if (kind === "artifact")
@@ -362,11 +370,18 @@ export function initializeProject(directory: string, requestedKind: string = "we
   }
 
   const published: string[] = [];
-  const createdDirectories = [
-    root,
-    path.join(root, "evals"),
-    path.join(root, "evals", "specs"),
-  ].filter((directoryPath) => !fs.existsSync(directoryPath));
+  const directories = new Set<string>();
+  for (const { target } of files) {
+    let directoryPath = path.dirname(target);
+    while (!fs.existsSync(directoryPath)) {
+      directories.add(directoryPath);
+      const parent = path.dirname(directoryPath);
+      if (parent === directoryPath)
+        throw new Error(`No existing filesystem ancestor for initialization at ${root}`);
+      directoryPath = parent;
+    }
+  }
+  const createdDirectories = [...directories].sort((a, b) => a.length - b.length);
   try {
     // Stage every complete file before making any of them visible at its final path.
     for (const file of files) {

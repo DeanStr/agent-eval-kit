@@ -165,7 +165,7 @@ export const captureSchema = z
     seed: z.number().int().default(1337),
     setup: z.record(z.string(), z.unknown()).default({}),
     readySelector: z.string().min(1).optional(),
-    timeoutSeconds: z.number().positive().max(600).default(60),
+    timeoutSeconds: z.number().positive().max(3600).default(60),
     readinessTimeoutSeconds: z.number().positive().max(600).default(60),
     screenshotTimeoutSeconds: z.number().positive().max(600).default(120),
     passes: z.number().int().min(2).max(10).default(2),

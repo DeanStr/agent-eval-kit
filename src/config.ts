@@ -91,6 +91,23 @@ const commandSchema = z.union([
     .strict(),
 ]);
 
+export const fingerprintExclusionSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (value) =>
+      !path.isAbsolute(value) &&
+      !path.win32.parse(value).root &&
+      !value.includes("\\") &&
+      !value.includes("\0"),
+    "fingerprint exclusions must be project-relative paths",
+  )
+  .transform((value) => path.posix.normalize(value).replace(/\/$/, ""))
+  .refine(
+    (value) => value !== "." && value !== ".." && !value.startsWith("../"),
+    "fingerprint exclusions cannot name project.root or escape it",
+  );
+
 const providerSchema = z
   .object({
     provider: z.enum(PROVIDERS).default("codex"),
@@ -122,6 +139,18 @@ const rawConfigSchema = z
         setup: commandSchema.optional(),
         start: commandSchema.optional(),
         allowExternalServer: z.boolean().optional(),
+        fingerprint: z
+          .object({
+            exclude: z
+              .array(fingerprintExclusionSchema)
+              .max(50)
+              .refine(
+                (paths) => new Set(paths).size === paths.length,
+                "fingerprint exclusions must be unique",
+              ),
+          })
+          .strict()
+          .optional(),
         ready: z
           .object({
             url: httpUrlSchema.optional(),

@@ -39,7 +39,9 @@ aek list --config evalkit.yaml
 aek run --config evalkit.yaml --dry-run
 ```
 
-`init [directory]` accepts `web` (default), `repository`, `command`, and `artifact`.
+`init [directory]` accepts `web` (default), `repository`, `command`, `artifact`, and `visual`.
+The [visual starter](visual-evaluation.md#start-a-controlled-visual-project) supplies
+a runnable controlled-capture fixture and separate checks, baseline, and aspirational suites.
 It writes starter files without overwriting existing files. Customize them using
 the generated `evals/ONBOARDING.md` before evaluating your project.
 

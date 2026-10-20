@@ -59,6 +59,8 @@ export interface EvalConfig {
     setup?: CommandConfig;
     start?: CommandConfig;
     allowExternalServer?: boolean;
+    /** Explicit project-owned generated artifacts omitted from target identity. */
+    fingerprint?: { exclude: string[] };
     ready?: {
       url?: string;
       command?: string;

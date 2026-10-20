@@ -72,14 +72,14 @@ evalkit.yaml + specs + fixtures
 under `.agent-eval/release/`. Consumers can install the tarball directly:
 
 ```sh
-npm install --save-dev /path/to/agent-eval-kit-0.6.2.tgz
+npm install --save-dev /path/to/agent-eval-kit-0.6.3.tgz
 npx aek --help
 npx aek init --kind command
 ```
 
 Run these commands in your project's root. Follow the generated
 `evals/ONBOARDING.md` and implement the checker before running the command starter.
-Choose `--kind web`, `repository`, or `artifact` for other targets. For browser
+Choose `--kind web`, `repository`, `artifact`, or `visual` for other targets. For browser
 scenarios, install the matching browser from the consuming project:
 
 ```sh
@@ -153,7 +153,10 @@ cd /path/to/your/project
 aek init --kind web
 ```
 
-Choose `--kind web`, `repository`, `command`, or `artifact` (default: `web`).
+Choose `--kind web`, `repository`, `command`, `artifact`, or `visual` (default: `web`).
+The [controlled visual starter](docs/visual-evaluation.md#start-a-controlled-visual-project)
+includes a runnable WebGL/Canvas2D fixture, working/frozen/blank calibration,
+and separate approved-baseline and aspirational comparison suites.
 Initialization writes an editable starter, not a discovered evaluation of your project.
 Follow the generated `evals/ONBOARDING.md` to define one measurable requirement,
 prepare test state, and calibrate it on known-good and deliberately broken behavior.

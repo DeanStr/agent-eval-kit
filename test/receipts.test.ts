@@ -877,6 +877,36 @@ test("unborn Git repositories fingerprint their untracked target contents", () =
   assert.notEqual(changed.inputFingerprint, first.inputFingerprint);
 });
 
+for (const git of [false, true])
+  test(`explicit artifact exclusions preserve runtime identity and policy compatibility (${git ? "Git" : "non-Git"})`, (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-receipt-artifacts-"));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const { config, spec, fixtures } = inputs(root);
+    fs.mkdirSync(path.join(root, "generated[1]"));
+    fs.mkdirSync(path.join(root, "generated1"));
+    fs.writeFileSync(path.join(root, ".gitignore"), "generated*/\n.env\n");
+    fs.writeFileSync(path.join(root, "app.txt"), "app one");
+    fs.writeFileSync(path.join(root, ".env"), "RUNTIME_VARIANT=one\n");
+    if (git) assert.equal(spawnSync("git", ["init"], { cwd: root }).status, 0);
+    config.target.fingerprint = { exclude: ["generated[1]"] };
+    const receipt = () => buildRunReceipt({ config, specs: [spec], fixtures });
+    const first = receipt();
+    fs.writeFileSync(path.join(root, "generated[1]", "archive.txt"), "new generated evidence");
+    assert.equal(receipt().inputFingerprint, first.inputFingerprint);
+    fs.writeFileSync(path.join(root, "generated1", "runtime.txt"), "similarly named runtime input");
+    const sibling = receipt();
+    assert.notEqual(sibling.inputFingerprint, first.inputFingerprint);
+    fs.writeFileSync(path.join(root, ".env"), "RUNTIME_VARIANT=two\n");
+    const environment = receipt();
+    assert.notEqual(environment.inputFingerprint, sibling.inputFingerprint);
+    fs.writeFileSync(path.join(root, "app.txt"), "app two");
+    assert.notEqual(receipt().inputFingerprint, environment.inputFingerprint);
+    config.target.fingerprint.exclude.push("generated1");
+    const policy = receipt();
+    assert.notEqual(policy.evaluationFingerprint, first.evaluationFingerprint);
+    assert.notEqual(policy.inputs.collectionMethodSha256, first.inputs.collectionMethodSha256);
+  });
+
 test("non-Git projects fingerprint target contents while excluding managed outputs", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-receipt-nongit-"));
   const { config, spec, fixtures } = inputs(root);

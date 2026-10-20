@@ -418,7 +418,7 @@ Usage: aek <command> [flags]
   author status [--project directory] [--json] [--require-ready]
   author validate [--project directory] [--json] [--require-ready]
                                    Validate the map, check rubric links and recorded trials
-  init [directory] [--kind web|repository|command|artifact]
+  init [directory] [--kind web|repository|command|artifact|visual]
                                    Create a starter kit and onboarding guide
   validate [--config file]         Validate configuration, specs, and fixture paths
   list [--config file]             List areas, scenarios, graders, weights, and tags

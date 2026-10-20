@@ -49,6 +49,21 @@ test("pairwise abstention cannot pass non-regression; observed equivalence can",
   assert.equal(decideVotes(Array(5).fill("equivalent"), policy, ["win"]).decision, "equivalent");
 });
 
+test("expensive controlled sequences can use a bounded hour without extending per-stage limits", () => {
+  const capture = captureSchema.parse({ timeoutSeconds: 3600 });
+  assert.equal(capture.timeoutSeconds, 3600);
+  assert.equal(capture.readinessTimeoutSeconds, 60);
+  assert.equal(capture.screenshotTimeoutSeconds, 120);
+  assert.equal(captureSchema.parse({}).timeoutSeconds, 60);
+  for (const invalid of [
+    { timeoutSeconds: 0 },
+    { timeoutSeconds: 3601 },
+    { readinessTimeoutSeconds: 601 },
+    { screenshotTimeoutSeconds: 601 },
+  ])
+    assert.throws(() => captureSchema.parse(invalid));
+});
+
 test("invalid voting, capture and reference contracts fail validation", () => {
   assert.throws(() => votingSchema.parse({ minimumVotes: 5, maximumVotes: 3 }));
   assert.throws(() => votingSchema.parse({ agreement: 0.5 }));

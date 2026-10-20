@@ -139,7 +139,7 @@ function gitPathspecs(root: string, excludedPaths: string[]): string[] {
   const exclusions = excludedPaths.flatMap((candidate) => {
     const relative = path.relative(root, path.resolve(candidate)).split(path.sep).join("/");
     if (!relative || relative === "." || relative === ".." || relative.startsWith("../")) return [];
-    return [`:(exclude)${relative}`, `:(exclude)${relative}/**`];
+    return [`:(exclude,literal)${relative}`];
   });
   return [
     ".",
@@ -710,6 +710,7 @@ export function buildRunReceipt(options: {
         : undefined,
     kitVersion: KIT_VERSION,
     targetKind: config.target.kind,
+    targetFingerprintExclusions: [...(config.target.fingerprint?.exclude ?? [])].sort(),
     lifecycle: normalizedLifecyclePolicy(config),
     additionalAllowedOrigins: normalizedComparisonOrigins(config, specs),
     agent: config.agent,
@@ -801,6 +802,9 @@ export function buildRunReceipt(options: {
       const managedRoot = path.dirname(config.paths.runs);
       const managedRoots = path.basename(managedRoot) === ".agent-eval" ? [managedRoot] : [];
       const excludedTargetPaths = [
+        ...(config.target.fingerprint?.exclude ?? []).map((entry) =>
+          path.resolve(config.project.root, entry),
+        ),
         config.paths.runs,
         config.paths.auth,
         ...(config.paths.baselines ? [config.paths.baselines] : []),

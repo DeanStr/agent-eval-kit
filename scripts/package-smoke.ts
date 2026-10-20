@@ -273,6 +273,31 @@ console.log(JSON.stringify({verdict:r.valid?'pass':'fail',confidence:'high',reas
   assert.doesNotMatch(validationHelp, /--evidence/);
   assert.ok(fs.existsSync(path.join(installed, "docs/judge-validation.md")));
   assert.ok(fs.existsSync(path.join(installed, "examples/judge-validation/README.md")));
+  const visualCalibration = path.join(scratch, "visual-calibration-example");
+  await run(
+    process.execPath,
+    [
+      path.join(installed, "examples/visual/calibrate.mjs"),
+      visualCalibration,
+      "--prepare-only",
+      "--provider",
+      "mock",
+    ],
+    consumer,
+  );
+  const visualCases = JSON.parse(
+    fs.readFileSync(path.join(visualCalibration, "cases.json"), "utf8"),
+  );
+  const visualLabels = JSON.parse(
+    fs.readFileSync(path.join(visualCalibration, "labels.json"), "utf8"),
+  );
+  assert.equal(visualCases.cases.length, 6);
+  assert.equal(visualLabels.labels.length, 6);
+  assert.ok(
+    visualLabels.labels.every(
+      (label: { reviewer: { kind: string } }) => label.reviewer.kind === "agent",
+    ),
+  );
   const validationExample = path.join(scratch, "judge-validation-example");
   await run(
     process.execPath,
@@ -717,6 +742,18 @@ console.log(JSON.stringify({ version: 1, outcome: 'completed', summary: 'Sent no
   assert.equal(report.areas[0].items[1].votes.judgeable, 0);
   assert.equal(report.areas[0].items[2].source, "image-distinctness");
   assert.equal(report.areas[0].items[2].verdict, "pass");
+  const visualStarter = path.join(consumer, "controlled-visual");
+  await run(cli, ["init", visualStarter, "--kind", "visual"], consumer);
+  await run(cli, ["validate"], visualStarter);
+  await run(cli, ["run", "--split", "all"], visualStarter);
+  for (const file of [
+    "scene.mjs",
+    "server.mjs",
+    "baseline.yaml",
+    "aspirational.yaml",
+    "aspirational.svg",
+  ])
+    assert.ok(fs.statSync(path.join(visualStarter, "evals/visual", file)).isFile());
   console.log(
     "Package smoke passed: tarball install, offline first-run scores/coverage/gates/comparison, installed judge validation and offline report example, direct two-image comparison, authoring skill/map/calibration, text datasets/suites/selection/reference promotion, file and email collector/checker pass and failure, executable bin, init, validate, run, collect, judge, release promotion, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
   );

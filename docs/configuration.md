@@ -37,6 +37,16 @@ configuration, specs, fixtures, and declared input files. Unknown fields fail.
 | `target.start` | Optional command | Starts a managed server and keeps it alive until cleanup. |
 | `target.allowExternalServer` | Boolean, effectively `false` | Permit reuse of an already listening server and skip `start`; otherwise an occupied managed endpoint fails. |
 | `target.ready` | Optional readiness object | Wait for the target before collecting evidence. Works with managed or external targets. |
+| `target.fingerprint.exclude` | Optional array of up to 50 project-relative paths | Explicit generated-artifact exclusions from Git/non-Git target identity. Paths are literal, cannot name the root or escape it, and are included in evaluation/collection compatibility. |
+
+Use fingerprint exclusions for project-owned evidence archives that are not
+runtime inputs, for example `fingerprint: { exclude: [output] }`. These exclusions
+apply before file-count and byte limits, including to ignored Git files. Keep
+application source, executed builds, environment files, and runtime data in the
+target identity. Declared collector sources and grader/collector method files
+remain independently snapshotted and verified even inside an excluded directory.
+Changing the exclusion policy changes evaluator compatibility and prevents resume
+or detached evidence reuse under a different policy. Execution previews expose it.
 
 `--url` is available only for web targets. It replaces the configured target origin
 in the effective allowlist and rewrites a readiness URL on that same origin;

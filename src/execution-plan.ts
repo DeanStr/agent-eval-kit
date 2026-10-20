@@ -231,6 +231,7 @@ export function buildExecutionPlan(options: RunOptions, specs: EvalSpec[]) {
       start: command(config.target.start, "start"),
       ready: config.target.ready ?? null,
       allowExternalServer: config.target.allowExternalServer ?? false,
+      fingerprintExclusions: config.target.fingerprint?.exclude ?? [],
     },
     services: {
       browser: {
@@ -298,6 +299,8 @@ export function formatExecutionPlan(plan: ReturnType<typeof buildExecutionPlan>)
     `${plan.project}: ${plan.mode}, split ${plan.split}, ${plan.repetitions} repetition(s)`,
     `Target: ${plan.target.kind}${plan.target.url ? ` ${plan.target.url}` : ""}`,
   ];
+  if (plan.target.fingerprintExclusions.length)
+    lines.push(`Target fingerprint excludes: ${plan.target.fingerprintExclusions.join(", ")}`);
   for (const phase of ["setup", "start"] as const)
     if (plan.target[phase]) lines.push(`${phase}: ${plan.target[phase].command}`);
   if (plan.target.ready) lines.push(`ready: ${plan.target.ready.url ?? plan.target.ready.command}`);

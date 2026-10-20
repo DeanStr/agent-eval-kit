@@ -65,9 +65,11 @@ in the packaged docs located as described above.
 
 ## Build the definitions
 
-For a new kit, `aek init --kind web|repository|command|artifact` generates an
-editable starter. Choose a kind consistent with the target; artifact is a starter,
-not a target kind. Existing kits must be extended without overwriting files.
+For a new kit, `aek init --kind web|repository|command|artifact|visual` generates an
+editable starter. Use `visual` for controlled Canvas/WebGL capture with separate
+capture, approved-baseline, and aspirational suites; follow its generated guide
+to calibrate working, frozen, and blank rendering. Artifact and visual are starter
+choices, not target kinds. Existing kits must be extended without overwriting files.
 Scenarios may be browser/workspace/command subject to target compatibility; direct
 text, command, and manual rubrics do not require placeholder scenarios.
 
