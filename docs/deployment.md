@@ -19,6 +19,14 @@ every process or prevent project code from accessing resources available to the
 account running AEK. Browser state isolation also does not reset a target database;
 use dedicated test accounts and resettable test data.
 
+Workspace MCP listing, search, and direct reads exclude `.env`, `.env.*`, `.envrc`,
+`.npmrc`, `.yarnrc`, `.yarnrc.yml`, `.netrc`, `.pypirc`, `.git-credentials`, and the
+`.ssh` and `.aws` directories at any project depth. This also applies to symbolic
+link targets and files created after startup. Use a separate fixture containing
+only non-secret sample data when a scenario needs to inspect configuration
+examples. These filename checks supplement containment; keep other private files
+outside the evaluation checkout.
+
 ## CI and untrusted submissions
 
 Run each untrusted evaluation in a disposable environment whose restrictions are

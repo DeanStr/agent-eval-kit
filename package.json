@@ -82,10 +82,10 @@
     "package:release": "tsx scripts/package-release.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "parse5": "^8.0.1",
     "playwright": "1.62.1",
-    "sharp": "0.35.4",
+    "sharp": "0.35.5",
     "yaml": "^2.9.0",
     "zod": "^4.5.4"
   },

@@ -77,6 +77,28 @@ console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',tex
   return { root, candidate, reference, bytes, counter, fail, args, run, runDir };
 }
 
+test("image comparison decodes SVG inputs with the patched image engine", async (t) => {
+  const f = await fixture(t);
+  const svg = path.join(f.root, "candidate.svg");
+  fs.writeFileSync(
+    svg,
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="16"><rect width="24" height="16" fill="#357abc"/></svg>',
+  );
+  const plan = JSON.parse(
+    f.run([...f.args, "--candidate", svg, "--reference", svg, "--dry-run", "--json"]).stdout,
+  );
+  assert.equal(plan.candidate.format, "svg");
+  assert.equal(plan.candidate.width, 24);
+  assert.equal(plan.candidate.height, 16);
+  const decoded = await sourceImage(fs.readFileSync(svg));
+  assert.deepEqual(
+    await sharp(decoded).raw().toBuffer(),
+    await sharp(f.bytes).removeAlpha().raw().toBuffer(),
+  );
+  assert.equal(fs.existsSync(f.counter), false);
+  assert.equal(fs.existsSync(path.join(f.root, ".agent-eval")), false);
+});
+
 test("image comparison dry-run validates inputs and defaults without creating output or invoking providers", async (t) => {
   const f = await fixture(t);
   const plan = JSON.parse(f.run([...f.args, "--dry-run", "--json"]).stdout);

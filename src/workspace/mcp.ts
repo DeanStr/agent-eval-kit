@@ -49,6 +49,30 @@ const excludedDirectories = new Set([
   "vendor",
 ]);
 
+const sensitiveNames = new Set([
+  ".envrc",
+  ".npmrc",
+  ".yarnrc",
+  ".yarnrc.yml",
+  ".netrc",
+  ".pypirc",
+  ".git-credentials",
+  ".ssh",
+  ".aws",
+]);
+
+function sensitiveProjectPath(candidate: string): boolean {
+  // Keep credentials out of model responses and transcripts, including files
+  // created after startup and nested project configuration.
+  return path
+    .relative(root, candidate)
+    .split(path.sep)
+    .some((part) => {
+      const name = part.toLowerCase();
+      return name === ".env" || name.startsWith(".env.") || sensitiveNames.has(name);
+    });
+}
+
 function record(entry: TranscriptEntry): void {
   fs.appendFileSync(transcriptFile, `${JSON.stringify(entry)}\n`);
 }
@@ -101,6 +125,10 @@ function projectPath(relative = "."): string {
     throw new Error(`Excluded project path is not available to scenario agents: ${relative}`);
   if (evaluatorOnly(actual))
     throw new Error(`Evaluator-only path is not available to scenario agents: ${relative}`);
+  if (sensitiveProjectPath(lexical) || sensitiveProjectPath(actual))
+    throw new Error(
+      `Sensitive project path is not available to scenario agents: ${relative}. Use a separate fixture containing only non-secret sample data.`,
+    );
   return actual;
 }
 
@@ -122,7 +150,7 @@ function collectFiles(start = root, maximum = 2_000): { files: string[]; truncat
       }
       const absolute = path.join(directory, entry.name);
       if (entry.isSymbolicLink()) continue;
-      if (evaluatorOnly(absolute)) continue;
+      if (evaluatorOnly(absolute) || sensitiveProjectPath(absolute)) continue;
       if (entry.isDirectory()) {
         if (!excludedDirectories.has(entry.name)) pending.push(absolute);
       } else if (entry.isFile()) {

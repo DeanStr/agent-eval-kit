@@ -54,6 +54,92 @@ test("concurrent workspace checkpoint publications retain distinct transcript st
   }
 });
 
+test("workspace MCP excludes credential files from reads, search, and enumeration", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-workspace-secrets-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const project = path.join(root, "project");
+  const evidence = path.join(root, "evidence");
+  const marker = "SYNTHETIC_PRIVATE_WORKSPACE_MARKER";
+  const query = "PRIVATE_WORKSPACE_SETTING";
+  const privateFiles = [
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.example",
+    ".envrc",
+    ".npmrc",
+    ".netrc",
+    ".pypirc",
+    ".git-credentials",
+    ".ssh/id_ed25519",
+    ".aws/credentials",
+    "packages/app/.env.test.local",
+    "packages/app/.yarnrc.yml",
+  ];
+  for (const file of privateFiles) {
+    const destination = path.join(project, file);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.writeFileSync(destination, `${query}=${marker}`);
+  }
+  fs.writeFileSync(path.join(project, ".editorconfig"), "root = true");
+  fs.writeFileSync(path.join(project, "environment.ts"), "export const publicValue = 1;");
+  fs.symlinkSync(".env.local", path.join(project, "credential-alias"));
+  fs.symlinkSync("environment.ts", path.join(project, ".env.link"));
+  const contextFile = path.join(root, "context.json");
+  writeJson(contextFile, {
+    projectRoot: project,
+    evidenceDir: evidence,
+    requiredCheckpoints: [],
+  } satisfies WorkspaceMcpContext);
+  const client = new Client({ name: "workspace-credential-policy", version: "1" });
+  try {
+    await client.connect(
+      new StdioClientTransport({ ...workspaceMcpLaunch(contextFile), stderr: "pipe" }),
+    );
+    await client.callTool({ name: "list_files", arguments: {} });
+    fs.writeFileSync(path.join(project, "packages/app/.env.late"), `${query}=${marker}`);
+    for (const file of [
+      ...privateFiles,
+      "packages/app/.env.late",
+      "credential-alias",
+      ".env.link",
+    ]) {
+      for (const name of ["read_file", "search"] as const) {
+        const result = await client.callTool({
+          name,
+          arguments: { path: file, ...(name === "search" ? { query } : {}) },
+        });
+        assert.equal(result.isError, true, `${name} must reject ${file}`);
+        assert.match(JSON.stringify(result.content), /Sensitive project path/);
+        assert.doesNotMatch(JSON.stringify(result.content), new RegExp(marker));
+      }
+    }
+    for (const name of ["list_files", "search"] as const) {
+      const result = await client.callTool({ name, arguments: name === "search" ? { query } : {} });
+      assert.notEqual(result.isError, true);
+      assert.doesNotMatch(
+        JSON.stringify(result.content),
+        /\.env|\.npmrc|\.yarnrc|\.ssh|\.aws|PRIVATE_WORKSPACE_MARKER/,
+      );
+    }
+    const privateDirectory = await client.callTool({
+      name: "list_files",
+      arguments: { path: ".ssh" },
+    });
+    assert.equal(privateDirectory.isError, true);
+    for (const file of [".editorconfig", "environment.ts"]) {
+      const result = await client.callTool({ name: "read_file", arguments: { path: file } });
+      assert.notEqual(result.isError, true, `${file} must remain inspectable`);
+    }
+    assert.doesNotMatch(
+      fs.readFileSync(path.join(evidence, "workspace-transcript.ndjson"), "utf8"),
+      new RegExp(marker),
+    );
+  } finally {
+    await client.close();
+  }
+});
+
 test("workspace MCP provides bounded read-only evidence and blocks path escapes", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "aek-workspace-mcp-"));
   const project = path.join(directory, "project");

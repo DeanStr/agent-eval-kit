@@ -9,18 +9,27 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { BrowserSession } from "../src/browser/session.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const evidence = fs.mkdtempSync(path.join(os.tmpdir(), "aek-regression-"));
 
-const targetUrl = "file://" + path.join(here, "browser-regression.html");
-// Same origin computation the harness uses (file:// origins resolve to "null").
+// Exercise the same HTTP origin policy as configured evaluations.
+const html = fs.readFileSync(path.join(here, "browser-regression.html"));
+const server = http.createServer((_request, response) => {
+  response.writeHead(200, { "content-type": "text/html" });
+  response.end(html);
+});
+await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+const address = server.address();
+assert(address && typeof address !== "string", "Browser regression server did not bind");
+const targetUrl = `http://127.0.0.1:${address.port}`;
 const b = new BrowserSession(evidence, true, targetUrl, undefined, [new URL(targetUrl).origin]);
-await b.start();
 
 try {
+  await b.start();
   const snap1 = await b.navigate(targetUrl);
 
   const titleRef = snap1.match(/\[(e\d+)\] <input[^>]*> Your talk title/)?.[1];
@@ -515,5 +524,7 @@ try {
   );
 } finally {
   await b.stop();
+  server.closeAllConnections();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
   fs.rmSync(evidence, { recursive: true, force: true });
 }

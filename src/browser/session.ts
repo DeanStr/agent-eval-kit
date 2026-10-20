@@ -49,6 +49,7 @@ export class BrowserSession {
   private referencesValid = true;
   private shotCounter = 0;
   private readonly readOnlyFrameGuardKey = `aek-preview-${randomUUID()}`;
+  private readonly nativeOriginKey = `aek-origin-${randomUUID()}`;
   private diagnosticBudget = { count: 0 };
   private privateAuthentication = false;
   private authenticationSecrets = new Set<string>();
@@ -238,6 +239,17 @@ export class BrowserSession {
       });
       if (this.captureOptions?.readOnlyFrames?.length)
         await installReadOnlyFrameGuard(this.context, this.readOnlyFrameGuardKey);
+      // Capture the browser's effective origin before page code can replace
+      // window.origin. URL origins do not reveal iframe or CSP sandboxing.
+      await this.context.addInitScript({
+        content: `(() => {
+          const getter = Object.getOwnPropertyDescriptor(window, "origin")?.get;
+          if (!getter) throw new Error("Native browser origin getter is unavailable");
+          Object.defineProperty(window, ${JSON.stringify(this.nativeOriginKey)}, {
+            get: getter.bind(window), configurable: false,
+          });
+        })();`,
+      });
       this.page = await this.context.newPage();
       this.initialBlankAllowed = true;
       this.page.setDefaultTimeout(this.actionTimeoutMs);
@@ -329,8 +341,6 @@ export class BrowserSession {
     try {
       const u = new URL(url);
       return this.allowedOrigins.some((entry) => {
-        // Opaque origins such as file:// serialize to "null", which is not
-        // itself parseable as a URL but is still safe to compare exactly.
         if (u.origin === entry) return true;
         if (!entry.includes("*")) {
           try {
@@ -357,42 +367,43 @@ export class BrowserSession {
   }
 
   /**
-   * A child frame is usable only when it and every ancestor below the main
-   * frame are on an explicitly allowed origin. Direct about:blank frames
-   * inherit their parent's origin, but an about:blank descendant must not
-   * bypass a disallowed parent.
+   * Require allowed effective origins throughout the child frame's ancestry.
+   * Inherited about:* documents work normally; opaque iframe and CSP sandboxes
+   * remain excluded even when their URL names an allowed application host.
    */
   private async isAllowedFrame(frame: Frame, main = this.page.mainFrame()): Promise<boolean> {
     let current: Frame | null = frame;
     while (current && current !== main) {
       const url = current.url();
-      if (url === "about:blank" || url === "about:srcdoc") {
-        // These documents inherit their embedding frame's origin unless the
-        // iframe is sandboxed without allow-same-origin. Inspect the embedding
-        // element rather than treating every about:* URL as trustworthy: an
-        // opaque sandbox must remain outside the evidence/action boundary.
-        const inheritsOrigin = await current
-          .frameElement()
-          .then((element) =>
-            element.evaluate((node) => {
-              const iframe = node as HTMLIFrameElement;
-              return (
-                !iframe.hasAttribute("sandbox") || iframe.sandbox.contains("allow-same-origin")
-              );
-            }),
-          )
-          .catch(() => {
-            throw new BrowserEvidenceError(
-              "Could not inspect iframe origin inheritance; check browser and frame health",
-            );
-          });
-        if (!inheritsOrigin) return false;
-      } else if (!this.isOnTarget(url)) {
+      if (url !== "about:blank" && url !== "about:srcdoc" && !this.isOnTarget(url)) {
         return false;
       }
+      let origin: unknown;
+      try {
+        origin = await current.evaluate(
+          (key) => (window as unknown as Record<string, unknown>)[key],
+          this.nativeOriginKey,
+        );
+        if (typeof origin !== "string") throw new Error("Native browser origin getter is missing");
+      } catch (error) {
+        throw new BrowserEvidenceError(
+          "Could not inspect effective frame origin; check browser and frame health",
+          { cause: error },
+        );
+      }
+      if (!this.isOnTarget(origin)) return false;
       current = current.parentFrame();
     }
     return current === main && this.isOnTarget(main.url());
+  }
+
+  private async assertFrameOrigin(frame: Frame, operation: "snapshot" | "capture"): Promise<void> {
+    if (!(await this.isAllowedFrame(frame))) {
+      this.invalidateReferences();
+      throw new BrowserEvidenceError(
+        `Child frame changed its evidence boundary during ${operation}`,
+      );
+    }
   }
 
   /** Evidence-only opt-in; never used to authorize interactive references. */
@@ -761,6 +772,7 @@ export class BrowserSession {
             { cause: error },
           );
         });
+      await this.assertFrameOrigin(frame, "snapshot");
       if (fAria) frameOutlines.push({ label, aria: fAria });
     }
 
@@ -781,29 +793,30 @@ export class BrowserSession {
     const lines: string[] = [];
     for (const frame of await this.allowedFrames()) {
       if (frame === this.page.mainFrame()) continue;
-      try {
-        const editable = await frame
-          .evaluate(() => {
-            const b = document.body;
-            if (!b) return null;
-            const ce =
-              b.getAttribute("contenteditable") === "true"
-                ? b
-                : b.querySelector('[contenteditable="true"]');
-            if (!ce) return null;
-            return {
-              label: (document.title || b.id || b.className || "rich text editor").slice(0, 60),
-            };
-          })
-          .catch(() => null);
-        if (!editable) continue;
-        this.refCounter += 1;
-        const ref = `e${this.refCounter}`;
-        this.frameEditors.set(ref, frame);
-        lines.push(`[${ref}] <richtext> ${editable.label} (editor iframe — use fill)`);
-      } catch {
-        /* cross-origin or detached frame */
-      }
+      const editable = await frame
+        .evaluate(() => {
+          const b = document.body;
+          if (!b) return null;
+          const ce =
+            b.getAttribute("contenteditable") === "true"
+              ? b
+              : b.querySelector('[contenteditable="true"]');
+          if (!ce) return null;
+          return {
+            label: (document.title || b.id || b.className || "rich text editor").slice(0, 60),
+          };
+        })
+        .catch((error: unknown) => {
+          throw new BrowserEvidenceError("Could not inspect rich-text frame content", {
+            cause: error,
+          });
+        });
+      await this.assertFrameOrigin(frame, "snapshot");
+      if (!editable) continue;
+      this.refCounter += 1;
+      const ref = `e${this.refCounter}`;
+      this.frameEditors.set(ref, frame);
+      lines.push(`[${ref}] <richtext> ${editable.label} (editor iframe — use fill)`);
     }
     return lines;
   }
@@ -939,7 +952,7 @@ export class BrowserSession {
     // A top-level screenshot normally includes pixels rendered by third-party
     // iframes. Hide frames outside the allowlist for the duration of capture so
     // image evidence obeys the same boundary as text snapshots and actions.
-    const { restoreFrames, readOnlyFrames } = await this.maskDisallowedFrames();
+    const { restoreFrames, readOnlyFrames, maskedFrames } = await this.maskDisallowedFrames();
     try {
       if (fullPage) {
         for (const frame of readOnlyFrames) {
@@ -1021,6 +1034,7 @@ export class BrowserSession {
               "Read-only preview changed its evidence boundary during capture",
             );
         }
+        await this.assertScreenshotFrames(maskedFrames, readOnlyFrames);
       } catch (error) {
         // page.screenshot({ path }) writes before returning. Never retain the
         // file or expose its buffer when the page crossed the boundary during
@@ -1039,12 +1053,57 @@ export class BrowserSession {
     return `AEK excluded ${count} child frame(s) by origin policy, including sandboxed frames without an allowed origin. Their content is unavailable to this evaluation and is masked in screenshots. Do not interpret blank frame regions as missing or broken product content.`;
   }
 
+  private async assertScreenshotFrames(
+    maskedFrames: ReadonlySet<Frame>,
+    readOnlyFrames: Frame[],
+  ): Promise<void> {
+    try {
+      const checkedMasks = new Set<Frame>();
+      for (const frame of this.page.frames()) {
+        if (frame === this.page.mainFrame()) continue;
+        // A masked ancestor also covers children attached during capture.
+        let masked: Frame | null = frame;
+        while (masked && !maskedFrames.has(masked)) masked = masked.parentFrame();
+        if (masked) {
+          if (checkedMasks.has(masked)) continue;
+          const element = await masked.frameElement();
+          try {
+            const hidden = await element.evaluate((node) => {
+              const style = (node as HTMLElement).style;
+              return (
+                style.getPropertyValue("visibility") === "hidden" &&
+                style.getPropertyPriority("visibility") === "important"
+              );
+            });
+            if (!hidden)
+              throw new BrowserEvidenceError(
+                "Excluded frame lost its screenshot mask during capture",
+              );
+          } finally {
+            await element.dispose();
+          }
+          checkedMasks.add(masked);
+        } else if (!readOnlyFrames.includes(frame)) {
+          await this.assertFrameOrigin(frame, "capture");
+        }
+      }
+    } catch (error) {
+      this.invalidateReferences();
+      if (error instanceof BrowserEvidenceError) throw error;
+      throw new BrowserEvidenceError("Could not verify screenshot frame boundaries", {
+        cause: error,
+      });
+    }
+  }
+
   private async maskDisallowedFrames(): Promise<{
     restoreFrames: () => Promise<void>;
     readOnlyFrames: Frame[];
+    maskedFrames: Set<Frame>;
   }> {
     const restorers: Array<() => Promise<void>> = [];
     const readOnlyFrames: Frame[] = [];
+    const maskedFrames = new Set<Frame>();
     try {
       for (const frame of this.page.frames()) {
         if (frame === this.page.mainFrame() || (await this.isAllowedFrame(frame))) continue;
@@ -1060,6 +1119,7 @@ export class BrowserSession {
           style.setProperty("visibility", "hidden", "important");
           return { value, priority };
         });
+        maskedFrames.add(frame);
         restorers.push(async () => {
           await element.evaluate((node, prior) => {
             const style = (node as HTMLElement).style;
@@ -1077,6 +1137,7 @@ export class BrowserSession {
     if (restorers.length) this.pendingNotes.push(this.frameExclusionNote(restorers.length));
     return {
       readOnlyFrames,
+      maskedFrames,
       restoreFrames: async () => {
         await Promise.all(restorers.reverse().map((restore) => restore()));
       },

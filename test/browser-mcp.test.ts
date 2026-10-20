@@ -760,7 +760,7 @@ test("screenshots fail closed when an off-origin child frame cannot be masked", 
   );
 });
 
-test("iframe inheritance inspection failures propagate instead of excluding the frame", async () => {
+test("inherited frame origin inspection failures propagate instead of excluding the frame", async () => {
   const session = new BrowserSession("/tmp/aek-unused", true, "https://target.example.test");
   const main = { url: () => "https://target.example.test" };
   session.page = { mainFrame: () => main } as never;
@@ -770,17 +770,13 @@ test("iframe inheritance inspection failures propagate instead of excluding the 
         isAllowedFrame(frame: unknown): Promise<boolean>;
       }
     ).isAllowedFrame(frame);
-  for (const failure of ["host", "sandbox"]) {
+  for (const failure of ["missing", "evaluation"]) {
     const frame = {
       url: () => "about:srcdoc",
       parentFrame: () => main,
-      frameElement: async () => {
-        if (failure === "host") throw new Error("detached host");
-        return {
-          evaluate: async () => {
-            throw new Error("inspection failed");
-          },
-        };
+      evaluate: async () => {
+        if (failure === "evaluation") throw new Error("inspection failed");
+        return undefined;
       },
     };
     await assert.rejects(inspect(frame), BrowserEvidenceError);
@@ -789,7 +785,7 @@ test("iframe inheritance inspection failures propagate instead of excluding the 
     await inspect({
       url: () => "about:srcdoc",
       parentFrame: () => main,
-      frameElement: async () => ({ evaluate: async () => false }),
+      evaluate: async () => "null",
     }),
     false,
     "a successfully inspected opaque sandbox remains excluded",
