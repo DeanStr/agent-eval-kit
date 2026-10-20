@@ -1,5 +1,26 @@
 # Release validation
 
+## Fail-fast evaluation and packaged visual examples (0.6.2)
+
+Explicitly blank CLI thresholds, provider names, and execution limits are rejected
+instead of selecting zero or inherited defaults. Failed accessibility reads remain
+evidence execution errors, and failed drags no longer retry through unchecked raw
+mouse events.
+
+Git receipt probes reject execution failures and malformed output. Commit identity
+and dirty state come from the same status response so a concurrent initial commit
+cannot retain an unborn identity. Non-Git projects still work without a Git
+executable, and marker discovery respects ceiling directories, symlink handling,
+and explicit Git directory overrides.
+
+The production archive also includes the visual example, its reference image,
+and the server's configurable host and port.
+
+Validation on Linux with Node 24.18.0 passed all 699 tests, formatting, lint,
+type checking, both browser smoke suites, and all seven deterministic reference
+variants. Release automation smoke-tests the exact versioned archive before
+publishing it with its SHA-256 checksum.
+
 ## Current browser origin checks (0.6.1)
 
 Browser MCP preflight now reads Chromium's current frame URL instead of relying
