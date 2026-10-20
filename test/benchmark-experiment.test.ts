@@ -281,8 +281,12 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
       stderr += chunk;
     });
     const closed = once(child, "close");
+    let signalled = false;
     const timer = setInterval(() => {
-      if (fs.existsSync(path.join(root, "started"))) child.kill(signal);
+      if (!signalled && fs.existsSync(path.join(root, "started"))) {
+        signalled = true;
+        child.kill(signal);
+      }
     }, 20);
     try {
       const [code] = await closed;
