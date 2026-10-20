@@ -20,6 +20,19 @@ walkthrough, optional absolute-quality gates, and every command flag.
 
 ## Try the example
 
+Release packages include `examples/visual` with its server, dashboard, reference
+image, config, and spec. From the project directory where you installed AEK:
+
+```bash
+npx --no-install playwright install chromium
+demo=$(mktemp -d)
+cp -R node_modules/agent-eval-kit/examples/visual/. "$demo/"
+npx --no-install aek validate --config "$demo/evalkit.yaml"
+npx --no-install aek run --config "$demo/evalkit.yaml" --judge codex
+```
+
+From a source checkout:
+
 ```bash
 pnpm aek validate --config examples/visual/evalkit.yaml
 pnpm aek run --config examples/visual/evalkit.yaml --judge codex

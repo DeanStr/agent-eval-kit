@@ -34,6 +34,11 @@ for (const file of [
   "dist/browser/mcp.js",
   "dist/workspace/mcp.js",
   "dist/text/rubric.js",
+  "examples/visual/server.mjs",
+  "examples/visual/evalkit.yaml",
+  "examples/visual/index.html",
+  "examples/visual/reference.svg",
+  "examples/visual/specs/dashboard.yaml",
 ])
   if (!artifact.files.some((entry: { path: string }) => entry.path === file))
     throw new Error(`Release archive is missing ${file}`);

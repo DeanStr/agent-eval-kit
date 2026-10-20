@@ -72,6 +72,14 @@ try {
   );
   const installed = path.join(consumer, "node_modules/agent-eval-kit");
   for (const file of [
+    "server.mjs",
+    "evalkit.yaml",
+    "index.html",
+    "reference.svg",
+    "specs/dashboard.yaml",
+  ])
+    assert.ok(fs.statSync(path.join(installed, "examples/visual", file)).isFile(), file);
+  for (const file of [
     "run.mjs",
     "docker-runner.mjs",
     "collect.mjs",
@@ -675,45 +683,40 @@ console.log(JSON.stringify({ version: 1, outcome: 'completed', summary: 'Sent no
     await transport.close();
   }
   const visualRoot = path.join(consumer, "visual");
-  fs.mkdirSync(path.join(visualRoot, "specs"), { recursive: true });
-  const example = path.join(kitRoot, "examples/visual");
-  fs.copyFileSync(path.join(example, "reference.svg"), path.join(visualRoot, "reference.svg"));
-  fs.copyFileSync(
-    path.join(example, "specs/dashboard.yaml"),
-    path.join(visualRoot, "specs/dashboard.yaml"),
-  );
-  const html = fs.readFileSync(path.join(example, "index.html"));
-  const server = http.createServer((_request, response) => {
-    response.setHeader("Content-Type", "text/html");
-    response.end(html);
+  fs.cpSync(path.join(installed, "examples/visual"), visualRoot, { recursive: true });
+  // Select a free port, then let AEK launch the packaged example's own server.
+  const portProbe = http.createServer();
+  await new Promise<void>((resolve, reject) => {
+    portProbe.once("error", reject);
+    portProbe.listen(0, "127.0.0.1", resolve);
   });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  try {
-    const visualConfig = YAML.parse(fs.readFileSync(path.join(example, "evalkit.yaml"), "utf8"));
-    visualConfig.target = {
-      kind: "web",
-      url: `http://127.0.0.1:${(server.address() as { port: number }).port}`,
-    };
-    fs.writeFileSync(path.join(visualRoot, "evalkit.yaml"), YAML.stringify(visualConfig));
-    await run(cli, ["validate"], visualRoot);
-    // Mock votes must withhold the visual gate despite passing capture checks.
-    await run(cli, ["run"], visualRoot, 2);
-    const visualRuns = path.join(visualRoot, ".agent-eval/runs");
-    const visualRun = path.join(
-      visualRuns,
-      requireDefined(fs.readdirSync(visualRuns)[0], "fs.readdirSync(visualRuns)[0]"),
-    );
-    await run(cli, ["verify", "--run", visualRun], visualRoot);
-    const report = JSON.parse(fs.readFileSync(path.join(visualRun, "report.json"), "utf8"));
-    assert.equal(report.areas[0].items[0].verdict, "pass");
-    assert.equal(report.areas[0].items[1].verdict, "cannot_judge");
-    assert.equal(report.areas[0].items[1].votes.judgeable, 0);
-    assert.equal(report.areas[0].items[2].source, "image-distinctness");
-    assert.equal(report.areas[0].items[2].verdict, "pass");
-  } finally {
-    server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-  }
+  const visualPort = (portProbe.address() as { port: number }).port;
+  await new Promise<void>((resolve, reject) =>
+    portProbe.close((error) => (error ? reject(error) : resolve())),
+  );
+  const visualConfig = YAML.parse(fs.readFileSync(path.join(visualRoot, "evalkit.yaml"), "utf8"));
+  visualConfig.target.url = `http://127.0.0.1:${visualPort}`;
+  visualConfig.target.ready.url = visualConfig.target.url;
+  visualConfig.target.start = {
+    command: visualConfig.target.start,
+    env: { AEK_VISUAL_PORT: String(visualPort) },
+  };
+  fs.writeFileSync(path.join(visualRoot, "evalkit.yaml"), YAML.stringify(visualConfig));
+  await run(cli, ["validate"], visualRoot);
+  // Mock votes must withhold the visual gate despite passing capture checks.
+  await run(cli, ["run"], visualRoot, 2);
+  const visualRuns = path.join(visualRoot, ".agent-eval/runs");
+  const visualRun = path.join(
+    visualRuns,
+    requireDefined(fs.readdirSync(visualRuns)[0], "fs.readdirSync(visualRuns)[0]"),
+  );
+  await run(cli, ["verify", "--run", visualRun], visualRoot);
+  const report = JSON.parse(fs.readFileSync(path.join(visualRun, "report.json"), "utf8"));
+  assert.equal(report.areas[0].items[0].verdict, "pass");
+  assert.equal(report.areas[0].items[1].verdict, "cannot_judge");
+  assert.equal(report.areas[0].items[1].votes.judgeable, 0);
+  assert.equal(report.areas[0].items[2].source, "image-distinctness");
+  assert.equal(report.areas[0].items[2].verdict, "pass");
   console.log(
     "Package smoke passed: tarball install, offline first-run scores/coverage/gates/comparison, installed judge validation and offline report example, direct two-image comparison, authoring skill/map/calibration, text datasets/suites/selection/reference promotion, file and email collector/checker pass and failure, executable bin, init, validate, run, collect, judge, release promotion, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
   );
