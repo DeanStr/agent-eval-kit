@@ -103,6 +103,31 @@ test("top-level about:blank navigation is contained after startup", async () => 
   }
 });
 
+test("origin inspection failures do not fall back to a cached allowed URL", async () => {
+  const session = new BrowserSession("/tmp/aek-unused", true, "https://target.example.test");
+  let detached = false;
+  session.page = {
+    url: () => "https://target.example.test",
+    context: () => ({
+      newCDPSession: async () => ({
+        send: async () => {
+          throw new Error("Browser protocol unavailable");
+        },
+        detach: async () => {
+          detached = true;
+        },
+      }),
+    }),
+  } as never;
+  await assert.rejects(
+    () => session.preflightOrigin(),
+    (error) =>
+      error instanceof BrowserEvidenceError &&
+      /Could not inspect the current browser URL: Browser protocol unavailable/.test(error.message),
+  );
+  assert.equal(detached, true);
+});
+
 test("saved browser state excludes cookies and local storage outside allowed origins", async () => {
   const server = http.createServer((_request, response) => {
     response.writeHead(200, { "content-type": "text/html" });
@@ -886,7 +911,7 @@ test("browser MCP never captures evidence after an action redirects off-origin",
   await new Promise<void>((resolve) => external.listen(0, "127.0.0.1", resolve));
   const externalAddress = external.address();
   assert.ok(externalAddress && typeof externalAddress !== "string");
-  const externalUrl = `http://127.0.0.1:${externalAddress.port}/private`;
+  const externalUrl = `http://127.0.0.1:${externalAddress.port}/private#private-section`;
 
   let deferredRedirect: http.ServerResponse | undefined;
   const target = http.createServer((request, response) => {
@@ -1020,19 +1045,33 @@ test("browser MCP never captures evidence after an action redirects off-origin",
       arguments: { ref: restoredRef, text: "delayed done" },
     });
     assert.notEqual(delayedDoneFill.isError, true);
-    await releaseDeferredRedirect();
-    await waitForExternalLoad(priorLoads);
-    const done = await client.callTool({
+    // Queue completion before navigation notifications can reach the MCP
+    // process, then let Chromium navigate while that process is paused.
+    const mcpPid = transport.pid;
+    assert.ok(mcpPid);
+    process.kill(mcpPid, "SIGSTOP");
+    const completion = client.callTool({
       name: "done",
       arguments: { outcome: "completed", summary: "Should be overridden." },
     });
+    void completion.catch(() => {});
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await releaseDeferredRedirect();
+      await waitForExternalLoad(priorLoads);
+    } finally {
+      process.kill(mcpPid, "SIGCONT");
+    }
+    const done = await completion;
     assert.match(
       JSON.stringify(done.content),
       /finalized as blocked without capturing off-origin evidence/,
+      fs.readFileSync(path.join(directory, "browser-transcript.ndjson"), "utf8"),
     );
     const state = JSON.parse(fs.readFileSync(path.join(directory, "browser-result.json"), "utf8"));
     assert.equal(state.outcome, "blocked");
     assert.match(state.summary, /page navigated off-target/);
+    assert.ok(state.summary.includes(externalUrl), state.summary);
     assert.equal(new URL(state.finalUrl).origin, new URL(targetUrl).origin);
     const saved = JSON.parse(fs.readFileSync(path.join(directory, "screenshots.json"), "utf8"));
     assert.ok(

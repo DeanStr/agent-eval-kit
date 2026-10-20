@@ -446,8 +446,7 @@ export class BrowserSession {
    * Post-action containment check: if any action (redirect, link click, form
    * submit) landed off the target origin, roll back and tell the model.
    */
-  private async enforceOrigin(): Promise<string | null> {
-    const url = this.page.url();
+  private async enforceOrigin(url = this.page.url()): Promise<string | null> {
     if (url === "about:blank" && this.initialBlankAllowed) return null;
     if (this.isOnTarget(url)) return null;
     const blocked = `BLOCKED: the page navigated off-target to ${url}. Allowed origins: ${this.allowedOrigins.join(", ")}.`;
@@ -479,7 +478,25 @@ export class BrowserSession {
    * read or persist page content.
    */
   async preflightOrigin(): Promise<string | null> {
-    return this.enforceOrigin();
+    // page.url() is a client-side cache. A tool request can reach this process
+    // before queued navigation notifications, even after Chromium has moved.
+    let url: string;
+    try {
+      const session = await this.page.context().newCDPSession(this.page);
+      try {
+        // Browser metadata survives navigation replacing the document's
+        // execution context; evaluating location.href can race that replacement.
+        const { frameTree } = await session.send("Page.getFrameTree");
+        url = frameTree.frame.url + (frameTree.frame.urlFragment ?? "");
+      } finally {
+        await session.detach();
+      }
+    } catch (error) {
+      throw new BrowserEvidenceError(
+        `Could not inspect the current browser URL: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return this.enforceOrigin(url);
   }
 
   /**
