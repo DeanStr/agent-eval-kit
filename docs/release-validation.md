@@ -1,5 +1,30 @@
 # Release validation
 
+## Controlled visual starter and submodule identity (0.6.3)
+
+`aek init --kind visual` generates a runnable WebGL/Canvas2D fixture with
+working, frozen, and blank calibration variants. Deterministic capture checks,
+approved-baseline non-regression, aspirational preference, and interface
+readability retain separate acceptance criteria. The packaged calibration
+example seals three authored images and keeps its six agent-authored reviewer
+labels outside judge inputs; it makes no held-out accuracy or human approval claim.
+The helper accepts every supported judge provider, preserves model/effort settings,
+and rejects Cursor's unsupported effort setting before creating evidence.
+
+Explicit target fingerprint exclusions now apply recursively inside initialized
+Git submodules. Real source changes, ignored runtime inputs, and revision changes
+remain part of target identity. Regression coverage includes staged and ignored
+excluded artifacts, clean and dirty parents, nested submodules, symlinked roots,
+trailing-space paths, parent Git directory/index overrides, uninitialized
+checkouts, and invalid Git state. Controlled captures also accept an explicit
+total budget up to one hour while retaining bounded per-stage timeouts.
+
+This release updates the MCP SDK and sharp dependencies. Validation on Linux
+with Node 24.18.0 passed all 734 tests, formatting, lint, type checking, and
+production-package smoke. The release workflow repeats these checks and tests
+the exact versioned archive before publishing the tarball and SHA-256 checksum
+as a GitHub pre-release.
+
 ## Fail-fast evaluation and packaged visual examples (0.6.2)
 
 Explicitly blank CLI thresholds, provider names, and execution limits are rejected
