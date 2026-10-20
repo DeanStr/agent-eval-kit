@@ -9,8 +9,14 @@ self-contained canvas/WebGL starter with capture, fidelity, and interface gates.
 From an installed package:
 
 ```sh
-node node_modules/agent-eval-kit/examples/visual/calibrate.mjs ./visual-calibration --model YOUR_MODEL --effort high
+node node_modules/agent-eval-kit/examples/visual/calibrate.mjs ./visual-calibration --provider claude --model YOUR_MODEL
 ```
+
+Choose `--provider codex|claude|grok|cursor|mock` (default: `codex`). Real judging
+uses the selected provider's installed, authenticated CLI; see
+[provider setup](../../README.md#provider-behavior). `--model` accepts that provider's model
+ID or alias. Optionally pass `--effort` for Codex, Claude, or Grok; Cursor does not
+support it and the helper rejects it before creating evidence.
 
 The destination must be new. Preparation creates three authored SVG fixtures:
 a readable control, a blurred environment with additional readable metrics,
@@ -18,7 +24,9 @@ and an unchanged sharp environment with unreadable interface text. AEK seals
 each image through command collection, then `aek judge validate` compares two
 independent criteria with six agent-authored reviewer labels. Labels stay outside
 the project and never enter judge prompts. No browser or third-party pixels are
-required. Real judging requires the configured Codex subscription.
+required. Codex receives image attachments; Claude, Grok, and Cursor inspect the
+same selected images through AEK's evidence screenshot viewer. Decisive judgments
+must satisfy the image-access checks. Provider failures remain execution errors.
 
 Expected fidelity outcomes are pass/fail/pass; expected interface outcomes are
 pass/pass/fail. Fidelity compares the declared environment crop, while interface

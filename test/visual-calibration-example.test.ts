@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { assertArtifactIntegrity } from "../src/integrity.js";
+import { PROVIDERS } from "../src/types.js";
 
 test("visual calibration rejects ambiguous and invalid options before creating evidence", (t) => {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "aek-visual-options-"));
@@ -14,6 +15,8 @@ test("visual calibration rejects ambiguous and invalid options before creating e
     ["--prepare-only", "--prepare-only"],
     ["--provider"],
     ["--unknown"],
+    ["--provider", "unsupported"],
+    ["--provider", "cursor", "--effort", "high"],
   ]) {
     const destination = path.join(scratch, "experiment");
     const result = spawnSync(
@@ -22,10 +25,52 @@ test("visual calibration rejects ambiguous and invalid options before creating e
       { encoding: "utf8", timeout: 10_000 },
     );
     assert.equal(result.status, 1, result.stdout + result.stderr);
-    assert.match(result.stderr, /Duplicate option|requires a value|Unknown option/);
+    assert.match(
+      result.stderr,
+      /Duplicate option|requires a value|Unknown option|--provider must be one of|Cursor does not support --effort/,
+    );
     assert.equal(fs.existsSync(destination), false);
   }
 });
+
+for (const provider of [undefined, ...PROVIDERS.filter((entry) => entry !== "mock")])
+  test(`visual calibration prepares the selected judge settings without invoking ${provider ?? "default Codex"}`, (t) => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "aek-visual-provider-"));
+    t.after(() => fs.rmSync(scratch, { recursive: true, force: true }));
+    const destination = path.join(scratch, "experiment");
+    const expectedProvider = provider ?? "codex";
+    const result = spawnSync(
+      process.execPath,
+      [
+        "examples/visual/calibrate.mjs",
+        destination,
+        "--prepare-only",
+        ...(provider === undefined ? [] : ["--provider", provider]),
+        "--model",
+        `${expectedProvider}-fixture-model`,
+        ...(expectedProvider === "cursor" ? [] : ["--effort", "high"]),
+      ],
+      { encoding: "utf8", timeout: 60_000 },
+    );
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    const config = JSON.parse(
+      fs.readFileSync(path.join(destination, "project/evalkit.yaml"), "utf8"),
+    );
+    assert.deepEqual(config.judge, {
+      provider: expectedProvider,
+      concurrency: 4,
+      timeoutSeconds: 180,
+      model: `${expectedProvider}-fixture-model`,
+      ...(expectedProvider === "cursor" ? {} : { effort: "high" }),
+    });
+    const dataset = JSON.parse(fs.readFileSync(path.join(destination, "cases.json"), "utf8"));
+    assert.equal(dataset.cases.length, 6);
+    const receipt = JSON.parse(
+      fs.readFileSync(path.join(dataset.cases[0].evidence.directory, "receipt.json"), "utf8"),
+    );
+    assert.equal(receipt.providers.judge.provider, expectedProvider);
+    assert.equal(receipt.providers.judge.cliVersion, "not invoked (collection only)");
+  });
 
 test("visual calibration prepares sealed observations and separate criterion-bound reviewer labels without model calls", (t) => {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "aek-visual-labels-"));

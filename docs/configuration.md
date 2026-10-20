@@ -43,7 +43,9 @@ Use fingerprint exclusions for project-owned evidence archives that are not
 runtime inputs, for example `fingerprint: { exclude: [output] }`. These exclusions
 apply before file-count and byte limits, including to ignored Git files. Keep
 application source, executed builds, environment files, and runtime data in the
-target identity. Declared collector sources and grader/collector method files
+target identity. Exclusions also apply inside initialized Git submodules, including
+nested submodules; their non-excluded runtime inputs and revisions remain fingerprinted.
+Declared collector sources and grader/collector method files
 remain independently snapshotted and verified even inside an excluded directory.
 Changing the exclusion policy changes evaluator compatibility and prevents resume
 or detached evidence reuse under a different policy. Execution previews expose it.

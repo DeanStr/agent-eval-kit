@@ -982,6 +982,221 @@ test("dirty submodule revisions and contents affect target fingerprints", () => 
   assert.notEqual(dirtyContents.inputFingerprint, changedRevision.inputFingerprint);
 });
 
+test("exclusions apply through nested submodules while runtime inputs and revisions remain fingerprinted", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "aek-receipt-submodule-exclusions-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const leaf = path.join(directory, "leaf");
+  const dependency = path.join(directory, "dependency");
+  const root = path.join(directory, "project");
+  const git = (cwd: string, ...args: string[]) => {
+    const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  const commit = (cwd: string) => {
+    git(cwd, "add", ".");
+    git(
+      cwd,
+      "-c",
+      "user.name=AEK Test",
+      "-c",
+      "user.email=aek@example.test",
+      "commit",
+      "-qm",
+      "fixture",
+    );
+  };
+  for (const repository of [leaf, dependency, root]) {
+    fs.mkdirSync(repository);
+    git(repository, "init", "-q");
+  }
+  for (const name of ["generated[1]", "generated1"]) {
+    fs.mkdirSync(path.join(leaf, name));
+    fs.writeFileSync(path.join(leaf, name, "archive.txt"), "tracked artifact\n");
+  }
+  fs.writeFileSync(path.join(leaf, ".gitignore"), "ignored*/\n.env\n");
+  fs.writeFileSync(path.join(leaf, "library.txt"), "version one\n");
+  commit(leaf);
+  fs.mkdirSync(path.join(dependency, "output"));
+  fs.writeFileSync(path.join(dependency, "output", "archive.txt"), "direct artifact\n");
+  git(dependency, "-c", "protocol.file.allow=always", "submodule", "add", leaf, "nested/leaf");
+  commit(dependency);
+  const { config, spec, fixtures } = inputs(root);
+  git(
+    root,
+    "-c",
+    "protocol.file.allow=always",
+    "submodule",
+    "add",
+    dependency,
+    "modules/dependency",
+  );
+  git(root, "-c", "protocol.file.allow=always", "submodule", "update", "--init", "--recursive");
+  commit(root);
+  const checkout = path.join(root, "modules/dependency");
+  const nested = path.join(checkout, "nested/leaf");
+  config.target.fingerprint = {
+    exclude: [
+      "modules/dependency/output",
+      "modules/dependency/nested/leaf/generated[1]",
+      "modules/dependency/nested/leaf/ignored[1]",
+    ],
+  };
+  const receipt = () => buildRunReceipt({ config, specs: [spec], fixtures });
+  const clean = receipt();
+  assert.equal(clean.target.git?.dirty, false);
+  for (const parentDirty of [false, true]) {
+    if (parentDirty) fs.writeFileSync(path.join(root, "application.txt"), "parent change\n");
+    const before = receipt();
+    fs.writeFileSync(path.join(checkout, "output", "archive.txt"), `direct ${parentDirty}\n`);
+    fs.writeFileSync(path.join(nested, "generated[1]", "archive.txt"), `nested ${parentDirty}\n`);
+    fs.mkdirSync(path.join(nested, "ignored[1]"), { recursive: true });
+    fs.writeFileSync(path.join(nested, "ignored[1]", "archive.txt"), `ignored ${parentDirty}\n`);
+    assert.equal(receipt().inputFingerprint, before.inputFingerprint);
+    git(checkout, "add", "output");
+    git(nested, "add", "generated[1]");
+    assert.equal(receipt().inputFingerprint, before.inputFingerprint);
+  }
+  fs.rmSync(path.join(root, "application.txt"));
+  const withArtifacts = receipt();
+  assert.equal(withArtifacts.inputFingerprint, clean.inputFingerprint);
+  assert.equal(withArtifacts.target.git?.dirty, false);
+  fs.writeFileSync(path.join(nested, "generated1", "archive.txt"), "similarly named input\n");
+  assert.notEqual(receipt().inputFingerprint, withArtifacts.inputFingerprint);
+  git(nested, "checkout", "--", "generated1");
+  fs.mkdirSync(path.join(nested, "ignored1"));
+  fs.writeFileSync(path.join(nested, "ignored1", "runtime.txt"), "ignored sibling input\n");
+  assert.notEqual(receipt().inputFingerprint, withArtifacts.inputFingerprint);
+  fs.rmSync(path.join(nested, "ignored1"), { recursive: true });
+  assert.equal(receipt().inputFingerprint, withArtifacts.inputFingerprint);
+  fs.writeFileSync(path.join(nested, ".env"), "RUNTIME_VARIANT=one\n");
+  const environment = receipt();
+  assert.notEqual(environment.inputFingerprint, withArtifacts.inputFingerprint);
+  fs.writeFileSync(path.join(nested, ".env"), "RUNTIME_VARIANT=two\n");
+  assert.notEqual(receipt().inputFingerprint, environment.inputFingerprint);
+  fs.rmSync(path.join(nested, ".env"));
+  fs.writeFileSync(path.join(nested, "library.txt"), "version two\n");
+  const sourceChanged = receipt();
+  assert.notEqual(sourceChanged.inputFingerprint, withArtifacts.inputFingerprint);
+  commit(nested);
+  assert.notEqual(receipt().inputFingerprint, sourceChanged.inputFingerprint);
+  assert.notEqual(receipt().inputFingerprint, clean.inputFingerprint);
+  assert.equal(receipt().target.git?.dirty, true);
+});
+
+for (const variant of [
+  "symlink",
+  "whitespace",
+  "git-directory",
+  "git-index",
+  "uninitialized",
+  "broken-marker",
+  "missing-local-environment",
+] as const)
+  test(`submodule fingerprinting handles ${variant} paths or repository state`, (t) => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "aek-submodule-discovery-"));
+    const names = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "PATH"] as const;
+    const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+    t.after(() => {
+      for (const name of names) {
+        if (previous[name] === undefined) delete process.env[name];
+        else process.env[name] = previous[name];
+      }
+      fs.rmSync(directory, { recursive: true, force: true });
+    });
+    const root = path.join(directory, "project");
+    const dependency = path.join(directory, "dependency");
+    const git = (cwd: string, ...args: string[]) => {
+      const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+    };
+    for (const repository of [root, dependency]) {
+      fs.mkdirSync(repository);
+      git(repository, "init", "-q");
+      git(repository, "config", "user.name", "AEK Test");
+      git(repository, "config", "user.email", "aek@example.test");
+    }
+    fs.writeFileSync(path.join(dependency, "library.txt"), "version one\n");
+    fs.writeFileSync(path.join(dependency, ".gitignore"), "output*/\n.env\n");
+    git(dependency, "add", ".");
+    git(dependency, "commit", "-qm", "dependency");
+    const { config, spec, fixtures } = inputs(root);
+    const relative = variant === "whitespace" ? "dependency " : "dependency";
+    git(
+      root,
+      "-c",
+      "protocol.file.allow=always",
+      "submodule",
+      "add",
+      "--name",
+      "review-dependency",
+      dependency,
+      relative,
+    );
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "project");
+    const checkout = path.join(root, relative);
+    config.target.fingerprint = { exclude: [`${relative}/output[1]`] };
+    if (variant === "symlink") {
+      const alias = path.join(directory, "alias");
+      fs.symlinkSync(root, alias, "dir");
+      config.project.root = alias;
+    } else if (variant === "git-directory") {
+      process.env.GIT_DIR = path.join(root, ".git");
+      process.env.GIT_WORK_TREE = root;
+    } else if (variant === "git-index") {
+      process.env.GIT_INDEX_FILE = path.join(root, ".git", "index");
+    }
+    const receipt = () => buildRunReceipt({ config, specs: [spec], fixtures });
+    if (variant === "missing-local-environment") {
+      const located = spawnSync("/bin/sh", ["-c", "command -v git"], { encoding: "utf8" });
+      assert.equal(located.status, 0, located.stderr);
+      const bin = path.join(directory, "bin");
+      fs.mkdirSync(bin);
+      fs.writeFileSync(
+        path.join(bin, "git"),
+        `#!${process.execPath}
+const {spawnSync}=require('node:child_process');
+const args=process.argv.slice(2);
+if(args[0]==='rev-parse'&&args[1]==='--local-env-vars')process.exit(0);
+const result=spawnSync(${JSON.stringify(located.stdout.trim())},args,{stdio:'inherit'});
+if(result.error)throw result.error;
+process.exit(result.status===null?1:result.status);
+`,
+        { mode: 0o755 },
+      );
+      process.env.PATH = `${bin}${path.delimiter}${previous.PATH}`;
+      assert.throws(receipt, /Git returned no repository-local environment variables/);
+      return;
+    }
+    if (variant === "broken-marker") {
+      fs.writeFileSync(path.join(checkout, ".git"), "gitdir: missing-directory\n");
+      assert.throws(receipt, /Unable to inspect Git target|Unable to fingerprint Git target state/);
+      return;
+    }
+    const clean = receipt();
+    assert.equal(clean.target.git?.dirty, false);
+    if (variant === "uninitialized") {
+      git(root, "submodule", "deinit", "-f", "--", relative);
+      assert.equal(receipt().inputFingerprint, clean.inputFingerprint);
+      fs.writeFileSync(path.join(root, "application.txt"), "parent change\n");
+      assert.equal(receipt().target.git?.dirty, true);
+      return;
+    }
+    fs.mkdirSync(path.join(checkout, "output[1]"));
+    fs.writeFileSync(path.join(checkout, "output[1]", "archive.txt"), "excluded evidence\n");
+    assert.equal(receipt().inputFingerprint, clean.inputFingerprint);
+    fs.writeFileSync(path.join(checkout, "library.txt"), "version two\n");
+    assert.notEqual(receipt().inputFingerprint, clean.inputFingerprint);
+    fs.writeFileSync(path.join(checkout, "library.txt"), "version one\n");
+    fs.writeFileSync(path.join(checkout, ".env"), "RUNTIME_VARIANT=one\n");
+    const environment = receipt();
+    assert.notEqual(environment.inputFingerprint, clean.inputFingerprint);
+    assert.equal(environment.target.git?.dirty, true);
+    fs.writeFileSync(path.join(checkout, ".env"), "RUNTIME_VARIANT=two\n");
+    assert.notEqual(receipt().inputFingerprint, environment.inputFingerprint);
+  });
+
 test("reusing evidence requires saved collection and judging provenance", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-required-provenance-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

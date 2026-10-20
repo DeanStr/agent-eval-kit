@@ -2,12 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { PROVIDERS } from "../../dist/types.js";
 
 // Synthetic, agent-labelled calibration. No browser, application or third-party pixels.
 const [destination, ...args] = process.argv.slice(2);
 if (!destination)
   throw new Error(
-    "Usage: node calibrate.mjs NEW_DIRECTORY [--prepare-only] [--model MODEL] [--effort EFFORT] [--provider codex|mock] [--fidelity-rubric FILE] [--ui-rubric FILE]",
+    `Usage: node calibrate.mjs NEW_DIRECTORY [--prepare-only] [--model MODEL] [--effort EFFORT] [--provider ${PROVIDERS.join("|")}] [--fidelity-rubric FILE] [--ui-rubric FILE]`,
   );
 const prepareOnly = args.includes("--prepare-only");
 const value = (name) => {
@@ -28,9 +29,12 @@ for (let i = 0; i < args.length; i++) {
   i++;
 }
 const judge = { provider: value("--provider") ?? "codex", concurrency: 4, timeoutSeconds: 180 };
-if (!["codex", "mock"].includes(judge.provider)) throw new Error("Choose codex or mock");
+if (!PROVIDERS.includes(judge.provider))
+  throw new Error(`--provider must be one of ${PROVIDERS.join(", ")}`);
 if (value("--model")) judge.model = value("--model");
 if (value("--effort")) judge.effort = value("--effort");
+if (judge.provider === "cursor" && judge.effort !== undefined)
+  throw new Error("Cursor does not support --effort; omit it and configure --model instead");
 const cli = fileURLToPath(new URL("../../dist/cli.js", import.meta.url));
 const root = path.resolve(destination);
 fs.mkdirSync(root); // Existing evidence is never overwritten.

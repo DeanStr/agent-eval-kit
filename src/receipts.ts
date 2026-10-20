@@ -233,25 +233,30 @@ function nonGitTreeSha256(root: string, excludedPaths: string[]): string {
   return sha256(stableJson(entries));
 }
 
-function gitlinkEntry(
+function gitSubmoduleEntries(
   root: string,
-  relative: string,
-): { mode: string; object: string } | undefined {
-  const result = spawnSync("git", ["ls-files", "--stage", "-z", "--", relative], {
+  pathspecs: string[],
+  environment: NodeJS.ProcessEnv,
+): Map<string, string> {
+  const result = spawnSync("git", ["ls-files", "--stage", "-z", "--", ...pathspecs], {
     cwd: root,
     encoding: "utf8",
-    timeout: 5_000,
-    maxBuffer: 1024 * 1024,
+    timeout: 30_000,
+    maxBuffer: 64 * 1024 * 1024,
+    env: environment,
   });
   if (result.error || result.status !== 0) {
     throw new Error(
-      `Unable to inspect Git index entry ${relative}: ${result.error?.message || result.stderr.trim() || `exit ${result.status}`}`,
+      `Unable to list Git submodule entries: ${result.error?.message || result.stderr.trim() || `exit ${result.status}`}`,
     );
   }
-  const match = /^(\d+) ([a-f0-9]+) \d+\t/.exec(result.stdout);
-  return match?.[1] === "160000" && match[2] !== undefined
-    ? { mode: match[1], object: match[2] }
-    : undefined;
+  const entries = new Map<string, string>();
+  for (const entry of result.stdout.split("\0").filter(Boolean)) {
+    const match = /^(\d+) ([a-f0-9]+) \d+\t([\s\S]+)$/.exec(entry);
+    if (!match) throw new Error(`Invalid Git index entry at ${root}`);
+    if (match[1] === "160000" && !entries.has(match[3]!)) entries.set(match[3]!, match[2]!);
+  }
+  return entries;
 }
 
 function gitProbeError(root: string, args: string[], result: SpawnSyncReturns<string>): Error {
@@ -261,23 +266,37 @@ function gitProbeError(root: string, args: string[], result: SpawnSyncReturns<st
   );
 }
 
-function gitProbe(root: string, args: string[]): SpawnSyncReturns<string> {
+function gitProbe(
+  root: string,
+  args: string[],
+  environment: NodeJS.ProcessEnv,
+): SpawnSyncReturns<string> {
   const result = spawnSync("git", args, {
     cwd: root,
     encoding: "utf8",
     timeout: 5_000,
-    env: { ...process.env, LC_ALL: "C" },
+    env: { ...environment, LC_ALL: "C" },
   });
   if (result.error || result.status !== 0) throw gitProbeError(root, args, result);
   return result;
 }
 
+function hasOwnGitMarker(root: string): boolean {
+  try {
+    fs.lstatSync(path.join(root, ".git"));
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 /** A broken repository marker must not be mistaken for an ordinary non-Git directory. */
-function hasGitMarker(root: string): boolean {
+function hasGitMarker(root: string, environment: NodeJS.ProcessEnv): boolean {
   let directory = fs.realpathSync(root);
   const ceilings = new Set<string>();
   let resolveSymlinks = true;
-  for (const entry of (process.env.GIT_CEILING_DIRECTORIES ?? "").split(path.delimiter)) {
+  for (const entry of (environment.GIT_CEILING_DIRECTORIES ?? "").split(path.delimiter)) {
     // Git treats an empty entry as a promise that following paths have no symlinks.
     if (!entry) {
       resolveSymlinks = false;
@@ -298,28 +317,27 @@ function hasGitMarker(root: string): boolean {
     if (ceiling !== directory) ceilings.add(ceiling);
   }
   for (;;) {
-    try {
-      fs.lstatSync(path.join(directory, ".git"));
-      return true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
+    if (hasOwnGitMarker(directory)) return true;
     const parent = path.dirname(directory);
     if (parent === directory || ceilings.has(parent)) return false;
     directory = parent;
   }
 }
 
-function gitRevision(root: string, excludedPaths: string[]): RunReceipt["target"]["git"] {
+function gitRevision(
+  root: string,
+  excludedPaths: string[],
+  environment: NodeJS.ProcessEnv = process.env,
+): RunReceipt["target"]["git"] {
   // Ordinary non-Git projects need no Git executable. Explicit Git overrides
   // still require inspection so invalid environment settings remain errors.
   if (
-    process.env.GIT_DIR === undefined &&
-    process.env.GIT_WORK_TREE === undefined &&
-    !hasGitMarker(root)
+    environment.GIT_DIR === undefined &&
+    environment.GIT_WORK_TREE === undefined &&
+    !hasGitMarker(root, environment)
   )
     return undefined;
-  const worktreeProbe = gitProbe(root, ["rev-parse", "--is-inside-work-tree"]);
+  const worktreeProbe = gitProbe(root, ["rev-parse", "--is-inside-work-tree"], environment);
   if (worktreeProbe.stdout.trim() !== "true")
     throw new Error(
       `Git target at ${root} must be a working tree; got ${worktreeProbe.stdout.trim()}`,
@@ -328,8 +346,16 @@ function gitRevision(root: string, excludedPaths: string[]): RunReceipt["target"
   const pathspecs = gitPathspecs(root, excludedPaths);
   const status = spawnSync(
     "git",
-    ["status", "--porcelain=v2", "--branch", "--untracked-files=all", "--", ...pathspecs],
-    { cwd: root, encoding: "utf8", timeout: 15_000, maxBuffer: 32 * 1024 * 1024 },
+    [
+      "status",
+      "--porcelain=v2",
+      "--branch",
+      "--untracked-files=all",
+      "--ignore-submodules=dirty",
+      "--",
+      ...pathspecs,
+    ],
+    { cwd: root, encoding: "utf8", timeout: 15_000, maxBuffer: 32 * 1024 * 1024, env: environment },
   );
   if (status.error || status.status !== 0) {
     throw new Error(
@@ -381,7 +407,13 @@ function gitRevision(root: string, excludedPaths: string[]): RunReceipt["target"
         "coverage",
       ].map((directory) => `:(exclude,glob)**/${directory}/**`),
     ],
-    { cwd: root, encoding: "buffer", timeout: 30_000, maxBuffer: 64 * 1024 * 1024 },
+    {
+      cwd: root,
+      encoding: "buffer",
+      timeout: 30_000,
+      maxBuffer: 64 * 1024 * 1024,
+      env: environment,
+    },
   );
   if (ignored.error || ignored.status !== 0) {
     throw new Error(
@@ -389,20 +421,78 @@ function gitRevision(root: string, excludedPaths: string[]): RunReceipt["target"
     );
   }
   const ignoredFiles = ignored.stdout.toString("utf8").split("\0").filter(Boolean);
-  const dirty = statusLines.some((line) => !line.startsWith("# ")) || ignoredFiles.length > 0;
+  const rootPrefix = `${path.resolve(root)}${path.sep}`;
+  const submodules = new Map<
+    string,
+    {
+      path: string;
+      kind: "submodule";
+      indexCommit: string;
+      checkout: RunReceipt["target"]["git"];
+    }
+  >();
+  // Parent status cannot apply exclusions inside a gitlink. Inspect each child
+  // with the same absolute exclusions, even when parent status appears clean:
+  // ignored runtime files in a child also contribute to target identity.
+  const submoduleEntries = gitSubmoduleEntries(root, pathspecs, environment);
+  const submoduleEnvironment = { ...environment };
+  if (submoduleEntries.size) {
+    // Git's repository-local overrides belong to this parent. Inheriting its
+    // directory, index or object store would inspect the wrong repository.
+    const localVariables = gitProbe(root, ["rev-parse", "--local-env-vars"], environment)
+      .stdout.split("\n")
+      .filter(Boolean);
+    if (!localVariables.length)
+      throw new Error(`Git returned no repository-local environment variables at ${root}`);
+    for (const name of localVariables) {
+      if (!/^GIT_[A-Z0-9_]+$/.test(name))
+        throw new Error(`Invalid repository-local Git environment variable at ${root}: ${name}`);
+      delete submoduleEnvironment[name];
+    }
+  }
+  for (const [relative, indexCommit] of submoduleEntries) {
+    const absolute = path.resolve(root, ...relative.split("/"));
+    if (!absolute.startsWith(rootPrefix))
+      throw new Error(`Git submodule path escapes project root: ${relative}`);
+    if (!fs.existsSync(absolute) || !fs.lstatSync(absolute).isDirectory()) continue;
+    // Initialized submodules have their own Git directory or gitfile. Inspect
+    // the marker directly so aliases and path whitespace cannot change identity.
+    // gitRevision validates any marker it finds, including broken gitfiles.
+    const initialized = hasOwnGitMarker(absolute);
+    submodules.set(relative, {
+      path: relative,
+      kind: "submodule",
+      indexCommit,
+      checkout: initialized
+        ? gitRevision(absolute, excludedPaths, submoduleEnvironment)
+        : undefined,
+    });
+  }
+  const dirty =
+    statusLines.some((line) => !line.startsWith("# ")) ||
+    ignoredFiles.length > 0 ||
+    [...submodules.values()].some(
+      ({ checkout, indexCommit }) =>
+        checkout && (checkout.dirty || checkout.commit !== indexCommit),
+    );
   if (!dirty) return { commit, dirty: false };
 
   const listed = spawnSync(
     "git",
     ["ls-files", "-co", "--exclude-standard", "-z", "--", ...pathspecs],
-    { cwd: root, encoding: "buffer", timeout: 30_000, maxBuffer: 64 * 1024 * 1024 },
+    {
+      cwd: root,
+      encoding: "buffer",
+      timeout: 30_000,
+      maxBuffer: 64 * 1024 * 1024,
+      env: environment,
+    },
   );
   if (listed.error || listed.status !== 0) {
     throw new Error(
       `Unable to list Git target files: ${listed.error?.message || listed.stderr.toString("utf8").trim() || `exit ${listed.status}`}`,
     );
   }
-  const rootPrefix = `${path.resolve(root)}${path.sep}`;
   const files = [
     ...new Set([...listed.stdout.toString("utf8").split("\0").filter(Boolean), ...ignoredFiles]),
   ].sort();
@@ -420,19 +510,8 @@ function gitRevision(root: string, excludedPaths: string[]): RunReceipt["target"
     if (stat.isSymbolicLink())
       return { path: relative, kind: "symlink", target: fs.readlinkSync(absolute) };
     if (!stat.isFile()) {
-      const gitlink = stat.isDirectory() ? gitlinkEntry(root, relative) : undefined;
-      if (gitlink) {
-        const nestedRoot = gitProbe(absolute, ["rev-parse", "--show-toplevel"]).stdout.trim();
-        if (!nestedRoot)
-          throw new Error(`Git returned no repository root for submodule ${relative}`);
-        const initialized = path.resolve(nestedRoot) === absolute;
-        return {
-          path: relative,
-          kind: "submodule",
-          indexCommit: gitlink.object,
-          checkout: initialized ? gitRevision(absolute, []) : undefined,
-        };
-      }
+      const submodule = submodules.get(relative);
+      if (submodule) return submodule;
       return { path: relative, kind: "other" };
     }
     totalBytes += stat.size;

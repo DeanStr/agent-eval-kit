@@ -281,7 +281,9 @@ console.log(JSON.stringify({verdict:r.valid?'pass':'fail',confidence:'high',reas
       visualCalibration,
       "--prepare-only",
       "--provider",
-      "mock",
+      "cursor",
+      "--model",
+      "package-fixture-model",
     ],
     consumer,
   );
@@ -291,6 +293,11 @@ console.log(JSON.stringify({verdict:r.valid?'pass':'fail',confidence:'high',reas
   const visualLabels = JSON.parse(
     fs.readFileSync(path.join(visualCalibration, "labels.json"), "utf8"),
   );
+  const visualCalibrationConfig = JSON.parse(
+    fs.readFileSync(path.join(visualCalibration, "project/evalkit.yaml"), "utf8"),
+  );
+  assert.equal(visualCalibrationConfig.judge.provider, "cursor");
+  assert.equal(visualCalibrationConfig.judge.model, "package-fixture-model");
   assert.equal(visualCases.cases.length, 6);
   assert.equal(visualLabels.labels.length, 6);
   assert.ok(
