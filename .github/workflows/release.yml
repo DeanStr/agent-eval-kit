@@ -32,9 +32,9 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
-      - run: pnpm smoke:package
       - run: pnpm package:release
+      - run: pnpm smoke:package --archive .agent-eval/release/*.tgz
       - name: Publish versioned tarball and checksum
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" .agent-eval/release/*.tgz .agent-eval/release/*.sha256 --verify-tag --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" .agent-eval/release/*.tgz .agent-eval/release/*.sha256 --verify-tag --prerelease --generate-notes

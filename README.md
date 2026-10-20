@@ -72,7 +72,7 @@ evalkit.yaml + specs + fixtures
 under `.agent-eval/release/`. Consumers can install the tarball directly:
 
 ```sh
-npm install --save-dev /path/to/agent-eval-kit-0.4.0.tgz
+npm install --save-dev /path/to/agent-eval-kit-0.6.0.tgz
 npx aek --help
 npx aek init --kind command
 ```
@@ -99,8 +99,9 @@ examples plus the authoring skill. Provider CLIs and browser dependencies still
 apply to the selected evaluation mode. For a published GitHub release, download its `.tgz` and
 matching `.sha256`, verify with `sha256sum -c`, then install the tarball.
 
-The release workflow tests and publishes these artifacts when a matching `v*`
-tag is pushed. The tag, `package.json`, and `src/version.ts` versions must agree.
+The release workflow tests the exact archive and publishes these artifacts as a
+GitHub pre-release when a matching `v*` tag is pushed. The tag, `package.json`,
+and `src/version.ts` versions must agree.
 Adding the workflow does not publish a release or establish npm registry availability.
 
 ## Requirements

@@ -1,5 +1,26 @@
 # Release validation
 
+## Benchmark experiment CLI (0.6.0)
+
+`aek benchmark experiment --recipe recipe.json --output new-directory` exposes
+controlled acquisition through the CLI, with preparation and visit progress,
+report paths, and explicit outcome exit codes. Expected SIGINT/SIGTERM
+interruptions retain cleanup and 130/143 status without an error stack trace.
+Unrelated errors still retain diagnostics.
+
+Config-adjacent dotenv files are fingerprinted even outside the project root.
+Fresh output parent directories are created before candidate fingerprinting,
+including for non-Git projects with custom run paths. After parent death,
+resource locks require explicit recovery because detached workers may survive.
+The benchmark guide documents how to stop those processes before removing a lock.
+
+Validation on Linux with Node 24.18.0 passed all 671 tests, formatting, lint,
+typecheck, both browser smoke suites, and all seven deterministic reference
+variants. The release workflow builds the versioned archive and smoke-tests that
+exact archive before publishing it with its SHA-256 checksum as a GitHub
+pre-release. Existing 0.5.0/0.5.1 archives, consumer pins, and historical
+acquisitions retain their original identities.
+
 ## Controlled benchmark experiments (0.5.1)
 
 Review confirmed cross-candidate dotenv contamination, lost interruption status,
