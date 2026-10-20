@@ -505,9 +505,9 @@ function csv(value?: string): string[] | undefined {
 
 function positiveIntegerFlag(args: Args, name: string): number | undefined {
   const raw = stringFlag(args, name);
-  if (!raw) return undefined;
+  if (raw === undefined) return undefined;
   const value = Number(raw);
-  if (!Number.isInteger(value) || value < 1)
+  if (!raw.trim() || !Number.isInteger(value) || value < 1)
     throw new Error(`--${name} must be a positive integer`);
   return value;
 }
@@ -516,7 +516,7 @@ function percentageFlag(args: Args, name: string): number | undefined {
   const raw = stringFlag(args, name);
   if (raw === undefined) return undefined;
   const value = Number(raw);
-  if (!Number.isFinite(value) || value < 0 || value > 100) {
+  if (!raw.trim() || !Number.isFinite(value) || value < 0 || value > 100) {
     throw new Error(`--${name} must be a number from 0 to 100`);
   }
   return value;
@@ -524,7 +524,7 @@ function percentageFlag(args: Args, name: string): number | undefined {
 
 function providerFlag(args: Args, name: string): ProviderId | undefined {
   const value = stringFlag(args, name);
-  if (!value) return undefined;
+  if (value === undefined) return undefined;
   if (!(PROVIDERS as readonly string[]).includes(value)) {
     throw new Error(`--${name} must be one of ${PROVIDERS.join(", ")}`);
   }

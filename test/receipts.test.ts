@@ -613,6 +613,254 @@ test("ignored Git runtime inputs affect resume fingerprints while dependency cac
   assert.match(runtimeChanged.target.git?.worktreeSha256 ?? "", /^[a-f0-9]{64}$/);
 });
 
+test("Git probe failures and malformed output cannot substitute a target identity", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "aek-receipt-git-probes-"));
+  const root = path.join(directory, "project");
+  const bin = path.join(directory, "bin");
+  fs.mkdirSync(root);
+  fs.mkdirSync(bin);
+  const originalPath = requireDefined(process.env.PATH, "PATH for Git probe tests");
+  t.after(() => {
+    process.env.PATH = originalPath;
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+  const located = spawnSync("/bin/sh", ["-c", "command -v git"], { encoding: "utf8" });
+  assert.equal(located.status, 0, located.stderr);
+  const realGit = located.stdout.trim();
+  const { config, spec, fixtures } = inputs(root);
+  const git = (args: string[]) => {
+    const result = spawnSync(realGit, args, { cwd: root, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  git(["init"]);
+  git(["add", "."]);
+  git(["-c", "user.name=AEK Test", "-c", "user.email=aek@example.test", "commit", "-m", "fixture"]);
+  const branch = git(["symbolic-ref", "HEAD"]);
+  const receipt = () => buildRunReceipt({ config, specs: [spec], fixtures });
+  assert.equal(receipt().target.git?.commit, git(["rev-parse", "HEAD"]));
+
+  for (const [name, command, stdout, exitCode, expected] of [
+    ["worktree execution failure", "rev-parse", "", 128, /Unable to inspect Git target.*injected/],
+    [
+      "status execution failure",
+      "status",
+      "",
+      128,
+      /Unable to fingerprint Git target state.*injected/,
+    ],
+    ["malformed worktree", "rev-parse", "invalid\n", 0, /Git target.*working tree/],
+    ["missing commit identity", "status", "", 0, /Invalid Git status/],
+    ["malformed commit identity", "status", "# branch.oid invalid\n", 0, /Invalid Git status/],
+    [
+      "duplicate commit identities",
+      "status",
+      "# branch.oid (initial)\n# branch.oid (initial)\n",
+      0,
+      /Invalid Git status/,
+    ],
+  ] as const) {
+    await t.test(name, () => {
+      fs.writeFileSync(
+        path.join(bin, "git"),
+        `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+if (args[0] === ${JSON.stringify(command)}) {
+  process.stdout.write(${JSON.stringify(stdout)});
+  if (${exitCode} !== 0) console.error('fatal: injected Git probe failure');
+  process.exit(${exitCode});
+}
+const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' });
+if (result.error) throw result.error;
+if (result.status === null) throw new Error('Git shim child was terminated');
+process.exit(result.status);
+`,
+        { mode: 0o755 },
+      );
+      process.env.PATH = `${bin}${path.delimiter}${originalPath}`;
+      assert.throws(receipt, expected);
+    });
+  }
+  process.env.PATH = originalPath;
+  git(["checkout", "--detach"]);
+  assert.equal(receipt().target.git?.commit, git(["rev-parse", "HEAD"]));
+  git(["checkout", branch.slice("refs/heads/".length)]);
+
+  process.env.PATH = path.join(directory, "missing-bin");
+  assert.throws(receipt, /Unable to inspect Git target.*ENOENT/);
+});
+
+test("commits created during target inspection cannot retain an unborn identity", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "aek-receipt-initial-commit-"));
+  const root = path.join(directory, "project");
+  const bin = path.join(directory, "bin");
+  fs.mkdirSync(root);
+  fs.mkdirSync(bin);
+  const originalPath = requireDefined(process.env.PATH, "PATH for Git race test");
+  t.after(() => {
+    process.env.PATH = originalPath;
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+  const located = spawnSync("/bin/sh", ["-c", "command -v git"], { encoding: "utf8" });
+  assert.equal(located.status, 0, located.stderr);
+  const realGit = located.stdout.trim();
+  const git = (...args: string[]) => {
+    const result = spawnSync(realGit, args, { cwd: root, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  const { config, spec, fixtures } = inputs(root);
+  git("init");
+  git("config", "user.name", "AEK Test");
+  git("config", "user.email", "aek@example.test");
+  fs.writeFileSync(
+    path.join(bin, "git"),
+    `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+const git = (...args) => spawnSync(${JSON.stringify(realGit)}, args, { encoding: 'utf8' });
+const commit = () => {
+  const result = git('commit', '-qm', 'Concurrent initial commit');
+  if (result.status !== 0) throw new Error(result.stderr);
+};
+// Simulate another process committing after an absent-ref probe, or just
+// before the status operation that should supply the authoritative identity.
+if (args[0] === 'status' && git('rev-parse', '--verify', '--quiet', 'HEAD').status === 1)
+  commit();
+const result = git(...args);
+if (args[0] === 'show-ref' && result.status === 1) commit();
+if (result.error) throw result.error;
+if (result.status === null) throw new Error('Git shim child was terminated');
+process.stdout.write(result.stdout);
+process.stderr.write(result.stderr);
+process.exit(result.status);
+`,
+    { mode: 0o755 },
+  );
+  process.env.PATH = `${bin}${path.delimiter}${originalPath}`;
+  const receipts = ["one", "two"].map((content, index) => {
+    if (index) git("checkout", "--orphan", "next");
+    fs.writeFileSync(path.join(root, "product.txt"), content);
+    git("add", ".");
+    const receipt = buildRunReceipt({ config, specs: [spec], fixtures });
+    assert.equal(receipt.target.git?.commit, git("rev-parse", "HEAD"));
+    assert.equal(receipt.target.git?.dirty, false);
+    return receipt;
+  });
+  assert.notEqual(receipts[0]!.inputFingerprint, receipts[1]!.inputFingerprint);
+});
+
+test("non-Git projects can fingerprint without a Git executable", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-receipt-no-git-"));
+  const originalPath = process.env.PATH;
+  t.after(() => {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  const { config, spec, fixtures } = inputs(root);
+  process.env.PATH = path.join(root, "no-executables");
+  const first = buildRunReceipt({ config, specs: [spec], fixtures });
+  assert.equal(first.target.git, undefined);
+  assert.match(first.target.treeSha256 ?? "", /^[a-f0-9]{64}$/);
+  fs.writeFileSync(path.join(root, "product.txt"), "changed");
+  const changed = buildRunReceipt({ config, specs: [spec], fixtures });
+  assert.notEqual(changed.inputFingerprint, first.inputFingerprint);
+});
+
+test("Git discovery ceilings preserve isolated non-Git targets", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "aek-receipt-git-ceilings-"));
+  const repository = path.join(directory, "repository");
+  const project = path.join(repository, "project");
+  fs.mkdirSync(project, { recursive: true });
+  const names = ["GIT_CEILING_DIRECTORIES", "GIT_DIR", "GIT_WORK_TREE", "PATH"] as const;
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  t.after(() => {
+    for (const name of names) {
+      if (previous[name] === undefined) delete process.env[name];
+      else process.env[name] = previous[name];
+    }
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+  delete process.env.GIT_DIR;
+  delete process.env.GIT_WORK_TREE;
+  const initialized = spawnSync("git", ["init", "--quiet", repository], { encoding: "utf8" });
+  assert.equal(initialized.status, 0, initialized.stderr);
+  const alias = path.join(directory, "alias");
+  fs.symlinkSync(repository, alias);
+  const missing = path.join(directory, "missing");
+  const { config, spec, fixtures } = inputs(project);
+  const receipt = () => buildRunReceipt({ config, specs: [spec], fixtures });
+  for (const [name, ceiling, gitExpected] of [
+    ["ancestor ceiling", repository, false],
+    ["symlink ceiling", alias, false],
+    ["multiple ceilings", `${missing}${path.delimiter}${repository}`, false],
+    ["current directory is not excluded", project, true],
+    ["ceiling above the repository", directory, true],
+    ["relative entry is ignored", ".", true],
+    ["missing entry is ignored", missing, true],
+    ["empty entry disables symlink resolution", `${missing}::${alias}`, true],
+  ] as const) {
+    await t.test(name, () => {
+      process.env.GIT_CEILING_DIRECTORIES = ceiling;
+      const native = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
+        cwd: project,
+        encoding: "utf8",
+      });
+      assert.equal(native.status, gitExpected ? 0 : 128, native.stderr);
+      const result = receipt();
+      assert.equal(result.target.git !== undefined, gitExpected);
+      if (!gitExpected) assert.match(result.target.treeSha256 ?? "", /^[a-f0-9]{64}$/);
+    });
+  }
+  await t.test("isolated targets need no Git executable", () => {
+    process.env.GIT_CEILING_DIRECTORIES = repository;
+    process.env.PATH = path.join(directory, "no-executables");
+    const first = receipt();
+    fs.writeFileSync(path.join(project, "product.txt"), "changed");
+    assert.notEqual(receipt().inputFingerprint, first.inputFingerprint);
+    process.env.PATH = previous.PATH;
+  });
+  await t.test("explicit Git directories bypass discovery ceilings", () => {
+    process.env.GIT_CEILING_DIRECTORIES = repository;
+    process.env.GIT_DIR = path.join(repository, ".git");
+    process.env.GIT_WORK_TREE = repository;
+    assert.ok(receipt().target.git);
+    delete process.env.GIT_DIR;
+    delete process.env.GIT_WORK_TREE;
+  });
+});
+
+test("broken Git repository markers cannot become non-Git targets", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "aek-receipt-broken-git-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const root = path.join(directory, "project");
+  fs.mkdirSync(root);
+  const { config, spec, fixtures } = inputs(root);
+  fs.writeFileSync(path.join(root, ".git"), `gitdir: ${path.join(directory, "missing")}\n`);
+  assert.throws(
+    () => buildRunReceipt({ config, specs: [spec], fixtures }),
+    /Unable to inspect Git target/,
+  );
+});
+
+test("an invalid Git directory override cannot become a non-Git target", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-receipt-git-env-"));
+  const original = process.env.GIT_DIR;
+  t.after(() => {
+    if (original === undefined) delete process.env.GIT_DIR;
+    else process.env.GIT_DIR = original;
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  const { config, spec, fixtures } = inputs(root);
+  process.env.GIT_DIR = path.join(root, "missing");
+  assert.throws(
+    () => buildRunReceipt({ config, specs: [spec], fixtures }),
+    /Unable to inspect Git target/,
+  );
+});
+
 test("unborn Git repositories fingerprint their untracked target contents", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aek-receipt-unborn-"));
   const { config, spec, fixtures } = inputs(root);

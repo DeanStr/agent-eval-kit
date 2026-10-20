@@ -84,12 +84,7 @@ export class BrowserPointer {
     return this.context.snapshot();
   }
 
-  /**
-   * Drag one element onto another. Agenda/schedule builders are commonly
-   * drag-and-drop, so this is load-bearing for those scenarios. Tries
-   * Playwright's dragTo first, then a manual mouse sequence (which some
-   * HTML5-DnD and pointer-event implementations require).
-   */
+  /** Drag through Playwright's actionability checks; failed actions remain errors. */
   async drag(fromRef: string, toRef: string): Promise<string> {
     const from = await this.context.refLocator(fromRef);
     const to = await this.context.refLocator(toRef);
@@ -98,26 +93,7 @@ export class BrowserPointer {
     if (await this.context.refMissing(to))
       return `ERROR: target ref ${toRef} not found. Take a new snapshot.`;
 
-    await from.scrollIntoViewIfNeeded().catch(() => {});
-    try {
-      await from.dragTo(to, { timeout: 8_000 });
-    } catch {
-      // Manual fallback: some grids only respond to real pointer movement.
-      const a = await from.boundingBox();
-      const b = await to.boundingBox();
-      if (!a || !b) return `ERROR: could not compute drag geometry for ${fromRef} -> ${toRef}.`;
-      await this.context.page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
-      await this.context.page.mouse.down();
-      // Intermediate moves: many DnD libraries ignore a single jump.
-      for (let i = 1; i <= 5; i++) {
-        await this.context.page.mouse.move(
-          a.x + a.width / 2 + ((b.x - a.x) * i) / 5,
-          a.y + a.height / 2 + ((b.y - a.y) * i) / 5,
-          { steps: 4 },
-        );
-      }
-      await this.context.page.mouse.up();
-    }
+    await from.dragTo(to, { timeout: 8_000 });
     await this.context.page.waitForLoadState("networkidle", { timeout: 6_000 }).catch(() => {});
     return this.context.snapshot();
   }

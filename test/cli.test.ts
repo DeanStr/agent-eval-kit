@@ -680,6 +680,44 @@ test("CLI rejects typoed flags and values passed to booleans", () => {
   assert.equal(fs.existsSync(path.join(root, "runs")), false);
 });
 
+test("CLI rejects explicitly blank thresholds, providers and execution limits", (t) => {
+  const root = temporary();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  writeProject(root);
+  for (const [command, flag] of [
+    ["run", "fail-under-score"],
+    ["run", "fail-under-coverage"],
+    ["run", "agent"],
+    ["run", "judge"],
+    ["run", "max-turns"],
+    ["campaign", "repetitions"],
+    ["compare", "max-score-drop"],
+    ["compare", "max-coverage-drop"],
+  ]) {
+    for (const value of ["", " "]) {
+      const args = [command!, `--${flag}=${value}`];
+      if (command !== "compare") args.push("--dry-run", "--json");
+      const result = runCli(root, args);
+      assert.equal(result.status, 1, JSON.stringify(args));
+      assert.ok(result.stderr.includes(`--${flag} must be`), result.stderr);
+      assert.equal(result.stdout, "");
+    }
+  }
+  const zero = runCli(root, [
+    "run",
+    "--dry-run",
+    "--json",
+    "--fail-under-score=0",
+    "--fail-under-coverage=0",
+    "--agent=mock",
+    "--judge=mock",
+    "--max-turns=1",
+  ]);
+  assert.equal(zero.status, 0, zero.stderr);
+  assert.doesNotThrow(() => JSON.parse(zero.stdout));
+  assert.equal(fs.existsSync(path.join(root, "runs")), false);
+});
+
 test("CLI supports successive integrity-checked manual finalizations", () => {
   const root = temporary();
   writeProject(root);

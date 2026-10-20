@@ -618,18 +618,17 @@ export class BrowserSession {
 
     // With a modal open, the aria outline of <body> is mostly unreachable
     // background; scope it to the dialog so the outline matches the refs.
-    let aria = "";
+    let aria: string;
     try {
       const scope = modalLabel
         ? this.page.locator('[data-aek-modal="1"]').first()
         : this.page.locator("body");
       aria = await scope.ariaSnapshot({ timeout: 5_000 });
-    } catch {
-      try {
-        aria = await this.page.locator("body").ariaSnapshot({ timeout: 5_000 });
-      } catch {
-        aria = "(aria snapshot unavailable)";
-      }
+    } catch (error) {
+      throw new BrowserEvidenceError(
+        `Could not capture page accessibility evidence: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
     }
     // Cap the outline so a giant page doesn't blow up the context window.
     const MAX_ARIA = 12_000;
@@ -756,7 +755,12 @@ export class BrowserSession {
       const fAria = await frame
         .locator("body")
         .ariaSnapshot({ timeout: 3_000 })
-        .catch(() => "");
+        .catch((error: unknown) => {
+          throw new BrowserEvidenceError(
+            `Could not capture accessibility evidence for ${label}: ${error instanceof Error ? error.message : String(error)}`,
+            { cause: error },
+          );
+        });
       if (fAria) frameOutlines.push({ label, aria: fAria });
     }
 

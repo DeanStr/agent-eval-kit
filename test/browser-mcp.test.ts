@@ -22,6 +22,68 @@ import type { TranscriptEntry } from "../src/types.js";
 import { BrowserSession } from "../src/browser/session.js";
 import { OriginBoundaryError, BrowserEvidenceError } from "../src/browser/interaction-context.js";
 
+for (const scope of ["page", "modal", "frame"] as const) {
+  test(`${scope} accessibility read failures remain evidence errors`, async (t) => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "aek-aria-failfast-"));
+    t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+    const server = http.createServer((request, response) => {
+      response.setHeader("content-type", "text/html");
+      response.end(
+        request.url === "/child"
+          ? "<h1>Frame evidence</h1><button>Frame action</button>"
+          : scope === "frame"
+            ? '<h1>Page evidence</h1><iframe src="/child"></iframe>'
+            : scope === "modal"
+              ? '<h1>Background evidence</h1><div role="dialog" aria-modal="true"><h2>Modal evidence</h2><button>Close</button></div>'
+              : "<h1>Page evidence</h1><button>Save</button>",
+      );
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    t.after(
+      () =>
+        new Promise<void>((resolve) => {
+          server.close(() => resolve());
+          server.closeAllConnections();
+        }),
+    );
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const url = `http://127.0.0.1:${address.port}`;
+    const session = new BrowserSession(directory, true, url);
+    t.after(() => session.stop());
+    await session.start();
+    const baseline = await session.navigate(url);
+    assert.match(baseline, /Page evidence|Modal evidence/);
+    if (scope === "modal") assert.match(baseline, /MODAL OPEN/);
+    const owner =
+      scope === "frame"
+        ? session.page.frames().find((frame) => frame.url() === `${url}/child`)!
+        : session.page;
+    const original = owner.locator.bind(owner);
+    owner.locator = (...args) => {
+      const locator = original(...args);
+      const shouldFail = scope !== "modal" || args[0] === '[data-aek-modal="1"]';
+      if (shouldFail) {
+        locator.ariaSnapshot = async () => {
+          throw new Error("injected accessibility read failure");
+        };
+        // Modal snapshots narrow the locator before reading its outline.
+        locator.first = () => locator;
+      }
+      return locator;
+    };
+    await assert.rejects(
+      session.snapshot(),
+      (error: unknown) =>
+        error instanceof BrowserEvidenceError &&
+        /injected accessibility read failure/.test(error.message),
+    );
+    owner.locator = original;
+    const recovered = await session.snapshot();
+    assert.match(recovered, scope === "frame" ? /Frame evidence/ : /Page evidence|Modal evidence/);
+  });
+}
+
 test("browser action failures remain errors after leading diagnostic notes", () => {
   assert.equal(
     browserActionResultIsError("NOTE: native dialog was accepted\nBLOCKED: external navigation"),

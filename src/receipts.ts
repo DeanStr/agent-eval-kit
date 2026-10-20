@@ -13,7 +13,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { stableJson, sha256 } from "./io.js";
 import type {
   ArtifactReceipt,
@@ -254,16 +254,81 @@ function gitlinkEntry(
     : undefined;
 }
 
+function gitProbeError(root: string, args: string[], result: SpawnSyncReturns<string>): Error {
+  const detail = result.error?.message || result.stderr.trim() || `exit ${result.status}`;
+  return new Error(
+    `Unable to inspect Git target at ${root} (git ${args.join(" ")}): ${detail}. Fix Git access and retry.`,
+  );
+}
+
+function gitProbe(root: string, args: string[]): SpawnSyncReturns<string> {
+  const result = spawnSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    timeout: 5_000,
+    env: { ...process.env, LC_ALL: "C" },
+  });
+  if (result.error || result.status !== 0) throw gitProbeError(root, args, result);
+  return result;
+}
+
+/** A broken repository marker must not be mistaken for an ordinary non-Git directory. */
+function hasGitMarker(root: string): boolean {
+  let directory = fs.realpathSync(root);
+  const ceilings = new Set<string>();
+  let resolveSymlinks = true;
+  for (const entry of (process.env.GIT_CEILING_DIRECTORIES ?? "").split(path.delimiter)) {
+    // Git treats an empty entry as a promise that following paths have no symlinks.
+    if (!entry) {
+      resolveSymlinks = false;
+      continue;
+    }
+    if (!path.isAbsolute(entry)) continue;
+    let ceiling: string;
+    if (resolveSymlinks) {
+      try {
+        ceiling = fs.realpathSync(entry);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ENOENT" || code === "ENOTDIR") continue;
+        throw error;
+      }
+    } else ceiling = path.resolve(entry);
+    // Git ignores a ceiling equal to its starting working directory.
+    if (ceiling !== directory) ceilings.add(ceiling);
+  }
+  for (;;) {
+    try {
+      fs.lstatSync(path.join(directory, ".git"));
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const parent = path.dirname(directory);
+    if (parent === directory || ceilings.has(parent)) return false;
+    directory = parent;
+  }
+}
+
 function gitRevision(root: string, excludedPaths: string[]): RunReceipt["target"]["git"] {
-  const insideWorktree = commandText("git", ["rev-parse", "--is-inside-work-tree"], root);
-  if (insideWorktree !== "true") return undefined;
-  const resolvedCommit = commandText("git", ["rev-parse", "HEAD"], root);
-  const commit =
-    resolvedCommit && /^[a-f0-9]{40,64}$/i.test(resolvedCommit) ? resolvedCommit : "UNBORN";
+  // Ordinary non-Git projects need no Git executable. Explicit Git overrides
+  // still require inspection so invalid environment settings remain errors.
+  if (
+    process.env.GIT_DIR === undefined &&
+    process.env.GIT_WORK_TREE === undefined &&
+    !hasGitMarker(root)
+  )
+    return undefined;
+  const worktreeProbe = gitProbe(root, ["rev-parse", "--is-inside-work-tree"]);
+  if (worktreeProbe.stdout.trim() !== "true")
+    throw new Error(
+      `Git target at ${root} must be a working tree; got ${worktreeProbe.stdout.trim()}`,
+    );
+
   const pathspecs = gitPathspecs(root, excludedPaths);
   const status = spawnSync(
     "git",
-    ["status", "--porcelain", "--untracked-files=all", "--", ...pathspecs],
+    ["status", "--porcelain=v2", "--branch", "--untracked-files=all", "--", ...pathspecs],
     { cwd: root, encoding: "utf8", timeout: 15_000, maxBuffer: 32 * 1024 * 1024 },
   );
   if (status.error || status.status !== 0) {
@@ -271,6 +336,21 @@ function gitRevision(root: string, excludedPaths: string[]): RunReceipt["target"
       `Unable to fingerprint Git target state: ${status.error?.message || status.stderr.trim() || `exit ${status.status}`}`,
     );
   }
+  // Read HEAD and worktree changes from the same status response. A separate
+  // missing-branch probe can become stale if an initial commit lands meanwhile.
+  const statusLines = status.stdout.split(/\r?\n/).filter(Boolean);
+  const oidPrefix = "# branch.oid ";
+  const oidLines = statusLines.filter((line) => line.startsWith(oidPrefix));
+  const oid = oidLines[0]?.slice(oidPrefix.length);
+  if (
+    oidLines.length !== 1 ||
+    oid === undefined ||
+    (oid !== "(initial)" && !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(oid))
+  )
+    throw new Error(
+      `Invalid Git status at ${root}: expected exactly one branch.oid containing a full commit hash or (initial)`,
+    );
+  const commit = oid === "(initial)" ? "UNBORN" : oid;
   // Git deliberately omits ignored files from both status and `ls-files -co`,
   // but ignored runtime inputs such as .env and local databases can materially
   // change the target being evaluated. Include them while excluding only
@@ -309,7 +389,7 @@ function gitRevision(root: string, excludedPaths: string[]): RunReceipt["target"
     );
   }
   const ignoredFiles = ignored.stdout.toString("utf8").split("\0").filter(Boolean);
-  const dirty = Boolean(status.stdout.trim()) || ignoredFiles.length > 0;
+  const dirty = statusLines.some((line) => !line.startsWith("# ")) || ignoredFiles.length > 0;
   if (!dirty) return { commit, dirty: false };
 
   const listed = spawnSync(
@@ -342,8 +422,10 @@ function gitRevision(root: string, excludedPaths: string[]): RunReceipt["target"
     if (!stat.isFile()) {
       const gitlink = stat.isDirectory() ? gitlinkEntry(root, relative) : undefined;
       if (gitlink) {
-        const nestedRoot = commandText("git", ["rev-parse", "--show-toplevel"], absolute);
-        const initialized = Boolean(nestedRoot && path.resolve(nestedRoot) === absolute);
+        const nestedRoot = gitProbe(absolute, ["rev-parse", "--show-toplevel"]).stdout.trim();
+        if (!nestedRoot)
+          throw new Error(`Git returned no repository root for submodule ${relative}`);
+        const initialized = path.resolve(nestedRoot) === absolute;
         return {
           path: relative,
           kind: "submodule",
