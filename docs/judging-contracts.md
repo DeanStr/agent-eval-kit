@@ -12,6 +12,24 @@ The harness applies shared evidence rules before scoring. Provider execution, vo
 
 Identity, citation, and image-access violations are execution errors with retained diagnostics. Unknown or out-of-scope citations, non-abstaining verdicts without citations, and defects without reached evidence are rejected. Explicit `cannot_judge` may omit citations. Missing intermediate vote or pairwise results are execution errors. A blocked case cannot be supported by a shared setup scenario alone. Explicit abstention reduces coverage and never becomes a fabricated failure.
 
+## Prompt construction
+
+Collector prompts define the task, evidence boundary, and finalization contract;
+the model chooses its investigation. Email-authenticated scenarios require
+`authenticate_email` before other browser actions. Workspace inspection has no
+fixed list/search/read sequence.
+
+Judge prompts retain verdict definitions, provenance requirements, and the
+distinction between static source deductions and observed runtime behavior.
+Persistence claims require saved state verified through the relevant reload,
+reopen, or subsequent read.
+Screenshot instructions appear only when screenshot records are supplied, even
+when their images are unavailable. File-preview limits apply to captured files
+and files in bound inputs. Checkpoint rules follow the requested rubric selectors,
+including when selected checkpoints are missing. These instructions describe the
+evaluation contract; the harness still validates identities, citations, image
+access, and case aggregation independently.
+
 ## Aggregation
 
 A derived aggregate is unavailable if it has no members or any member is `cannot_judge`. Otherwise, all passes yield `pass`, all `fail`/`not_found` results yield `fail`, and mixed observed outcomes yield `partial`.
