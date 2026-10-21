@@ -1,5 +1,36 @@
 # Release validation
 
+## Resumable image batches and capacity retries (0.7.0)
+
+`aek image batch` preflights a manifest of image pairs, bounds concurrent
+comparisons, and retains a combined HTML/JSON report with sealed child runs.
+Resume and fingerprint-checked reuse preserve completed positive, negative and
+inconclusive results. Duplicate comparisons consume prior results one-to-one;
+reused outputs must remain outside their sealed source batch.
+
+Direct image judging defaults to two retries for explicit temporary provider
+capacity failures before any completed assistant response or structured-output
+call. Other evaluation modes can opt in. Authentication, quota, malformed answers,
+existing decisions and unrelated execution failures remain errors. Failed retry
+attempts retain their diagnostics; scenario collection is never retried.
+
+The requested GPT-6.1 Sol review/fix loop completed six rounds. Seven actionable
+findings were reproduced and fixed, with none dismissed; the final review found
+no actionable regressions. All 784 tests, type checking, the build, lint,
+formatting and installed-package smoke passed. The
+[review and pilot record](review-loop-image-batch-2026-10-21.md) describes the
+findings and their validation.
+
+A four-pair live Codex pilot used Chromium captures of the packaged dashboard
+and three votes per pair. It passed unchanged and improved labels, failed removed
+labels, and abstained on persistence that static screenshots could not establish.
+Resume and reordered/renamed reuse preserved all results and vote bytes while
+new judge calls were blocked. Both batch seals verified, and report checks passed
+at desktop and mobile widths. Expectations are agent-authored; this bounded
+development pilot does not establish general accuracy or other providers' live
+capacity behavior. The acquisition used the reviewed source before the version
+bump; the retained runs keep their original 0.6.4 runtime identity.
+
 ## Collector and judge prompt contracts (0.6.4)
 
 Collector prompts let the model choose its investigation while preserving tool,

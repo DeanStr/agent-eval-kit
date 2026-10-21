@@ -76,7 +76,7 @@ evalkit.yaml + specs + fixtures
 under `.agent-eval/release/`. Consumers can install the tarball directly:
 
 ```sh
-npm install --save-dev /path/to/agent-eval-kit-0.6.4.tgz
+npm install --save-dev /path/to/agent-eval-kit-0.7.0.tgz
 npx aek --help
 npx aek init --kind command
 ```
