@@ -2,6 +2,19 @@
 
 Run a tiny cart evaluation, read its report, then introduce a defect and compare the two runs. This walkthrough uses deterministic command graders and an offline mock collector: it needs Linux, Node.js 20.19+, and an [installed AEK package](../README.md#built-package-distribution), but no source checkout, provider login, or browser installation. After package installation, the evaluation runs entirely offline. It demonstrates the harness; it does not measure an LLM judge's accuracy.
 
+For an automated good → defect → restored demonstration, including requirement
+mapping and saved calibration trials, run this from the project where AEK is installed:
+
+```sh
+node node_modules/agent-eval-kit/examples/authoring/run.mjs ./aek-demo
+```
+
+The destination must be new. It prints the comparison and summary paths and
+restores the fixture implementation after the deliberate defect. Its two
+automatic criteria have 100% evidence coverage; the manual step-by-step example
+below also includes a pending human criterion and therefore shows 80% coverage.
+From a built source checkout, use `node examples/authoring/run.mjs ./aek-demo`.
+
 ## Run the working example
 
 From the project directory where you installed AEK:

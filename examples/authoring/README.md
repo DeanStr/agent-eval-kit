@@ -1,5 +1,17 @@
 # Project authoring walkthrough
 
+Run the entire offline walkthrough with one command after installing AEK:
+
+```sh
+node node_modules/agent-eval-kit/examples/authoring/run.mjs ./aek-authoring-demo
+```
+
+From a built source checkout, use `node examples/authoring/run.mjs ./aek-authoring-demo`.
+The destination must be new. It retains working, broken and restored runs,
+the regression comparison, a calibrated quantity requirement, and command logs
+under `.agent-eval/walkthrough/`. The script restores the target on failure too.
+Continue below to perform the same steps manually.
+
 For an introduction to scores, coverage, gates, and revision comparisons, start
 with [your first evaluation](../../docs/first-run.md), which also runs entirely
 from the installed package. This walkthrough adds requirement mapping and

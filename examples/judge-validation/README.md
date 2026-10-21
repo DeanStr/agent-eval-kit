@@ -1,5 +1,76 @@
 # Bounded judge validation
 
+## Representative pilot
+
+Prepare twelve evidence packages, with working behavior, equivalent presentation,
+a deliberate defect and withheld evidence for each of three families:
+
+```sh
+node node_modules/agent-eval-kit/examples/judge-validation/pilot.mjs prepare ./judge-pilot \
+  --judge codex --model gpt-6-astra
+```
+
+The destination must be new. Preparation invokes no model: it exercises a local
+cart through Playwright, executes a JSON invoice exporter, and snapshots a text
+policy/response packet. Chromium must be installed. Open `judge-pilot/review.html`
+to assess the evidence without fixture expectations or judge predictions.
+Runtime previews include the collector identity and recorded execution transcript.
+Use those records to distinguish observed actions from collector-supplied claims;
+screenshots alone establish sampled visible states.
+Record case IDs, pass/fail/cannot_judge, reasons and evidence references. The
+optional `human-review.template.json` is deliberately invalid until the actual
+reviewer and evidence labels are supplied. Never relabel agent expectations as
+human review. Independent application outcomes may remain unknown.
+
+Then compare the pinned medium/high effort settings on exactly the same evidence:
+
+```sh
+node node_modules/agent-eval-kit/examples/judge-validation/pilot.mjs compare ./judge-pilot
+```
+
+This invokes the existing `aek judge validate` command, retains all ordinary
+sealed judging runs, and writes `pilot-summary.html` and `pilot-summary.json`.
+The summary verifies the comparison against sealed results and recomputes metrics
+through the existing review reader. Runtime sums completed judging-run durations,
+including harness work; failed-attempt durations remain unavailable. A failed
+comparison retains its diagnostics; after inspection, `pilot.mjs summarize
+./judge-pilot` can summarize a completed comparison containing execution errors.
+Reports refuse to overwrite an existing summary or comparison.
+
+Preparation pins the case identities, labels, configuration manifest, both
+judge configs and all three rubric specs. `compare` rejects changes before
+invoking judges; prepare a new directory to change this experiment. `summarize`
+checks the completed comparison's
+snapshots against those pins, so later edits to live configs do not rewrite the
+recorded settings or criteria. To compare independent human labels, use
+`aek judge validate` directly with a separate labels file and a new output directory.
+
+Use `--judge mock` during preparation for a model-free workflow check. Mock
+judges abstain and cannot establish accuracy. From a built source checkout,
+replace `node node_modules/agent-eval-kit/examples/` with `node examples/`.
+
+All variants of a family remain in one split. Browser and invoice cases are
+development; the text family is evaluation and must not be used for tuning these
+configurations. The scope is deliberately small and labels are agent-authored:
+results do not establish general accuracy, human agreement, repeatability or a
+speed ranking. Browser screenshots and observations are supplied by a command
+collector; a judge may abstain if that packet does not sufficiently establish
+the reload action. Inspect the actual evidence and rationale before treating an
+abstention as an evaluator mistake. Collection-agent investigation is not tested.
+Exact invoice arithmetic would normally use a deterministic command gate;
+here it is a controlled diagnostic of model interpretation.
+
+The [21 October retained results](results-pilot-2026-10-21.json) record both
+configurations catching all three seeded defects and abstaining on all three
+withheld cases. Both also abstained on two working persistence cases, giving
+7/12 decisive judgments. These labels remain agent assessments. See the
+[pilot review](../../docs/review-loop-reliability-onboarding-2026-10-21.md)
+for evidence-source analysis, the isolated real-source ProgramCue exercise and
+its real browser follow-up. The latter kept the existing publication criteria
+fixed: the current app passed, a seeded query leaked a draft title and failed,
+and restoration passed again, all at full coverage. This is a bounded local
+calibration, not production acceptance or a general accuracy estimate.
+
 ## Installed offline example
 
 From a project with `agent-eval-kit` installed, run:

@@ -1,0 +1,516 @@
+{
+  "version": 1,
+  "recordedAt": "2026-10-21",
+  "experiment": ".agent-eval/experiments/reliability-pilot-20261021",
+  "comparisonSha256": "56cdac25a1a0fdb69f633ea94ab5d5804178010807605cf26b790adf9cc24529",
+  "datasetSha256": "78027f8edcc03421c9a8027d0240d33977c829748bb34bad0a3205491ff7953d",
+  "labelsSha256": "48f96ea37007317374272b028545cd5fad8f2b405065c93bb15fa11c207f4eb0",
+  "requestedJudge": {
+    "provider": "codex",
+    "model": "gpt-6-astra",
+    "efforts": [
+      "medium",
+      "high"
+    ],
+    "cliVersion": "codex-cli 0.163.0"
+  },
+  "reviewerKind": "agent",
+  "cases": [
+    {
+      "id": "case-01",
+      "group": "browser-family",
+      "split": "development",
+      "area": "browser",
+      "rubric": "PERSISTENCE",
+      "evidenceRootSha256": "509790de4554fe1d781ad5008d65184ee743ba69906af9be3529735c87b673ed"
+    },
+    {
+      "id": "case-02",
+      "group": "browser-family",
+      "split": "development",
+      "area": "browser",
+      "rubric": "PERSISTENCE",
+      "evidenceRootSha256": "94782784885108a9bace94ae7fd84fafb7e0fa5a5c1fc9fcd41d4f92e2af7f57"
+    },
+    {
+      "id": "case-03",
+      "group": "browser-family",
+      "split": "development",
+      "area": "browser",
+      "rubric": "PERSISTENCE",
+      "evidenceRootSha256": "6c79a455f0d191788a4bfecb3f81510bdbbdc33ac9a751c52baf7fb8c7fecb34"
+    },
+    {
+      "id": "case-04",
+      "group": "browser-family",
+      "split": "development",
+      "area": "browser",
+      "rubric": "PERSISTENCE",
+      "evidenceRootSha256": "a00bb92c320f85cf3e41030223e06760fb35e3fc1625bab216f13569d1e726b2"
+    },
+    {
+      "id": "case-05",
+      "group": "file-family",
+      "split": "development",
+      "area": "file",
+      "rubric": "INVOICE",
+      "evidenceRootSha256": "dcef6bbe6de65c35b5bb818dbba38282789f25977583d1b25af3c1db4cdebe59"
+    },
+    {
+      "id": "case-06",
+      "group": "file-family",
+      "split": "development",
+      "area": "file",
+      "rubric": "INVOICE",
+      "evidenceRootSha256": "28f64605d9e2efdd5b4066d228ae0e006e12e1aac3758385b16e8ca5ada0c75d"
+    },
+    {
+      "id": "case-07",
+      "group": "file-family",
+      "split": "development",
+      "area": "file",
+      "rubric": "INVOICE",
+      "evidenceRootSha256": "f52278e9e751b36f22f5da02b3bc872adf12998d4d07889cea6da4f2f456c251"
+    },
+    {
+      "id": "case-08",
+      "group": "file-family",
+      "split": "development",
+      "area": "file",
+      "rubric": "INVOICE",
+      "evidenceRootSha256": "9845b68b304ad703f1161aafe33f2e44583adaf80a9146a37308a804901ca4f5"
+    },
+    {
+      "id": "case-09",
+      "group": "text-family",
+      "split": "evaluation",
+      "area": "text",
+      "rubric": "POLICY",
+      "evidenceRootSha256": "0154fddd521e99e8bcc32d32115163645ca37e313e027a9471abff85c7411dca"
+    },
+    {
+      "id": "case-10",
+      "group": "text-family",
+      "split": "evaluation",
+      "area": "text",
+      "rubric": "POLICY",
+      "evidenceRootSha256": "fe4ded6b7945f831844dafc988c991fad864fc5ef598e35ea6b912879cb31e6b"
+    },
+    {
+      "id": "case-11",
+      "group": "text-family",
+      "split": "evaluation",
+      "area": "text",
+      "rubric": "POLICY",
+      "evidenceRootSha256": "ae41348435cf4f226d3806a2b41e8e421516d0f1016e245bc5f9bf145b128b69"
+    },
+    {
+      "id": "case-12",
+      "group": "text-family",
+      "split": "evaluation",
+      "area": "text",
+      "rubric": "POLICY",
+      "evidenceRootSha256": "7a2aa5b0e66035fa7597bd2d87a1cfa20a3a43df62c63fb875993b1008a5ac9b"
+    }
+  ],
+  "results": [
+    {
+      "configuration": "medium",
+      "metrics": {
+        "attempted": 12,
+        "falsePasses": {
+          "count": 0,
+          "denominator": 3,
+          "rate": 0
+        },
+        "falseFailures": {
+          "count": 0,
+          "denominator": 6,
+          "rate": 0
+        },
+        "abstentions": {
+          "count": 5,
+          "denominator": 12,
+          "rate": 0.4166666666666667
+        },
+        "executionErrors": {
+          "count": 0,
+          "denominator": 12,
+          "rate": 0
+        },
+        "decisionCoverage": {
+          "count": 7,
+          "denominator": 12,
+          "rate": 0.5833333333333334
+        },
+        "unsupportedDecisions": {
+          "count": 0,
+          "denominator": 3,
+          "rate": 0
+        },
+        "correctAbstentions": {
+          "count": 3,
+          "denominator": 3,
+          "rate": 1
+        },
+        "exactMatches": {
+          "count": 10,
+          "denominator": 12,
+          "rate": 0.8333333333333334
+        }
+      },
+      "completedJudgingDurationMs": 105975,
+      "recordedProviderCalls": 12
+    },
+    {
+      "configuration": "high",
+      "metrics": {
+        "attempted": 12,
+        "falsePasses": {
+          "count": 0,
+          "denominator": 3,
+          "rate": 0
+        },
+        "falseFailures": {
+          "count": 0,
+          "denominator": 6,
+          "rate": 0
+        },
+        "abstentions": {
+          "count": 5,
+          "denominator": 12,
+          "rate": 0.4166666666666667
+        },
+        "executionErrors": {
+          "count": 0,
+          "denominator": 12,
+          "rate": 0
+        },
+        "decisionCoverage": {
+          "count": 7,
+          "denominator": 12,
+          "rate": 0.5833333333333334
+        },
+        "unsupportedDecisions": {
+          "count": 0,
+          "denominator": 3,
+          "rate": 0
+        },
+        "correctAbstentions": {
+          "count": 3,
+          "denominator": 3,
+          "rate": 1
+        },
+        "exactMatches": {
+          "count": 10,
+          "denominator": 12,
+          "rate": 0.8333333333333334
+        }
+      },
+      "completedJudgingDurationMs": 113433,
+      "recordedProviderCalls": 12
+    }
+  ],
+  "programcue": {
+    "experiment": ".agent-eval/experiments/programcue-onboarding-20261021",
+    "summarySha256": "c5cbe62ce4d121737279c6c0112482004f418548db4872e0e7c0215a580333b1",
+    "sourceRevision": "2d22f0a6844ac85313cfe31742a66ea9d29998ea",
+    "sourceFiles": [
+      {
+        "file": "app/modules/programme/public-programme-filter-state.ts",
+        "sha256": "d93bf9e64f52fe7749d2bdfb232b741658a456cde5da4e9262f29bdd220543b3"
+      },
+      {
+        "file": "app/modules/programme/public-programme-filter-state.test.ts",
+        "sha256": "cabd0807fab82f4155573cad5d57f8dacdc01c5a3bf7908e5d45ec5513202407"
+      }
+    ],
+    "sourceFilesUnchanged": true,
+    "results": {
+      "good": {
+        "score": 100,
+        "coverage": 100,
+        "gatesPassed": true,
+        "evaluationFingerprint": "855d3c7c78f281098442fe583c8d89ef87ced2533c05ee13863ab1e899cb8d69"
+      },
+      "defect": {
+        "score": 0,
+        "coverage": 100,
+        "gatesPassed": false,
+        "evaluationFingerprint": "855d3c7c78f281098442fe583c8d89ef87ced2533c05ee13863ab1e899cb8d69"
+      },
+      "restored": {
+        "score": 100,
+        "coverage": 100,
+        "gatesPassed": true,
+        "evaluationFingerprint": "855d3c7c78f281098442fe583c8d89ef87ced2533c05ee13863ab1e899cb8d69"
+      }
+    },
+    "executionErrorAttempt": {
+      "directory": "/home/dean/src/agent-eval-kit/.agent-eval/experiments/programcue-onboarding-20261021/project/.agent-eval/runs/2026-10-21T05-02-58",
+      "state": "failed",
+      "expectedExit": 1
+    },
+    "authorStatus": {
+      "ready": false,
+      "requirements": [
+        {
+          "id": "STALE-FACETS",
+          "stage": "calibrated"
+        }
+      ]
+    }
+  },
+  "limitations": [
+    "Controlled fixtures and agent-authored labels; independent human review remains pending.",
+    "All three seeded defects were detected and all three withheld-evidence cases abstained under both configurations. Two working browser cases also abstained because action evidence was collector-supplied.",
+    "This single sweep does not establish general accuracy, stability, or a runtime ranking.",
+    "The ProgramCue unit-test slice and real local browser follow-up are recorded separately; neither establishes production, external-provider acceptance or general evaluator accuracy.",
+    "Initial live collection predates the example helper adding metadata/generator pins to newly prepared datasets. Retained original reports and labels remain unchanged."
+  ],
+  "nativeBrowser": {
+    "experiment": ".agent-eval/experiments/native-browser-pilot-20261021",
+    "summarySha256": "9e640695abd64c0c1cda632ab752f84031d8bb8e6bbe01915d6025e8dad6c1b3",
+    "results": {
+      "good": {
+        "score": 100,
+        "coverage": 100,
+        "verdict": "pass",
+        "artifactRootSha256": "2ca552baea928343a9ccc1b51d988c2eeb39fbe7a561371160ab70465731110b",
+        "reasoning": "Runtime evidence shows quantity changed to 2 and subtotal updated to 1000 cents for the 500-cent item. Both values survived same-URL navigation to reload, corroborated by attached before/after screenshots."
+      },
+      "defect": {
+        "score": 0,
+        "coverage": 100,
+        "verdict": "fail",
+        "artifactRootSha256": "e4a28504ce867aaa6ba354428dc99edc14cc059ae2c3faa69064f8b01c3ada2f",
+        "reasoning": "Before reload, quantity was 2 and subtotal was 1000 cents. Reloading the same URL reset quantity to 1 and subtotal to 500 cents, violating persistence."
+      }
+    },
+    "limitations": [
+      "Controlled fixture, not ProgramCue browser acceptance.",
+      "Collection method differs from the command-collector study, so this is a diagnostic follow-up, not a matched model/configuration comparison.",
+      "No human-reviewed labels or general reliability claim."
+    ]
+  },
+  "programcueBrowser": {
+    "experiment": ".agent-eval/experiments/programcue-browser-pilot-20261021",
+    "summarySha256": "e393cdce662d35a7007a59e3649665c7bff2f96953d9788357655922068407f3",
+    "sourceSnapshotSha256": "1b2f55082478c7e12fd1e1ed5dd7ca0c08ae84d3032c700b3d88ca666433d087",
+    "sourceRevision": "2d22f0a6844ac85313cfe31742a66ea9d29998ea",
+    "sourceFilesChecked": 1780,
+    "sourceFilesUnchanged": false,
+    "sourceAuditSha256": "339398bc31b33ba888cf742cd8651ebd016ad7cd5811c902674d30f92990cd43",
+    "sourceAudit": {
+      "checkedAt": "2026-10-21T06:22:06.659Z",
+      "initialSourceFileCount": 1780,
+      "applicationFileCount": 1261,
+      "applicationFilesUnchanged": true,
+      "publicationSpecUnchanged": true,
+      "originalCheckoutWasWrittenByPilot": false,
+      "changedFiles": [
+        {
+          "path": "docs/DECISIONS.md",
+          "initialSha256": "41c25f574b9e6f9549fb048bd0f2f6360ea3a6b33c0fdbf8facf947a0d885a9d",
+          "currentSha256": "b82ee340c4e445d4c6cea7ed2a70c0a36ec8b4564de8e7ad0fb1a34fc3ddda71"
+        },
+        {
+          "path": "docs/IMPLEMENTATION_STATUS.md",
+          "initialSha256": "c4a028b0e62eee7d3477502821f0f02ee1821c0c9b4188dc2e0b4e2242ce0c69",
+          "currentSha256": "02f5bba301098ef374e9f4a94899bd2aa11edcb59e1ae9cd09118fc3e6702baa"
+        },
+        {
+          "path": "evals/README.md",
+          "initialSha256": "f0f25bb030ae2b335140dbe0208106224cfde3c09c628296f9eac1b40b1f69fd",
+          "currentSha256": "626974d5c388d55183d2428d4e51174f71bb9eddb9d9cf1f000a52fa4bcf864e"
+        },
+        {
+          "path": "evals/package-lock.json",
+          "initialSha256": "54d88b1d8d785fa6e447f233e93411009d51616a0116e5921a11854505c4b071",
+          "currentSha256": "837425fae3cff4263b176705ceed5e0398f0e8633a1822dc01bcd37363b90aa0"
+        },
+        {
+          "path": "evals/package.json",
+          "initialSha256": "1d05d5c04ebb27e7dd19c38acb63f35acfdbfc470277426cfcef4b3ddd36adb8",
+          "currentSha256": "81158a6d3f2759c115d1801f6fa08301216fe211525d17fbc27d623aa40cd05c"
+        },
+        {
+          "path": "evals/test/local-plan.test.mjs",
+          "initialSha256": "57a85d42d702d348a379e8062383a30a64aaf589aba85ce1fc0b23db6ad00f44",
+          "currentSha256": "7ae77b1673cd28f8c651672a75bb04220f81ffb42b1f4a7f2a0bbf65963d8d3a"
+        },
+        {
+          "path": "evals/test/runtime.test.mjs",
+          "initialSha256": "2e7c043e93cc28e8a9976a8e7c9417dad451ae96f62283b1f5977bb7333a6393",
+          "currentSha256": "a3fdb3817b246e3456a82acf82b361df9dcbd87d24f9ffb1a2bb8d8862a057e4"
+        }
+      ],
+      "addedFiles": [
+        "evals/scripts/ux-capture.mjs",
+        "evals/scripts/ux-contract.mjs",
+        "evals/scripts/ux-review.mjs",
+        "evals/test/ux.test.mjs"
+      ],
+      "explanation": "The pilot only wrote the disposable clone. Concurrent changes to the original checkout were observed and preserved. Separate inodes, file modification times and new UX capture/review files establish that the original checkout continued to change during the experiment; those changes were not copied into the frozen pilot."
+    },
+    "disposableSourceRestored": true,
+    "mutation": {
+      "file": "app/modules/programme/public-programme-service.server.ts",
+      "before": "SELECT s.id, content.slug, content.title,",
+      "after": "SELECT s.id, content.slug, s.title AS title,",
+      "originalSha256": "3de926513f1670070c82aacebcb8970f3baf80c84df2838f5d5a5c9f98350b41",
+      "mutatedSha256": "5c5e6728647e8cd6144de1f31e52fb8d80f441794a0c69522996d5f7cb73f3ae",
+      "purpose": "Leak the mutable session title through the anonymous published programme instead of reading the immutable publication snapshot."
+    },
+    "specSha256": "f49323f52f14e2beb97282441ba2d4a2aef42fa7e5f9624d86fde8e61b3f49b2",
+    "requestedProviders": {
+      "agent": {
+        "provider": "codex",
+        "model": "gpt-6-astra",
+        "effort": "medium"
+      },
+      "judge": {
+        "provider": "codex",
+        "model": "gpt-6-astra",
+        "effort": "medium"
+      }
+    },
+    "results": {
+      "baseline": {
+        "directory": ".agent-eval/experiments/programcue-browser-pilot-20261021/project/evals/.agent-eval/runs/2026-10-21T06-04-58",
+        "score": 100,
+        "coverage": 100,
+        "evaluationFingerprint": "ea2ef987a03ebd75084e686996a2a3a5876efb9bb9e861ab94f60b29e17373b9",
+        "artifactRootSha256": "da798c88234f480c63f45edf515986b7a1650b5cf3b91ed02c95ab18d5277bca",
+        "startedAt": "2026-10-21T06:05:00.028Z",
+        "finishedAt": "2026-10-21T06:09:42.823Z",
+        "screenshotCount": 15,
+        "items": [
+          {
+            "id": "PC-DRAFT-PRIVATE",
+            "verdict": "pass",
+            "confidence": "high",
+            "reasoning": "After organizer reload, version 2 remains Draft with PC-DRAFT-ONLY in the title. Anonymous navigation to the original public surface retains the previous title in the feature, session card, and detail.",
+            "evidenceRefs": [
+              "PC-PUBLICATION/browser-transcript.ndjson#step-14",
+              "PC-PUBLICATION/screenshots/p1-002-draft-title-after-reload.jpg",
+              "PC-PUBLICATION/browser-transcript.ndjson#step-19",
+              "PC-PUBLICATION/screenshots/p2-004-anonymous-draft-isolation.jpg"
+            ]
+          },
+          {
+            "id": "PC-PUBLISH-CONTENT",
+            "verdict": "pass",
+            "confidence": "high",
+            "reasoning": "Unapproved publication visibly shows blockers and a disabled confirmation. Approval is exercised and saved; the subsequent preview has no blockers. Explicit publication is followed by anonymous navigation to the original surface displaying the changed title.",
+            "evidenceRefs": [
+              "PC-PUBLICATION/screenshots/p1-004-unapproved-publication-blocked.jpg",
+              "PC-PUBLICATION/browser-transcript.ndjson#step-34",
+              "PC-PUBLICATION/browser-transcript.ndjson#step-37",
+              "PC-PUBLICATION/screenshots/p1-006-approval-saved.jpg",
+              "PC-PUBLICATION/screenshots/p1-008-approved-publication-preview.jpg",
+              "PC-PUBLICATION/browser-transcript.ndjson#step-46",
+              "PC-PUBLICATION/browser-transcript.ndjson#step-49",
+              "PC-PUBLICATION/screenshots/p2-006-anonymous-published-title.jpg"
+            ]
+          }
+        ]
+      },
+      "defect": {
+        "directory": ".agent-eval/experiments/programcue-browser-pilot-20261021/project/evals/.agent-eval/runs/2026-10-21T06-11-06",
+        "score": 33.333,
+        "coverage": 100,
+        "evaluationFingerprint": "ea2ef987a03ebd75084e686996a2a3a5876efb9bb9e861ab94f60b29e17373b9",
+        "artifactRootSha256": "46893b471ef9e072a86bbe3a06d17b18c8ed31f8a9aec9f43b2d41699ba850d3",
+        "startedAt": "2026-10-21T06:11:08.276Z",
+        "finishedAt": "2026-10-21T06:15:12.828Z",
+        "screenshotCount": 17,
+        "items": [
+          {
+            "id": "PC-DRAFT-PRIVATE",
+            "verdict": "fail",
+            "confidence": "high",
+            "reasoning": "The edited title persisted after organizer reload with Version 2 still Draft. Before publication, anonymous reload displayed PC-DRAFT-ONLY in the hero, session card and detail heading instead of retaining the previous title.",
+            "evidenceRefs": [
+              "PC-PUBLICATION/screenshots/p1-002-draft-reloaded.jpg",
+              "PC-PUBLICATION/screenshots/p2-002-public-before.jpg",
+              "PC-PUBLICATION/browser-transcript.ndjson#step-20",
+              "PC-PUBLICATION/screenshots/p2-004-public-draft-isolated.jpg"
+            ]
+          },
+          {
+            "id": "PC-PUBLISH-CONTENT",
+            "verdict": "pass",
+            "confidence": "medium",
+            "reasoning": "Unapproved publication was visibly blocked. The browser exercised explicit approval, reopened a preview with no blockers, clicked publication confirmation and reloaded the original surface anonymously with the changed title. This satisfies the specified checks; premature exposure is assessed separately.",
+            "evidenceRefs": [
+              "PC-PUBLICATION/screenshots/p1-004-unapproved-publication-blocker.jpg",
+              "PC-PUBLICATION/screenshots/p1-006-approval-explicit-confirmation.jpg",
+              "PC-PUBLICATION/browser-transcript.ndjson#step-37",
+              "PC-PUBLICATION/browser-transcript.ndjson#step-43",
+              "PC-PUBLICATION/browser-transcript.ndjson#step-45",
+              "PC-PUBLICATION/browser-transcript.ndjson#step-50",
+              "PC-PUBLICATION/screenshots/p2-006-anonymous-after-publication.jpg"
+            ]
+          }
+        ]
+      },
+      "restored": {
+        "directory": ".agent-eval/experiments/programcue-browser-pilot-20261021/project/evals/.agent-eval/runs/2026-10-21T06-16-42",
+        "score": 100,
+        "coverage": 100,
+        "evaluationFingerprint": "ea2ef987a03ebd75084e686996a2a3a5876efb9bb9e861ab94f60b29e17373b9",
+        "artifactRootSha256": "2db6a92d615f853dcb9121ed1e420c93ab5507277c8e219387d664e809ca87e1",
+        "startedAt": "2026-10-21T06:16:43.858Z",
+        "finishedAt": "2026-10-21T06:20:42.078Z",
+        "screenshotCount": 15,
+        "items": [
+          {
+            "id": "PC-DRAFT-PRIVATE",
+            "verdict": "pass",
+            "confidence": "high",
+            "reasoning": "After organizer reload, Version 2 Draft retains PC-DRAFT-ONLY. Anonymous reload of the original public surface still shows the previous title in the session card and detail.",
+            "evidenceRefs": [
+              "PC-PUBLICATION/browser-transcript.ndjson#step-14",
+              "PC-PUBLICATION/screenshots/p1-002-draft-persisted-after-reload.jpg",
+              "PC-PUBLICATION/browser-transcript.ndjson#step-19",
+              "PC-PUBLICATION/screenshots/p2-004-public-unchanged-while-draft.jpg"
+            ]
+          },
+          {
+            "id": "PC-PUBLISH-CONTENT",
+            "verdict": "pass",
+            "confidence": "high",
+            "reasoning": "Unapproved publication visibly shows blockers and a disabled confirmation. Approval is saved, the reopened preview reports no blockers, explicit confirmation initiates publication, and anonymous reload shows the changed title on the original public surface.",
+            "evidenceRefs": [
+              "PC-PUBLICATION/screenshots/p1-004-unapproved-publication-blocked.jpg",
+              "PC-PUBLICATION/screenshots/p1-006-approval-saved.jpg",
+              "PC-PUBLICATION/browser-transcript.ndjson#step-41",
+              "PC-PUBLICATION/browser-transcript.ndjson#step-43",
+              "PC-PUBLICATION/browser-transcript.ndjson#step-47",
+              "PC-PUBLICATION/screenshots/p2-006-anonymous-published-title.jpg"
+            ]
+          }
+        ]
+      }
+    },
+    "comparisons": {
+      "defect": {
+        "exit": 2,
+        "sha256": "29b8f21d436b952cdddd6f68aa3971a5bc4f7cef55bbd432be8a6c6b13988582"
+      },
+      "restored": {
+        "exit": 0,
+        "sha256": "5949bd30f1a71735354787eb1e3992563322083ee1dff6083cbfb3e8b9b7d56a"
+      }
+    },
+    "limitations": [
+      "Local isolated Worker/D1 and fixture authentication; no production or external-provider acceptance.",
+      "Single three-run calibration of two existing requirements; no general reliability or human-label accuracy claim.",
+      "The original checkout changed concurrently in non-application files and gained UX workflow files. Those changes were preserved and excluded from the frozen pilot. Original application files and publication spec matched the initial snapshot at the recorded audit time."
+    ],
+    "driverNotes": [
+      "The initial experiment driver paused after the two completed runs because it expected an unrounded score and a nonzero exit for a scored criterion without a critical gate or explicit CLI threshold. The driver assertion was corrected; restoration and artifact checks continued with unchanged evaluation definitions. Regression enforcement uses compare --fail-on-regression."
+    ]
+  }
+}

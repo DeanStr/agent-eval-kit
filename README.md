@@ -19,6 +19,10 @@ This is an early pre-release project. Backward compatibility is not a requiremen
 
 Start with [your first evaluation](docs/first-run.md) for an offline walkthrough,
 or [author evaluations for your whole project](docs/authoring.md) with a guided interview.
+For a single-command offline demonstration, run
+`node node_modules/agent-eval-kit/examples/authoring/run.mjs ./aek-demo`
+after installing the package. It retains the working, deliberately broken, and
+restored runs, their comparison, and an authoring map.
 For manual setup, use [onboarding](docs/onboarding.md).
 The [documentation index](docs/README.md) organizes guides by task, including a
 [command guide](docs/cli.md) and [troubleshooting](docs/troubleshooting.md).

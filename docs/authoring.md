@@ -189,6 +189,19 @@ of exhaustive product coverage or merges it into the run's quality score.
 
 ## Offline walkthrough
 
+Run the packaged authoring walkthrough in a new directory:
+
+```sh
+node node_modules/agent-eval-kit/examples/authoring/run.mjs ./aek-authoring-demo
+```
+
+It installs the authoring skill, loads the fixture's documented requirement map,
+runs a working calculation, detects a deliberate quantity defect, saves the
+comparison, restores the target and records verified trials. `QUANTITY` becomes
+calibrated; `EMPTY` remains exercised because the seeded defect does not violate
+that requirement. The summary retains command exit codes and elapsed times.
+This is a scripted fixture, not a measurement of the agent's interviewing skill.
+
 The [authoring example](../examples/authoring/README.md) is included in the package.
 It demonstrates a project map, configured checks, and a good/defect calibration
 without a provider login or browser. It exercises CLI contracts rather than

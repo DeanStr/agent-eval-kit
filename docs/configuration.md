@@ -100,7 +100,7 @@ Judge-only fields:
 | Field | Type / default | Contract |
 | --- | --- | --- |
 | `judge.voting` | Optional voting object | Repeated ordinary LLM/hybrid judging; omission uses one judge invocation per area. Also supplies defaults for direct text graders. |
-| `judge.concurrency` | Integer 1–8, effective default `1` | Concurrent image-pairwise rubric workers; votes/references within a worker remain sequential. Does not parallelize campaign repetitions. |
+| `judge.concurrency` | Integer 1–8, effective default `1` | Concurrent image-pairwise, text-pairwise and text-rubric workers; votes/references within a worker remain sequential. Does not parallelize ordinary LLM areas or campaign repetitions. |
 
 Voting object fields:
 

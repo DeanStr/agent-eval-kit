@@ -59,6 +59,12 @@ for interpreting collected evidence. A source-level requirement can cite code;
 a runtime or persistence requirement needs execution evidence. Workspace agents
 can list, read, and search; put executable checks in explicit command graders.
 
+For persistence and other action-sequence requirements, prefer a native browser
+scenario so the judge receives recorded actions as well as screenshots. A command
+collector's before/after images establish sampled states; its description that a
+reload occurred may leave the operation itself unproven. Keep that uncertainty
+visible instead of weakening the requirement to make the images pass.
+
 Configure account roles, fixture records, and any integrations before the run.
 Capture browser authentication with `aek auth` and mark authenticated scenarios
 with `persona` and `requiresAuth`. Document how to reset application data between
@@ -92,6 +98,11 @@ The generated guide contains a calibration procedure and commands:
    required suite, 100% coverage, and passed gates. If you configure a different
    [promotion policy](evidence-workflows.md#baseline-promotion-policy), run its
    required split and meet its thresholds instead.
+
+For scored criteria without critical gates, use `--fail-under-score 100
+--fail-under-coverage 100` when the run itself should block CI. Without those
+thresholds, a completed run can return exit 0 while its report contains failed
+items. The comparison's `--fail-on-regression` separately enforces regressions.
 
 If the defect is missed, revise the exercise, evidence, or rubric, then rerun
 both targets using the revised evaluator. Changing evaluation inputs invalidates

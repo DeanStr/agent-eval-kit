@@ -56,6 +56,9 @@
     "examples/benchmark/*.mjs",
     "examples/benchmark/*.json",
     "examples/benchmark/*.md",
+    "examples/judge-validation/pilot.mjs",
+    "examples/judge-validation/pilot-collect.mjs",
+    "examples/judge-validation/results-pilot-2026-10-21.json",
     "examples/judge-validation/run.mjs",
     "examples/judge-validation/README.md"
   ],

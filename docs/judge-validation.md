@@ -156,6 +156,13 @@ reported overall and separately for each split.
 
 ## Bounded exercises
 
+For a twelve-case browser-persistence, exported-invoice and text-policy pilot,
+including a separate review packet without judge predictions, see the
+[packaged representative pilot](../examples/judge-validation/README.md#representative-pilot).
+Its fixture labels are agent-authored. It reports abstentions, errors, unsupported
+decisions and completed-run time separately; it establishes no general accuracy
+or stability claim.
+
 See the [runnable GUIDANCE and ProgramCue examples](../examples/judge-validation/README.md).
 They reuse authoring maintenance notes under `.aek-authoring/reviews/` and the
 improvement exercise's append-only decision journal. Judge validation does not

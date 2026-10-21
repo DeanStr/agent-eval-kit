@@ -330,6 +330,27 @@ console.log(JSON.stringify({verdict:r.valid?'pass':'fail',confidence:'high',reas
   assert.match(validationHtml, /Reviewed expectations/);
   assert.match(validationHtml, /The synthetic observation records pass/);
   assert.match(validationHtml, /href="attempts\/original\/case-1\/runs\//);
+  const representative = path.join(scratch, "representative-judge-pilot");
+  const pilotExample = path.join(installed, "examples/judge-validation/pilot.mjs");
+  await run(
+    process.execPath,
+    [pilotExample, "prepare", representative, "--judge", "mock"],
+    consumer,
+  );
+  await run(process.execPath, [pilotExample, "compare", representative], consumer);
+  const pilotSummary = JSON.parse(
+    fs.readFileSync(path.join(representative, "pilot-summary.json"), "utf8"),
+  );
+  assert.equal(pilotSummary.cases, 12);
+  assert.equal(pilotSummary.judge, "mock");
+  assert.ok(
+    pilotSummary.results.every(
+      (result: {
+        metrics: { executionErrors: { count: number }; decisionCoverage: { count: number } };
+      }) =>
+        result.metrics.executionErrors.count === 0 && result.metrics.decisionCoverage.count === 0,
+    ),
+  );
   // Follow the installed first-run guide with a disposable target outside the
   // consumer, retaining the installed command's working directory throughout.
   const firstExample = path.join(scratch, "first-run-example");
@@ -478,6 +499,18 @@ console.log(JSON.stringify({verdict:r.valid?'pass':'fail',confidence:'high',reas
     authorStatus.requirements.map((entry: { stage: string }) => entry.stage),
     ["calibrated", "exercised"],
   );
+  const authorPilot = path.join(scratch, "one-command-authoring");
+  await run(
+    process.execPath,
+    [path.join(installed, "examples/authoring/run.mjs"), authorPilot],
+    consumer,
+  );
+  const authorPilotSummary = JSON.parse(
+    fs.readFileSync(path.join(authorPilot, ".agent-eval/walkthrough/summary.json"), "utf8"),
+  );
+  assert.equal(authorPilotSummary.results.good.gatesPassed, true);
+  assert.equal(authorPilotSummary.results.defect.gatesPassed, false);
+  assert.equal(authorPilotSummary.results.restored.score, 100);
   // Exercise text datasets and suite/selection/reference commands from the tarball.
   const textExample = path.join(consumer, "text-example");
   fs.cpSync(path.join(installed, "examples/text-datasets"), textExample, {
