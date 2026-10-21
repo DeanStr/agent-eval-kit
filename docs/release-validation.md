@@ -1,5 +1,25 @@
 # Release validation
 
+## Collector and judge prompt contracts (0.6.4)
+
+Collector prompts let the model choose its investigation while preserving tool,
+authentication, provenance, and finalization boundaries. Judge prompts explicitly
+require observed runtime behavior and verification of saved state for persistence
+claims. Screenshot, file-preview, and checkpoint instructions follow the supplied
+evidence and requested rubric selectors, including unavailable images and missing
+checkpoints. Evidence content is explicitly treated as data rather than instructions.
+
+These prompt changes can affect collection and model verdicts. The kit version
+separates evaluator fingerprints; regenerate affected runs and baselines when
+upgrading. Regression tests cover prompt construction and enforced judging
+contracts, without establishing live model accuracy or human calibration.
+
+Validation on Linux with Node 24.18.0 passed all 739 tests, formatting, lint,
+type checking, both browser smoke suites, and all seven deterministic reference
+variants. The release workflow repeats the package checks and smoke-tests the
+exact versioned archive before publishing the tarball and SHA-256 checksum as a
+GitHub pre-release.
+
 ## Controlled visual starter and submodule identity (0.6.3)
 
 `aek init --kind visual` generates a runnable WebGL/Canvas2D fixture with
