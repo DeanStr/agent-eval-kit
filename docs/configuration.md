@@ -100,6 +100,7 @@ Judge-only fields:
 | Field | Type / default | Contract |
 | --- | --- | --- |
 | `judge.voting` | Optional voting object | Repeated ordinary LLM/hybrid judging; omission uses one judge invocation per area. Also supplies defaults for direct text graders. |
+| `judge.capacityRetries` | Integer 0–5, default `0` | Retry explicit temporary capacity failures with bounded exponential backoff. Retains failed attempts; never retries valid verdicts, timeouts, policy violations or scenario collection. See [image comparison](image-comparison.md#temporary-provider-capacity-failures). |
 | `judge.concurrency` | Integer 1–8, effective default `1` | Concurrent image-pairwise, text-pairwise and text-rubric workers; votes/references within a worker remain sequential. Does not parallelize ordinary LLM areas or campaign repetitions. |
 
 Voting object fields:

@@ -56,6 +56,10 @@ const descriptions: Record<string, string> = {
   project: "Project directory (default: current directory).",
   description: "Scope of the authoring project or feature.",
   "require-ready": "Exit 2 for a valid but incomplete authoring inventory.",
+  manifest: "JSON image batch manifest; image paths resolve relative to this file.",
+  concurrency: "Maximum simultaneous image comparisons, 1–8 (default: 2).",
+  reuse: "Prior image batch; reuse completed identical comparisons, including failures.",
+  "capacity-retries": "Retries for explicit temporary judge capacity errors, 0–5 (default: 2).",
   reference: "Reference image file.",
   criterion: "Required relative image-quality criterion.",
   "absolute-criterion": "Optional independent candidate-only quality gate.",
@@ -71,6 +75,7 @@ const descriptions: Record<string, string> = {
 };
 
 const usages: Record<string, string> = {
+  "image batch": "--manifest file.json [options] | --resume directory",
   "image compare": "--candidate file --reference file --criterion text [options]",
   "author install": "[--directory directory]",
   "author init": "[--project directory] [--mode project|feature] [--description text]",
@@ -115,7 +120,7 @@ export function commandHelp(
 ): string {
   const groups: Record<string, string[]> = {
     benchmark: ["experiment"],
-    image: ["compare"],
+    image: ["compare", "batch"],
     author: ["install", "init", "status", "validate"],
     baseline: ["promote", "list"],
     reference: ["promote", "list"],

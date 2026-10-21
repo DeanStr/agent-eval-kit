@@ -74,6 +74,7 @@ async function runIsolatedCodex(
   let usage: ProviderUsage | undefined;
   let eventLine = 0;
   let malformedEventLine: number | undefined;
+  let responseEmitted = false;
   const policyViolations = new Set<string>();
   const result = await spawnCaptured({
     command: "codex",
@@ -92,6 +93,13 @@ async function runIsolatedCodex(
         const event = JSON.parse(line);
         if (event.type === "thread.started") sessionId = event.thread_id;
         if (event.type === "turn.completed" && event.usage) usage = event.usage;
+        if (
+          event.type === "item.completed" &&
+          event.item?.type === "agent_message" &&
+          typeof event.item.text === "string" &&
+          event.item.text.trim()
+        )
+          responseEmitted = true;
         if (event.type === "item.started" && event.item?.type === "mcp_tool_call") {
           invocation.onProgress?.(`tool ${event.item.tool}`);
         }
@@ -123,6 +131,7 @@ async function runIsolatedCodex(
     provider: "codex",
     ...result,
     finalText,
+    ...(responseEmitted ? { responseEmitted: true } : {}),
     structured: parseJsonText(finalText),
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(usage === undefined ? {} : { usage }),

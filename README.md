@@ -525,6 +525,11 @@ aek image compare --candidate new.png --reference approved.png \
   --criterion "Labels are readable and the main action is easy to find."
 ```
 
+For many pairs, `aek image batch --manifest comparisons.json --output review-01`
+adds a combined HTML/JSON report, bounded concurrency, resume and strict reuse
+of completed identical comparisons, including failures. See
+[batch image comparisons](docs/image-comparison.md#batch-comparisons).
+
 The default policy accepts improvement or observed equivalence. Add
 `--policy preference` to require improvement, or `--absolute-criterion` for a
 separate quality gate. See the [two-file image guide](docs/image-comparison.md)

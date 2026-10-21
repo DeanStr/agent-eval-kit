@@ -438,6 +438,53 @@ console.log(JSON.stringify({verdict:r.valid?'pass':'fail',confidence:'high',reas
   assert.equal(imageReport.gates.passed, false);
   await run(cli, ["verify", "--run", imageRun], consumer);
   assert.equal(fs.existsSync(path.join(installed, "docs", "image-comparison.md")), true);
+
+  const batchManifest = path.join(consumer, "image-batch.json");
+  fs.writeFileSync(
+    batchManifest,
+    JSON.stringify({
+      version: 1,
+      defaults: {
+        judge: "mock",
+        criterion: "Labels are readable",
+        voting: { minimumVotes: 1, maximumVotes: 1 },
+      },
+      comparisons: ["desktop", "mobile"].map((id) => ({
+        id,
+        candidate: "image.svg",
+        reference: "image.svg",
+      })),
+    }),
+  );
+  const batchOutput = path.join(consumer, "image-batch-review");
+  const batchArgs = ["image", "batch", "--manifest", batchManifest, "--output", batchOutput];
+  const batchPlan = JSON.parse(await run(cli, [...batchArgs, "--dry-run", "--json"], consumer));
+  assert.equal(batchPlan.comparisons.length, 2);
+  await run(cli, batchArgs, consumer, 2);
+  const batchReport = JSON.parse(fs.readFileSync(path.join(batchOutput, "report.json"), "utf8"));
+  assert.equal(batchReport.completed, 2);
+  assert.equal(batchReport.failedOrInconclusive, 2);
+  assert.equal(batchReport.accepted, false);
+  await run(cli, ["image", "batch", "--resume", batchOutput], consumer, 2);
+  const reusedBatch = path.join(consumer, "image-batch-reused");
+  await run(
+    cli,
+    [
+      "image",
+      "batch",
+      "--manifest",
+      batchManifest,
+      "--reuse",
+      batchOutput,
+      "--output",
+      reusedBatch,
+    ],
+    consumer,
+    2,
+  );
+  const reusedReport = JSON.parse(fs.readFileSync(path.join(reusedBatch, "report.json"), "utf8"));
+  assert.ok(reusedReport.comparisons.every((row: { reusedFrom?: string }) => row.reusedFrom));
+
   assert.equal(fs.existsSync(path.join(installed, "docs", "configuration.md")), true);
   const campaignHelp = await run(cli, ["campaign", "compare", "--help"], consumer);
   assert.match(campaignHelp, /--fail-on-regression/);
@@ -795,7 +842,7 @@ console.log(JSON.stringify({ version: 1, outcome: 'completed', summary: 'Sent no
   ])
     assert.ok(fs.statSync(path.join(visualStarter, "evals/visual", file)).isFile());
   console.log(
-    "Package smoke passed: tarball install, offline first-run scores/coverage/gates/comparison, installed judge validation and offline report example, direct two-image comparison, authoring skill/map/calibration, text datasets/suites/selection/reference promotion, file and email collector/checker pass and failure, executable bin, init, validate, run, collect, judge, release promotion, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
+    "Package smoke passed: tarball install, offline first-run scores/coverage/gates/comparison, installed judge validation and offline report example, direct two-image and batch comparison/resume/reuse, authoring skill/map/calibration, text datasets/suites/selection/reference promotion, file and email collector/checker pass and failure, executable bin, init, validate, run, collect, judge, release promotion, verify, installed MCP, and controlled visual capture/pairwise abstention without dev dependencies.",
   );
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });

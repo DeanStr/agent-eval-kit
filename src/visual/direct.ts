@@ -13,6 +13,8 @@ import { loadSpecs } from "../specs.js";
 import { panelSchema, votingSchema } from "./contracts.js";
 import { imageBytes, MAX_IMAGE_BYTES, sourceImage } from "./images.js";
 
+const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+
 const nonempty = z.string().trim().min(1);
 // Whitespace can be part of a real filename. Validate paths without rewriting them.
 const localPath = z.string().refine((value) => value.trim().length > 0, "Path must not be blank");
@@ -27,6 +29,7 @@ export const directImageOptionsSchema = z
     judgeModel: nonempty.optional(),
     judgeEffort: nonempty.optional(),
     timeoutSeconds: z.number().int().positive().default(900),
+    capacityRetries: z.number().int().min(0).max(5).default(2),
     voting: votingSchema.default({
       minimumVotes: 5,
       maximumVotes: 9,
@@ -119,7 +122,7 @@ async function readStaticImage(file: string, role: "candidate" | "reference") {
   }
 }
 
-export async function compareImageFiles(input: z.input<typeof directImageOptionsSchema>) {
+export async function prepareImageComparison(input: z.input<typeof directImageOptionsSchema>) {
   assertEvaluationPlatform();
   const parsed = directImageOptionsSchema.safeParse(input);
   if (!parsed.success)
@@ -144,6 +147,7 @@ export async function compareImageFiles(input: z.input<typeof directImageOptions
       model: options.judgeModel,
       effort: options.judgeEffort,
       timeoutSeconds: options.timeoutSeconds,
+      capacityRetries: options.capacityRetries,
     },
     voting: options.voting,
     panel: options.panel,
@@ -151,6 +155,12 @@ export async function compareImageFiles(input: z.input<typeof directImageOptions
       ? path.resolve(options.output)
       : path.resolve(".agent-eval/image-comparisons/<comparison-id>"),
   };
+  return { options, plan, candidate, reference };
+}
+
+export async function compareImageFiles(input: z.input<typeof directImageOptionsSchema>) {
+  const prepared = await prepareImageComparison(input);
+  const { options, plan, candidate, reference } = prepared;
   if (options.dryRun) {
     console.log(
       options.json
@@ -171,6 +181,28 @@ export async function compareImageFiles(input: z.input<typeof directImageOptions
     directory = createTimestampedDirectory(parent);
   }
   console.log(`Comparison: ${directory}`);
+  const configFile = stageImageComparison(prepared, directory);
+  const config = loadResolvedConfig(configFile);
+  const specs = loadSpecs(config.paths.specs);
+  const result = await runEvaluation({ config, configFile, specs, fixtures: {}, split: "all" });
+  if (!result.report) throw new Error("Image comparison completed without a report");
+  console.log(
+    `Report: ${path.join(result.runDir, "report.html")}\nRun: ${result.runDir}\nResume: aek run --resume ${quote(result.runDir)}`,
+  );
+  console.log(
+    `Comparison: ${result.report.areas[0]?.items.find((item) => item.id === "COMPARISON")?.verdict}; coverage ${result.report.overallCoveragePct}%`,
+  );
+  const failures = evaluateCiThresholds(result.report, {});
+  for (const failure of failures) console.error(`FAIL: ${failure}`);
+  if (failures.length) process.exitCode = 2;
+  return { plan, directory, ...result };
+}
+
+export function stageImageComparison(
+  prepared: Awaited<ReturnType<typeof prepareImageComparison>>,
+  directory: string,
+): string {
+  const { options, plan, candidate, reference } = prepared;
   // Files remain available for diagnosis and ordinary aek run --resume recovery.
   fs.mkdirSync(path.join(directory, "sources"));
   fs.mkdirSync(path.join(directory, "specs"));
@@ -195,7 +227,6 @@ export async function compareImageFiles(input: z.input<typeof directImageOptions
       scoring: { partialCredit: 0.5, minimumCoverage: 100 },
     }),
   );
-  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
   fs.writeFileSync(
     path.join(directory, "specs/image.yaml"),
     YAML.stringify({
@@ -256,20 +287,7 @@ export async function compareImageFiles(input: z.input<typeof directImageOptions
       ],
     }),
   );
-  const config = loadResolvedConfig(configFile);
-  const specs = loadSpecs(config.paths.specs);
-  const result = await runEvaluation({ config, configFile, specs, fixtures: {}, split: "all" });
-  if (!result.report) throw new Error("Image comparison completed without a report");
-  console.log(
-    `Report: ${path.join(result.runDir, "report.html")}\nRun: ${result.runDir}\nResume: aek run --resume ${quote(result.runDir)}`,
-  );
-  console.log(
-    `Comparison: ${result.report.areas[0]?.items.find((item) => item.id === "COMPARISON")?.verdict}; coverage ${result.report.overallCoveragePct}%`,
-  );
-  const failures = evaluateCiThresholds(result.report, {});
-  for (const failure of failures) console.error(`FAIL: ${failure}`);
-  if (failures.length) process.exitCode = 2;
-  return { plan, directory, ...result };
+  return configFile;
 }
 
 export async function imageCompareCommand(flags: Record<string, string | boolean>): Promise<void> {
@@ -296,6 +314,7 @@ export async function imageCompareCommand(flags: Record<string, string | boolean
     judgeModel: string("judge-model"),
     judgeEffort: string("judge-effort"),
     timeoutSeconds: number("timeout-seconds"),
+    capacityRetries: number("capacity-retries"),
     voting: {
       minimumVotes: number("minimum-votes"),
       maximumVotes: number("maximum-votes"),

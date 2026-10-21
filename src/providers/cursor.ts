@@ -136,9 +136,11 @@ export async function runCursor(invocation: ProviderInvocation): Promise<Provide
       if (invocation.model) args.push("--model", invocation.model);
       const prompt = `${fs.readFileSync(invocation.promptFile, "utf8")}\n\nReturn only a JSON value matching this JSON Schema in your final answer. Do not include commentary or markdown:\n${fs.readFileSync(invocation.outputSchemaFile, "utf8")}`;
       let finalText = "";
+      let finalTextSource: ProviderResult["finalTextSource"];
+      let responseEmitted = false;
       let sessionId: string | undefined;
       let usage: ProviderUsage | undefined;
-      let terminal = false;
+      let terminal: "success" | "error" | undefined;
       let lastAssistantText: string | undefined;
       const violations = new Set<string>();
       const result = await spawnCaptured({
@@ -176,6 +178,7 @@ export async function runCursor(invocation: ProviderInvocation): Promise<Provide
                 return block.text;
               })
               .join("");
+            if (lastAssistantText.trim()) responseEmitted = true;
           }
           if (event.type === "tool_call") {
             const calls = event.tool_call;
@@ -210,30 +213,45 @@ export async function runCursor(invocation: ProviderInvocation): Promise<Provide
             }
           }
           if (event.type === "result") {
+            const failed = event.subtype === "error" && event.is_error === true;
             if (
               terminal ||
-              event.subtype !== "success" ||
-              event.is_error !== false ||
-              typeof event.result !== "string"
+              (!failed &&
+                (event.subtype !== "success" ||
+                  event.is_error !== false ||
+                  typeof event.result !== "string"))
             )
               throw new Error(
                 `Cursor returned an invalid or failed result; see ${invocation.eventLogFile}`,
               );
-            terminal = true;
+            terminal = failed ? "error" : "success";
             usage = event.usage;
             // Cursor's result concatenates all assistant messages, including
             // pre-tool narration. The last complete assistant message is the answer.
-            finalText = lastAssistantText ?? event.result;
+            // Preserve that decision on failure too, so retries cannot reroll it.
+            finalText = lastAssistantText ?? event.result ?? "";
+            finalTextSource = failed && lastAssistantText === undefined ? "error" : "response";
           }
         },
       });
+      // A failed process can exit after answering but before emitting a result event.
+      if (!terminal && lastAssistantText !== undefined) {
+        finalText = lastAssistantText;
+        finalTextSource = "response";
+      }
       fs.writeFileSync(invocation.outputFile, finalText);
+      if (result.exitCode === 0 && !result.timedOut && terminal === "error")
+        throw new Error(
+          `Cursor returned a failed result with exit code 0; see ${invocation.eventLogFile}`,
+        );
       if (result.exitCode === 0 && !result.timedOut && !terminal)
         throw new Error(`Cursor ended without a terminal result; see ${invocation.eventLogFile}`);
       return {
         provider: "cursor",
         ...result,
         finalText,
+        ...(finalTextSource === undefined ? {} : { finalTextSource }),
+        ...(responseEmitted ? { responseEmitted: true } : {}),
         structured: parseJsonText(finalText),
         ...(sessionId === undefined ? {} : { sessionId }),
         ...(usage === undefined ? {} : { usage }),

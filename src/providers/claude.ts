@@ -87,6 +87,8 @@ async function runIsolatedClaude(
     args.push("--tools", "Read,Glob,Grep", "--allowed-tools", "Read,Glob,Grep");
   }
   let finalText = "";
+  let finalTextSource: ProviderResult["finalTextSource"];
+  let responseEmitted = false;
   let structured: unknown;
   let sessionId: string | undefined;
   let usage: ProviderUsage | undefined;
@@ -111,12 +113,15 @@ async function runIsolatedClaude(
         sessionId = event.session_id ?? sessionId;
         if (event.type === "assistant" && Array.isArray(event.message?.content)) {
           for (const block of event.message.content) {
+            if (block.type === "text" && typeof block.text === "string" && block.text.trim())
+              responseEmitted = true;
             if (block.type === "tool_use") {
               // Claude Code implements --json-schema through this built-in
               // schema sink. It cannot inspect the target and is required for
               // every structured result, so it is part of the output channel,
               // not a breach of the evidence boundary.
               const structuredOutput = block.name === "StructuredOutput";
+              if (structuredOutput) responseEmitted = true;
               const allowedMcpTool =
                 invocation.mcp && String(block.name).startsWith(`mcp__${invocation.mcp.name}__`);
               if (!invocation.allowWorkspaceTools && !structuredOutput && !allowedMcpTool) {
@@ -127,8 +132,11 @@ async function runIsolatedClaude(
           }
         }
         if (event.type === "result") {
-          finalText =
-            typeof event.result === "string" ? event.result : JSON.stringify(event.result ?? "");
+          // Error results may have no decision; keep that absence distinct from JSON "".
+          const output = event.result ?? "";
+          finalText = typeof output === "string" ? output : JSON.stringify(output);
+          finalTextSource =
+            event.is_error === true && event.structured_output === undefined ? "error" : "response";
           structured = event.structured_output ?? parseJsonText(finalText);
           usage = event.usage ?? usage;
         }
@@ -148,6 +156,8 @@ async function runIsolatedClaude(
     provider: "claude",
     ...result,
     finalText,
+    ...(finalTextSource === undefined ? {} : { finalTextSource }),
+    ...(responseEmitted ? { responseEmitted: true } : {}),
     structured,
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(usage === undefined ? {} : { usage }),

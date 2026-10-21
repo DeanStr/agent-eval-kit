@@ -94,6 +94,9 @@ async function invokePair(
   }
   const result = await runProvider(config.judge.provider, {
     purpose: "judge",
+    ...(config.judge.capacityRetries === undefined
+      ? {}
+      : { capacityRetries: config.judge.capacityRetries }),
     cwd: directory,
     promptFile,
     outputFile: path.join(directory, "provider-final.json"),

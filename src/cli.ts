@@ -173,10 +173,14 @@ function allowedCliFlags(args: Args): string[] {
       break;
     case "image":
       if (
-        args.positionals[0] !== "compare" &&
+        !["compare", "batch"].includes(args.positionals[0] ?? "") &&
         !(args.flags.help === true && !args.positionals.length)
       )
-        throw new Error("image requires compare");
+        throw new Error("image requires compare or batch");
+      if (args.positionals[0] === "batch") {
+        allowed = ["manifest", "output", "concurrency", "reuse", "resume", "dry-run", "json"];
+        break;
+      }
       allowed = [
         "candidate",
         "reference",
@@ -187,6 +191,7 @@ function allowedCliFlags(args: Args): string[] {
         "judge-model",
         "judge-effort",
         "timeout-seconds",
+        "capacity-retries",
         "minimum-votes",
         "maximum-votes",
         "agreement",
@@ -311,7 +316,7 @@ function validateCliShape(args: Args): void {
   const allowed = allowedCliFlags(args);
   const subcommands: Record<string, string[]> = {
     benchmark: ["experiment"],
-    image: ["compare"],
+    image: ["compare", "batch"],
     author: ["install", "init", "status", "validate"],
     baseline: ["promote", "list"],
     reference: ["promote", "list"],
@@ -404,6 +409,7 @@ const help = `aek — Agent Eval Kit v${KIT_VERSION}
 
 Usage: aek <command> [flags]
 
+  image batch --manifest file.json [--output directory] [--resume directory]
   image compare --candidate file --reference file --criterion text
       [--policy preference|non_regression] [--absolute-criterion text]
       [--judge codex|claude|grok|cursor|mock] [--judge-model id] [--judge-effort value]
@@ -736,6 +742,11 @@ async function main(): Promise<void> {
   }
   if (args.command === "author") {
     await authoringCommand(args.positionals[0], args.flags);
+    return;
+  }
+  if (args.command === "image" && args.positionals[0] === "batch") {
+    const { imageBatchCommand } = await import("./visual/batch.js");
+    await imageBatchCommand(args.flags);
     return;
   }
   if (args.command === "image") {

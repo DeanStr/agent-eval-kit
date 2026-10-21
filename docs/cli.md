@@ -29,6 +29,11 @@ to validate inputs without model calls, and `--output` to select a new directory
 See [image comparison](image-comparison.md) for all flags, reports, recovery,
 formats, and voting semantics.
 
+For a screenshot matrix, use `aek image batch --manifest comparisons.json
+--output review-01`. It supports bounded `--concurrency`, `--resume directory`,
+and strict `--reuse prior-batch`, with one HTML/JSON report for all pairs. See
+[batch comparisons](image-comparison.md#batch-comparisons) for the manifest.
+
 ## Prepare and select a run
 
 ```bash

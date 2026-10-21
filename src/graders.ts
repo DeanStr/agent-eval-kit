@@ -282,6 +282,9 @@ async function runLlmJudge(options: {
 
   const provider = await runProvider(config.judge.provider, {
     purpose: "judge",
+    ...(config.judge.capacityRetries === undefined
+      ? {}
+      : { capacityRetries: config.judge.capacityRetries }),
     cwd: directory,
     promptFile,
     outputFile,

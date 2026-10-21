@@ -69,7 +69,7 @@ export interface EvalConfig {
     };
   };
   agent: ProviderConfig;
-  judge: ProviderConfig & { voting?: VotingPolicy; concurrency?: number };
+  judge: ProviderConfig & { voting?: VotingPolicy; concurrency?: number; capacityRetries?: number };
   paths: {
     specs: string;
     fixtures?: string;
@@ -522,6 +522,7 @@ export interface RunReport {
 
 export interface ProviderInvocation {
   purpose: "scenario" | "judge";
+  capacityRetries?: number;
   cwd: string;
   promptFile: string;
   outputFile: string;
@@ -552,6 +553,10 @@ export interface ProviderResult {
   signal: NodeJS.Signals | null;
   timedOut: boolean;
   finalText: string;
+  /** Omission means model response; error marks explicit CLI failure diagnostics. */
+  finalTextSource?: "response" | "error";
+  /** A completed assistant response or structured-output call was observed in the stream. */
+  responseEmitted?: boolean;
   structured?: unknown;
   sessionId?: string;
   usage?: ProviderUsage;

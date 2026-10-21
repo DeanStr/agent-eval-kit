@@ -171,6 +171,7 @@ const rawConfigSchema = z
       .extend({
         voting: votingSchema.optional(),
         concurrency: z.number().int().min(1).max(8).optional(),
+        capacityRetries: z.number().int().min(0).max(5).optional(),
       })
       .default({ provider: "codex", timeoutSeconds: 1800, extraArgs: [] }),
     paths: z

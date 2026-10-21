@@ -159,6 +159,239 @@ test("Cursor retains tool violations and rejects failed or malformed streams", a
   }
 });
 
+test("Cursor capacity retries normalize terminal errors and preserve execution failures", async (t) => {
+  const overload = {
+    type: "result",
+    subtype: "error",
+    is_error: true,
+    result: "server_overloaded",
+  };
+  const decision = { verdict: "cannot_judge" };
+  const success = {
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    result: JSON.stringify(decision),
+  };
+  const scenarios: Array<{
+    name: string;
+    attempts: Array<{ events: unknown[]; exitCode: number; stderr?: string }>;
+    calls: number;
+    exitCode?: number;
+    structured?: unknown;
+    error?: RegExp;
+    purpose?: "judge" | "scenario";
+    archivedOutput?: string;
+  }> = [
+    {
+      name: "overload-then-success",
+      attempts: [
+        { events: [overload], exitCode: 1 },
+        { events: [success], exitCode: 0 },
+      ],
+      calls: 2,
+      exitCode: 0,
+      structured: decision,
+    },
+    {
+      name: "overload-exhausted",
+      attempts: [{ events: [overload], exitCode: 1 }],
+      calls: 2,
+      exitCode: 1,
+    },
+    {
+      name: "quota",
+      attempts: [
+        { events: [{ ...overload, result: "Quota exceeded: server_overloaded" }], exitCode: 1 },
+      ],
+      calls: 1,
+      exitCode: 1,
+    },
+    {
+      name: "decision-before-error",
+      attempts: [
+        {
+          events: [
+            {
+              type: "assistant",
+              message: { content: [{ type: "text", text: JSON.stringify(decision) }] },
+            },
+            overload,
+          ],
+          exitCode: 1,
+        },
+      ],
+      calls: 1,
+      exitCode: 1,
+      structured: decision,
+    },
+    {
+      name: "decision-in-error-result",
+      attempts: [
+        {
+          events: [{ ...overload, result: JSON.stringify(decision), error: "server_overloaded" }],
+          exitCode: 1,
+        },
+      ],
+      calls: 1,
+      exitCode: 1,
+      structured: decision,
+    },
+    {
+      name: "decision-without-terminal",
+      attempts: [
+        {
+          events: [
+            {
+              type: "assistant",
+              message: { content: [{ type: "text", text: '{"preferred":"B"}' }] },
+            },
+          ],
+          stderr: "server_overloaded",
+          exitCode: 1,
+        },
+        { events: [{ ...success, result: '{"preferred":"A"}' }], exitCode: 0 },
+      ],
+      calls: 1,
+      exitCode: 1,
+      structured: { preferred: "B" },
+    },
+    {
+      name: "malformed-answer-without-terminal",
+      attempts: [
+        {
+          events: [
+            {
+              type: "assistant",
+              message: { content: [{ type: "text", text: '{"preferred": BROKEN' }] },
+            },
+          ],
+          stderr: "server_overloaded",
+          exitCode: 1,
+        },
+      ],
+      calls: 1,
+      exitCode: 1,
+    },
+    {
+      name: "no-answer-without-terminal",
+      attempts: [
+        { events: [], stderr: "server_overloaded", exitCode: 1 },
+        { events: [success], exitCode: 0 },
+      ],
+      calls: 2,
+      exitCode: 0,
+      structured: decision,
+      archivedOutput: "",
+    },
+    {
+      name: "answer-without-terminal-zero-exit",
+      attempts: [
+        {
+          events: [
+            {
+              type: "assistant",
+              message: { content: [{ type: "text", text: JSON.stringify(decision) }] },
+            },
+          ],
+          exitCode: 0,
+        },
+      ],
+      calls: 1,
+      error: /without a terminal result/,
+    },
+    {
+      name: "malformed-assistant-answer",
+      attempts: [
+        {
+          events: [
+            {
+              type: "assistant",
+              message: { content: [{ type: "text", text: '{"verdict": BROKEN' }] },
+            },
+            overload,
+          ],
+          exitCode: 1,
+        },
+      ],
+      calls: 1,
+      exitCode: 1,
+    },
+    {
+      name: "malformed-stream",
+      attempts: [{ events: ["not-json", overload], exitCode: 1 }],
+      calls: 1,
+      error: /malformed stream-json/,
+    },
+    {
+      name: "contradictory-terminal-result",
+      attempts: [{ events: [{ ...overload, subtype: "success" }], exitCode: 1 }],
+      calls: 1,
+      error: /invalid or failed result/,
+    },
+    {
+      name: "error-with-zero-exit",
+      attempts: [{ events: [overload], exitCode: 0 }],
+      calls: 1,
+      error: /failed result/,
+    },
+    {
+      name: "scenario-is-not-retried",
+      attempts: [{ events: [overload], exitCode: 1 }],
+      calls: 1,
+      exitCode: 1,
+      purpose: "scenario",
+    },
+  ];
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async () => {
+      const f = fixture();
+      try {
+        const calls = path.join(f.root, "calls.json");
+        fs.writeFileSync(calls, "0");
+        f.executable(`
+const fs = require('node:fs'), calls = ${JSON.stringify(calls)};
+const count = JSON.parse(fs.readFileSync(calls, 'utf8'));
+fs.writeFileSync(calls, JSON.stringify(count + 1));
+const attempts = ${JSON.stringify(scenario.attempts)};
+const attempt = attempts[Math.min(count, attempts.length - 1)];
+for (const event of attempt.events) console.log(typeof event === 'string' ? event : JSON.stringify(event));
+if (attempt.stderr) console.error(attempt.stderr);
+process.exitCode = attempt.exitCode;
+`);
+        const invocation = {
+          ...f.invocation,
+          capacityRetries: 1,
+          purpose: scenario.purpose ?? "judge",
+        };
+        if (scenario.error) {
+          await assert.rejects(runProvider("cursor", invocation), scenario.error);
+        } else {
+          const result = await runProvider("cursor", invocation);
+          assert.equal(result.exitCode, scenario.exitCode);
+          assert.deepEqual(result.structured, scenario.structured);
+        }
+        assert.equal(JSON.parse(fs.readFileSync(calls, "utf8")), scenario.calls);
+        const archive = path.join(f.root, "capacity-retries/attempt-1");
+        assert.equal(fs.existsSync(archive), scenario.calls > 1);
+        if (scenario.calls > 1) {
+          assert.match(
+            fs.readFileSync(path.join(archive, "events.ndjson"), "utf8") +
+              fs.readFileSync(path.join(archive, "stderr.log"), "utf8"),
+            /server_overloaded/,
+          );
+          assert.equal(
+            fs.readFileSync(path.join(archive, "output.json"), "utf8"),
+            scenario.archivedOutput ?? "server_overloaded",
+          );
+        }
+      } finally {
+        f.cleanup();
+      }
+    });
+  }
+});
+
 test("Cursor doctor and receipts use cursor-agent rather than the ambiguous agent binary", () => {
   const f = fixture();
   try {
