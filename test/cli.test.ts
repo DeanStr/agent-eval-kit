@@ -700,7 +700,13 @@ test("CLI rejects explicitly blank thresholds, providers and execution limits", 
       const result = runCli(root, args);
       assert.equal(result.status, 1, JSON.stringify(args));
       assert.ok(result.stderr.includes(`--${flag} must be`), result.stderr);
-      assert.equal(result.stdout, "");
+      if (args.includes("--json")) {
+        const failure = JSON.parse(result.stdout);
+        assert.equal(failure.status, "error");
+        assert.equal(failure.exitCode, 1);
+        assert.equal(failure.result, null);
+        assert.ok(failure.error.message.includes(`--${flag} must be`));
+      } else assert.equal(result.stdout, "");
     }
   }
   const zero = runCli(root, [
@@ -1034,9 +1040,6 @@ test("JSON planning validates selectors and returns only selected scenarios with
     assert.equal(fs.existsSync(path.join(root, "runs")), false);
     const invalid = runCli(root, ["run", "--dry-run", "--json", "--scenarios", "missing"]);
     assert.equal(invalid.status, 1);
-    const executing = runCli(root, ["run", "--json"]);
-    assert.equal(executing.status, 1);
-    assert.match(executing.stderr, /requires --dry-run/);
     const invalidThreshold = runCli(root, [
       "run",
       "--dry-run",

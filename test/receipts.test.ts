@@ -239,7 +239,7 @@ test("model and effort pins are receipted, fingerprinted and visible without cla
     receipt,
   });
   assert.equal(report.providers.agent.effort, "medium");
-  writeHtml(root, report);
+  writeHtml(root, report, [spec]);
   const html = fs.readFileSync(path.join(root, "report.html"), "utf8");
   assert.match(html, /Requested model/);
   assert.match(html, /browser-model/);
@@ -263,7 +263,7 @@ test("model and effort pins are receipted, fingerprinted and visible without cla
   });
   assert.deepEqual(rebuilt.providers, report.providers);
   // Offline report display uses its retained receipt, not today's configuration.
-  writeHtml(root, { ...report, receipt: unpinned });
+  writeHtml(root, { ...report, receipt: unpinned }, [spec]);
   const defaultHtml = fs.readFileSync(path.join(root, "report.html"), "utf8");
   assert.match(defaultHtml, /Provider default \(unrecorded\)/);
   assert.doesNotMatch(defaultHtml, /browser-model/);

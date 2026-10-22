@@ -1,3 +1,4 @@
+import { shellQuote } from "./cli-recovery.js";
 import { validateCheckpoints } from "./checkpoints.js";
 import { validateOutputs } from "./workflow.js";
 import { readEvidenceFile, validateEvidenceFiles } from "./evidence/files.js";
@@ -50,6 +51,7 @@ export async function judgeCollected(options: {
   configOverrides?: ConfigOverrides;
   resumeDir?: string;
   onProgress?: (message: string) => void;
+  onRunCreated?: (runDir: string) => void;
 }) {
   throwIfCancelled();
   const sourceDir = fs.realpathSync(options.evidenceDir);
@@ -243,6 +245,7 @@ export async function judgeCollected(options: {
     delete state.lastError;
     writeJson(path.join(runDir, "run-state.json"), state);
     preparing = false;
+    options.onRunCreated?.(runDir);
     const areas: AreaResult[] = [];
     try {
       for (const spec of materialized) {
@@ -319,7 +322,9 @@ export async function judgeCollected(options: {
       state.status = "failed";
       state.lastError = error instanceof Error ? error.message : String(error);
       writeJson(path.join(runDir, "run-state.json"), state);
-      options.onProgress?.(`Resume with: aek judge --resume ${runDir}`);
+      options.onProgress?.(
+        `With unchanged judging inputs, retry with: aek judge --resume ${shellQuote(runDir)}. After changing judging inputs, start a new judge run against the sealed collection.`,
+      );
       throw error;
     }
   }).catch((error) => {

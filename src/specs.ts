@@ -1,3 +1,4 @@
+import { yamlValidationError } from "./yaml-diagnostics.js";
 import { textInstances } from "./text/datasets.js";
 import { omitUndefinedDeep, omitUndefined } from "./invariants.js";
 import { textPairwiseSchema, textRubricSchema, textSourceSchema } from "./text/contracts.js";
@@ -235,8 +236,31 @@ const reservedScenarioArtifactIds = new Set(
   ].map(filesystemKey),
 );
 
+/** Includes the template and external-dataset syntax expanded before runtime validation. */
+export function specificationJsonSchema() {
+  const partialRubric = z.object(rubricSchema.shape).partial().strict();
+  const dataset = specSchema.shape.datasets.unwrap().valueType;
+  const input = z
+    .object({
+      ...specSchema.shape,
+      datasets: z
+        .record(
+          artifactIdSchema,
+          z.union([dataset, z.object({ file: z.string().min(1) }).strict()]),
+        )
+        .optional(),
+      templates: z.record(artifactIdSchema, partialRubric).optional(),
+      rubric: z
+        .array(z.union([rubricSchema, partialRubric.extend({ template: artifactIdSchema })]))
+        .min(1),
+    })
+    .strict();
+  return z.toJSONSchema(input, { io: "input" });
+}
+
 export function loadSpecFile(file: string): EvalSpec {
-  const raw = YAML.parse(fs.readFileSync(file, "utf8"));
+  const source = fs.readFileSync(file, "utf8");
+  const raw = YAML.parse(source);
   if (raw?.datasets && typeof raw.datasets === "object") {
     for (const [name, value] of Object.entries(raw.datasets)) {
       if (Array.isArray(value)) continue;
@@ -276,10 +300,7 @@ export function loadSpecFile(file: string): EvalSpec {
     return omitUndefinedDeep({ ...specSchema.parse(raw), sourceFile: file });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const details = error.issues
-        .map((issue) => `${issue.path.join(".") || "spec"}: ${issue.message}`)
-        .join("\n  - ");
-      throw new Error(`Invalid spec ${file}:\n  - ${details}`);
+      throw yamlValidationError(file, source, error);
     }
     throw error;
   }

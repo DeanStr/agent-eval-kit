@@ -79,6 +79,44 @@ Direct text evaluation also supports `--text-cases area/dataset/case,...` or
 for restrictions and coverage semantics. Unknown flags and unexpected positional
 arguments fail; boolean flags such as `--headed` take no value.
 
+## Structured results
+
+`run`, `collect`, `judge`, `judge validate`, `campaign`, `campaign compare`, `compare`,
+`validate`, `list`, `doctor`, `verify`, `rescore`, `finalize`, and `adjudicate` accept
+`--json`. Actual execution writes one version-1 JSON envelope to stdout; progress
+and diagnostics go to stderr. Exit statuses keep their ordinary meanings.
+
+```sh
+aek run --json > result.json
+aek compare --baseline /path/to/good-run --candidate /path/to/new-run --json
+```
+
+The envelope contains `version`, `command`, `status`, `exitCode`, and `result`.
+Status is `completed`, `acceptance_failed`, `error`, or `interrupted`.
+A scored result includes `runId`, `runDir`, `execution`, `scorePct`, `coveragePct`,
+`scoreWithheld`, `provisionalScorePct`, `gates`, `manualPending`, `acceptanceFailures`,
+and `artifacts.report` / `artifacts.html`. When coverage withholds the score,
+`scorePct` is null and only `provisionalScorePct` contains the score over judged
+evidence. A successful collection supplies its manifest path and no score.
+
+Acceptance failure retains the completed result and its artifact paths. A thrown
+input/execution error supplies `error.message` and a null result. If execution
+created a run or campaign, `context` identifies its directory; partial artifacts
+are diagnostic evidence, not a completed evaluation. Commands such as campaign
+and judge validation can return an error status with a result describing retained
+failed attempts. Interruptions exit 130/143 and retain the same distinction.
+
+`--resume --json` is supported; specify the saved directory as usual. Campaign
+resume also permits `--debug`, while execution options still come from its journal.
+`--dry-run --json` continues to return the version-2 execution plan directly.
+Failed JSON commands, including previews, return the version-1 error envelope.
+Image, authoring, and authentication commands retain their documented JSON formats.
+
+Expected errors show concise messages. Add `--debug` to include stack traces on
+stderr, including when stdout is JSON. Schema errors identify the nearest YAML
+source node with a file, line, column, and field path. Validation establishes input
+contracts and referenced files; it does not execute checkers or prove evaluation quality.
+
 ## Execution previews
 
 `run`, `collect`, and `campaign` accept `--dry-run`, with optional `--json`.
@@ -231,7 +269,7 @@ aek campaign --resume /path/to/campaign
 Campaigns save checksummed `campaign-state.json` before each attempt and after
 recording its outcome. Recovery restores the config path, suite/provider overrides,
 area/scenario/split selection, repetition count, and acceptance thresholds. Supply
-only `--resume`; changing those options requires a new campaign.
+`--resume` with optional `--json` / `--debug`; changing execution options requires a new campaign.
 
 Completed and failed attempts retain their original ordinal and evidence. Resume
 starts only repetitions that never started; it does not retry a failed attempt or

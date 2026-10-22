@@ -5,6 +5,27 @@ files selected by `paths.specs`; see [spec definitions](../README.md#specs) and
 the [evaluation-type guides](evaluation-types.md). Run `aek validate` to check
 configuration, specs, fixtures, and declared input files. Unknown fields fail.
 
+## Editor support
+
+`aek init` writes generated JSON Schemas into `evals/schemas/` and adds
+`yaml-language-server` associations to the generated config and specifications.
+Editors that support these associations can complete fields and flag structural
+errors while you type. Keep the schema files with your project-owned kit.
+
+Existing projects can reference the installed schemas at
+`node_modules/agent-eval-kit/dist/schemas/config.schema.json` and `spec.schema.json`;
+resolve the association relative to each YAML file. For a root config:
+
+```yaml
+# yaml-language-server: $schema=./node_modules/agent-eval-kit/dist/schemas/config.schema.json
+```
+
+Schemas are generated from the runtime field contracts during the package build
+and initialization. They describe templates, external dataset references, and
+named suites; `aek validate` remains authoritative for cross-field rules,
+expanded templates, references, and filesystem checks. Regenerate a starter in a
+new directory to obtain schema updates for an existing kit.
+
 ## Resolution and overrides
 
 - The default config is `evalkit.yaml` in the current directory; use `--config`

@@ -45,11 +45,7 @@ try {
     archive = path.resolve(archiveInput);
     fs.accessSync(archive, fs.constants.R_OK);
   } else {
-    await run(
-      process.execPath,
-      [path.join(kitRoot, "node_modules/typescript/bin/tsc"), "-p", "tsconfig.build.json"],
-      kitRoot,
-    );
+    await run("pnpm", ["build"], kitRoot);
     const packed = JSON.parse(
       await run(
         "npm",
@@ -71,6 +67,13 @@ try {
     consumer,
   );
   const installed = path.join(consumer, "node_modules/agent-eval-kit");
+  for (const name of ["config", "spec"]) {
+    const schema = JSON.parse(
+      fs.readFileSync(path.join(installed, "dist/schemas", `${name}.schema.json`), "utf8"),
+    );
+    assert.equal(schema.type, "object");
+    assert.ok(schema.properties);
+  }
   for (const file of [
     "server.mjs",
     "evalkit.yaml",

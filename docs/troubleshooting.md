@@ -5,6 +5,15 @@ Start with the command's error and, if a run was created, its `run.log` and
 input or execution error; exit 2 indicates an acceptance check failed. See the
 [command guide](cli.md#exit-statuses) for the full distinction.
 
+Errors normally show the actionable message; use `--debug` for a stack trace.
+Command grader errors include a bounded stderr excerpt and the full diagnostic
+file paths. A checker failure is an execution error, not a product verdict.
+
+Resume reuses unchanged inputs. After repairing checker/collector code, config,
+fixtures, or the target, repeat your original run command without `--resume`.
+After changing a judge configuration, start a new `judge` run against the sealed
+collection. Keep the failed run for its diagnostics.
+
 ## Setup and validation
 
 Run these from your project root, substituting your config path if necessary:

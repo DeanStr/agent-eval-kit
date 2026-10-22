@@ -71,7 +71,7 @@
     "format:check": "biome format .",
     "lint": "biome lint --error-on-warnings .",
     "lint:fix": "biome lint --write --error-on-warnings .",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node dist/editor-schemas.js",
     "typecheck": "tsc --noEmit",
     "test": "pnpm build && node --import tsx --test test/*.test.ts",
     "smoke:browser": "tsx scripts/browser-smoke.ts",

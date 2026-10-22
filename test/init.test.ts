@@ -20,8 +20,20 @@ test("project initialization publishes the complete starter kit without staging 
     path.join(root, "evals", "specs", "core.yaml"),
     path.join(root, "evals", "fixtures.yaml"),
     path.join(root, "evals", "ONBOARDING.md"),
+    path.join(root, "evals", "schemas", "config.schema.json"),
+    path.join(root, "evals", "schemas", "spec.schema.json"),
   ]);
   assert(files.every((file) => fs.statSync(file).isFile()));
+  for (const file of ["evalkit.yaml", "evals/specs/core.yaml"]) {
+    const yaml = fs.readFileSync(path.join(root, file), "utf8");
+    const association = /# yaml-language-server: \$schema=(.+)/.exec(yaml);
+    assert.ok(association, file);
+    const schema = JSON.parse(
+      fs.readFileSync(path.resolve(root, path.dirname(file), association[1]!), "utf8"),
+    );
+    assert.equal(schema.type, "object");
+    assert.equal(schema.additionalProperties, false);
+  }
   assert.deepEqual(
     fs.readdirSync(path.join(root, "evals", "specs")).filter((name) => name.includes(".aek-init-")),
     [],
@@ -149,6 +161,7 @@ test("init rejects invalid or missing kinds without publishing files", (t) => {
 test("init preflights guide and helper conflicts for every starter", (t) => {
   for (const [kind, relative] of [
     ["web", "evals/ONBOARDING.md"],
+    ["web", "evals/schemas/config.schema.json"],
     ["command", "evals/check.mjs"],
     ["artifact", "evals/collect.mjs"],
     ["visual", "evals/visual/scene.mjs"],

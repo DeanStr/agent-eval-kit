@@ -1,3 +1,4 @@
+import { yamlValidationError } from "./yaml-diagnostics.js";
 import { requireDefined, omitUndefinedDeep } from "./invariants.js";
 import { mailboxSchema, emailAuthSchema } from "./email/contracts.js";
 import { votingSchema, diagnosticPolicySchema } from "./visual/contracts.js";
@@ -249,6 +250,10 @@ const rawConfigSchema = z
   })
   .strict();
 
+const suiteOverridesSchema = rawConfigSchema
+  .pick({ agent: true, judge: true, paths: true, scoring: true, instructions: true })
+  .partial();
+
 export interface ConfigOverrides {
   suite?: string;
   targetUrl?: string;
@@ -258,6 +263,28 @@ export interface ConfigOverrides {
   judgeModel?: string;
   maxTurns?: number;
   headed?: boolean;
+}
+
+/** Editor assistance uses the same field contracts as runtime validation. */
+export function configurationJsonSchema() {
+  return z.toJSONSchema(
+    rawConfigSchema.extend({
+      suites: z.record(z.string().min(1), suiteOverridesSchema).optional(),
+    }),
+    {
+      io: "input",
+      override: ({ jsonSchema }) => {
+        // Config strings are interpolated before validation; editors see the placeholders.
+        if (jsonSchema.type === "string") {
+          const literal = { ...jsonSchema };
+          for (const key of Object.keys(jsonSchema)) delete jsonSchema[key];
+          Object.assign(jsonSchema, {
+            anyOf: [literal, { type: "string", pattern: "\\$\\{[A-Z][A-Z0-9_]*\\}" }],
+          });
+        }
+      },
+    },
+  );
 }
 
 function expandEnvironment(value: string, source: string): string {
@@ -279,12 +306,6 @@ function expandDeep(value: unknown, source: string): unknown {
     );
   }
   return value;
-}
-
-function formatZodError(error: z.ZodError): string {
-  return error.issues
-    .map((issue) => `${issue.path.length ? issue.path.join(".") : "config"}: ${issue.message}`)
-    .join("\n  - ");
 }
 
 export function loadConfig(
@@ -315,34 +336,36 @@ function readConfig(configFile: string, overrides: ConfigOverrides, resolved: bo
         throw error;
       // A project may supply variables through the real environment instead.
     }
+  const source = fs.readFileSync(absoluteConfig, "utf8");
   let parsed: z.infer<typeof rawConfigSchema>;
   try {
-    const yaml = YAML.parse(fs.readFileSync(absoluteConfig, "utf8"));
+    const yaml = YAML.parse(source);
     const parsedYaml = z
       .record(z.string(), z.unknown())
       .parse(resolved ? yaml : expandDeep(yaml, absoluteConfig));
     if (!resolved && parsedYaml.suites !== undefined) {
-      const suites = z
-        .record(z.string().min(1), z.record(z.string(), z.unknown()))
-        .parse(parsedYaml.suites);
+      const { suites } = z
+        .object({ suites: z.record(z.string().min(1), z.record(z.string(), z.unknown())) })
+        .parse(parsedYaml);
       const selected = overrides.suite ?? parsedYaml.suite;
       if (typeof selected !== "string" || !Object.hasOwn(suites, selected))
         throw new Error(
           `Select a named suite with --suite <name>. Known suites: ${Object.keys(suites).join(", ")}`,
         );
+      // Validate overrides at their source paths. Keep the original values for
+      // merging: schema defaults must not replace inherited base settings.
+      z.object({ suites: z.record(z.string().min(1), suiteOverridesSchema) }).parse({ suites });
       delete parsedYaml.suites;
       const merge = (base: Record<string, unknown>, overlay: Record<string, unknown>) => {
         const result = { ...base };
         for (const [key, value] of Object.entries(overlay)) {
-          if (!["agent", "judge", "paths", "scoring", "instructions"].includes(key))
-            throw new Error(
-              `Unsupported suite override ${key}; use agent, judge, paths, scoring, or instructions`,
-            );
           if (key === "instructions") result[key] = value;
           else {
             const section = z.record(z.string(), z.unknown()).parse(value);
             const defaults =
-              base[key] === undefined ? {} : z.record(z.string(), z.unknown()).parse(base[key]);
+              base[key] === undefined
+                ? {}
+                : z.object({ [key]: z.record(z.string(), z.unknown()) }).parse(base)[key];
             result[key] = { ...defaults, ...section };
           }
         }
@@ -358,7 +381,7 @@ function readConfig(configFile: string, overrides: ConfigOverrides, resolved: bo
     parsed = rawConfigSchema.parse(parsedYaml);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw new Error(`Invalid ${absoluteConfig}:\n  - ${formatZodError(error)}`);
+      throw yamlValidationError(absoluteConfig, source, error);
     }
     throw error;
   }

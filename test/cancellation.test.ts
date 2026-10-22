@@ -77,6 +77,7 @@ for (const phase of ["setup", "readiness", "grading", "campaign"] as const) {
         phase === "campaign"
           ? ["campaign", "--repetitions", "3", "--output", campaignDir]
           : ["run"];
+      if (signal === "SIGTERM") args.push("--json");
       const child = spawn(
         process.execPath,
         ["--import", import.meta.resolve("tsx"), path.join(kitRoot, "src/cli.ts"), ...args],
@@ -86,7 +87,9 @@ for (const phase of ["setup", "readiness", "grading", "campaign"] as const) {
         },
       );
       let output = "";
+      let stdout = "";
       child.stdout.on("data", (chunk) => {
+        stdout += chunk;
         output += chunk;
       });
       child.stderr.on("data", (chunk) => {
@@ -107,6 +110,13 @@ for (const phase of ["setup", "readiness", "grading", "campaign"] as const) {
         assert.ok(fs.existsSync(marker), output);
         child.kill(signal);
         assert.equal(await exited, signal === "SIGINT" ? 130 : 143, output);
+        if (signal === "SIGTERM") {
+          const envelope = JSON.parse(stdout);
+          assert.equal(envelope.status, "interrupted");
+          assert.equal(envelope.exitCode, 143);
+          assert.equal(envelope.result, null);
+          assert.ok(phase === "campaign" ? envelope.context.campaignDir : envelope.context.runDir);
+        }
         for (const file of fs.readdirSync(runs).filter((file) => file.endsWith(".pid"))) {
           const pid = Number(fs.readFileSync(path.join(runs, file), "utf8"));
           assert.throws(() => process.kill(pid, 0), /ESRCH/, `${file} is still alive`);

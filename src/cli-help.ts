@@ -17,7 +17,8 @@ const descriptions: Record<string, string> = {
   resume: "Resume a saved directory with matching inputs and the original options.",
   "dry-run":
     "Validate and preview execution without creating output or starting services/providers.",
-  json: "Machine-readable output; execution previews require --dry-run.",
+  json: "Print machine-readable results to stdout; progress goes to stderr.",
+  debug: "Include error stack traces on stderr.",
   "fail-under-score": "Minimum score percentage, 0–100; unavailable scores fail.",
   "fail-under-coverage": "Minimum evidence coverage percentage, 0–100.",
   "changed-since": "Evaluate changed text dataset cases against an intact prior run.",
@@ -137,9 +138,11 @@ export function commandHelp(
       description = "Authoring scope: project (default) or feature.";
     if (command === "campaign" && flag === "resume")
       description =
-        "Continue only unstarted repetitions; cannot combine with other options. Retains failures and thresholds.";
+        "Continue only unstarted repetitions; only --json and --debug may accompany it. Retains failures and thresholds.";
     if (["auth", "author"].includes(command) && flag === "json")
       description = "Print the result as JSON.";
+    if (command === "image" && flag === "json")
+      description = "Print the execution preview as JSON; requires --dry-run.";
     return `  ${(`--${flag}${booleans.has(flag) ? "" : " <value>"}`).padEnd(34)} ${description}`;
   });
   const exit =

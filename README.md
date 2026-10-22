@@ -17,17 +17,19 @@ No provider SDK and no API key are required.
 
 This is an early pre-release project. Backward compatibility is not a requirement: configuration, artifact formats, and APIs may change without migration support. Regenerate affected runs and baselines after such changes.
 
-Start with [your first evaluation](docs/first-run.md) for an offline walkthrough,
-or [author evaluations for your whole project](docs/authoring.md) with a guided interview.
-For a single-command offline demonstration, run
-`node node_modules/agent-eval-kit/examples/authoring/run.mjs ./aek-demo`
-after installing the package. It retains the working, deliberately broken, and
-restored runs, their comparison, and an authoring map.
-For manual setup, use [onboarding](docs/onboarding.md).
-The [documentation index](docs/README.md) organizes guides by task, including a
-[command guide](docs/cli.md) and [troubleshooting](docs/troubleshooting.md).
-See [evaluation types and boundaries](docs/evaluation-types.md) to choose between
-user-story workflows, image/text comparisons, and other supported checks.
+Start with the offline demonstration, then use the same evaluation loop on your project:
+
+1. [Install the built package](#built-package-distribution).
+2. Run `node node_modules/agent-eval-kit/examples/authoring/run.mjs ./aek-demo`.
+   It retains working, deliberately broken, and restored runs plus their comparison.
+   Use the [first-run walkthrough](docs/first-run.md) to explore each step yourself.
+3. [Install the authoring skill](docs/authoring.md) and ask your coding agent to
+   build your project's first calibrated evaluation. For manual setup, follow
+   [onboarding](docs/onboarding.md).
+
+The [documentation index](docs/README.md) covers additional workflows,
+[CLI automation](docs/cli.md#structured-results), and [troubleshooting](docs/troubleshooting.md).
+See [evaluation types and boundaries](docs/evaluation-types.md) when expanding your suite.
 
 It supports:
 

@@ -287,7 +287,7 @@ export async function imageBatchCommand(flags: Record<string, string | boolean>)
     return value;
   };
   const resume = string("resume");
-  if (resume && Object.keys(flags).some((key) => key !== "resume"))
+  if (resume && Object.keys(flags).some((key) => !["resume", "debug"].includes(key)))
     throw new Error("image batch --resume restores saved inputs; supply only --resume <directory>");
   if (flags.json && !flags["dry-run"]) throw new Error("--json requires --dry-run");
   let root: string, inputs: BatchInputs;

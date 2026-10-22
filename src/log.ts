@@ -4,14 +4,17 @@ import path from "node:path";
 export class RunLogger {
   private readonly stream: fs.WriteStream;
 
-  constructor(file: string) {
+  constructor(
+    file: string,
+    private readonly onProgress: (message: string) => void = console.log,
+  ) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     this.stream = fs.createWriteStream(file, { flags: "a" });
   }
 
   line(message: string): void {
     const value = `[${new Date().toISOString().slice(11, 19)}] ${message}`;
-    console.log(value);
+    this.onProgress(value);
     this.stream.write(`${value}\n`);
   }
 

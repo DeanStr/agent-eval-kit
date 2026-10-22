@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { CliOutput, JSON_RESULT_COMMANDS, runResult } from "./cli-output.js";
 import { commandHelp } from "./cli-help.js";
 import { specSourceBytes } from "./specs.js";
 import { promoteTextReference, listTextReferences } from "./text/references.js";
@@ -9,7 +10,7 @@ import { loadSealedDefinitions, validateEvaluationInputs } from "./run/inputs.js
 import path from "node:path";
 import YAML from "yaml";
 import { captureAuth } from "./auth.js";
-import { cancellationSignal, CliInterruptionError, withCliSignals } from "./cancellation.js";
+import { cancellationSignal, withCliSignals } from "./cancellation.js";
 import { listPromotedBaselines, loadPromotedBaseline, promoteBaseline } from "./baselines.js";
 import { loadCampaignState, runCampaign } from "./campaign-run.js";
 import {
@@ -109,6 +110,7 @@ const booleanFlags = new Set([
   "fail-on-regression",
   "headed",
   "help",
+  "debug",
   "include-optional",
   "public",
 ]);
@@ -308,7 +310,12 @@ function allowedCliFlags(args: Args): string[] {
       break;
   }
   if (allowed.includes("config")) allowed.push("suite");
-  allowed.push("help");
+  const key =
+    ["campaign", "judge"].includes(args.command) && args.positionals[0]
+      ? `${args.command} ${args.positionals[0]}`
+      : args.command;
+  if (JSON_RESULT_COMMANDS.has(key)) allowed.push("json");
+  allowed.push("help", "debug");
   return [...new Set(allowed)];
 }
 
@@ -329,21 +336,15 @@ function validateCliShape(args: Args): void {
     !(args.flags.help === true && args.positionals.length === 0)
   )
     throw new Error(`${args.command} requires ${choices.join(" or ")}`);
-  if (
-    ["run", "collect", "campaign"].includes(args.command) &&
-    args.flags.json &&
-    (!args.flags["dry-run"] || args.flags.resume)
-  )
-    throw new Error(`${args.command} --json requires --dry-run and cannot resume`);
   if (args.flags.resume && args.flags["dry-run"])
     throw new Error("--resume cannot be combined with --dry-run");
   if (
     args.command === "campaign" &&
     args.flags.resume &&
-    Object.keys(args.flags).some((flag) => !["resume", "help"].includes(flag))
+    Object.keys(args.flags).some((flag) => !["resume", "help", "json", "debug"].includes(flag))
   )
     throw new Error(
-      "campaign --resume restores the original options; supply only --resume <directory>",
+      "campaign --resume restores the original options; only --json and --debug may accompany --resume <directory>",
     );
   const unknown = Object.keys(args.flags).filter((flag) => !allowed.includes(flag));
   if (unknown.length)
@@ -487,6 +488,9 @@ Usage: aek <command> [flags]
       [--allow-incompatible]
 
 Commands accepting --config also accept --suite <name>.
+Use --json with run, collect, judge, campaign, compare, validate, list, doctor,
+verify, rescore, finalize, or adjudicate for structured results. Progress goes to
+stderr. Execution previews keep their separate plan format. Use --debug for stacks.
 The --fail-under-* gates also work with rescore and finalize. Rubric items with
 gate: true are always enforced. A failed CI gate uses exit code 2 while still
 preserving all generated artifacts. Compare requires compatible receipts unless
@@ -573,13 +577,27 @@ function configFor(
 
 function init(directory: string, kind: string = "web"): void {
   const files = initializeProject(directory, kind);
-  console.log(`Created ${files.map((file) => path.relative(process.cwd(), file)).join(", ")}`);
-  console.log(
+  cliOutput.log(`Created ${files.map((file) => path.relative(process.cwd(), file)).join(", ")}`);
+  const tasks: Record<string, string> = {
+    web: "Set the target URL, exact workflow steps, expected values, and test accounts/data.",
+    repository: "Name the public interface, documented contract, and source paths to inspect.",
+    command:
+      "Implement evals/check.mjs and replace the example command criterion. The generated checker deliberately fails until implemented.",
+    artifact:
+      "Supply the exported PNG, configure its source path, and define the required content and viewing size.",
+    visual:
+      "Run the fixture calibration, then configure your application's capture adapter and reviewed references.",
+  };
+  cliOutput.log(`Setup remaining: ${tasks[kind]}`);
+  cliOutput.log(
     `Next: follow ${path.join(directory, "evals", "ONBOARDING.md")} to customize, pilot, and calibrate this kit before promoting a baseline.`,
+  );
+  cliOutput.log(
+    "Validation checks input contracts and referenced files; it does not establish that the checker is implemented or the evaluation detects defects.",
   );
 }
 
-function enforceRunThresholds(args: Args, report: RunReport): void {
+function enforceRunThresholds(args: Args, report: RunReport): string[] {
   const failures = evaluateCiThresholds(
     report,
     omitUndefined({
@@ -589,6 +607,7 @@ function enforceRunThresholds(args: Args, report: RunReport): void {
   );
   for (const failure of failures) console.error(`CI threshold failed: ${failure}`);
   if (failures.length) process.exitCode = 2;
+  return failures;
 }
 
 function loadRunConfig(args: Args, runDir: string) {
@@ -728,7 +747,7 @@ function assertEvidenceConfigCompatible(
 }
 
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  const args = cliArgs;
   if (["help", "--help", "-h"].includes(args.command)) {
     console.log(help);
     return;
@@ -779,12 +798,12 @@ async function main(): Promise<void> {
     });
     const completed = summary.visits.filter((visit) => visit.status === "complete").length;
     const failed = summary.visits.filter((visit) => visit.status === "error").length;
-    console.log(
+    cliOutput.log(
       `Experiment outcome: ${summary.outcome} (${completed} completed, ${failed} failed, ${summary.unattempted.length} unattempted visits).`,
     );
     if (summary.error) console.error(summary.error);
-    console.log(`Report: ${path.join(output, "experiment.html")}`);
-    console.log(`Summary: ${path.join(output, "summary.json")}`);
+    cliOutput.log(`Report: ${path.join(output, "experiment.html")}`);
+    cliOutput.log(`Summary: ${path.join(output, "summary.json")}`);
     if (!cancellationSignal()?.aborted)
       process.exitCode =
         summary.outcome === "compared" ? 0 : summary.outcome === "execution_error" ? 1 : 2;
@@ -809,7 +828,12 @@ async function main(): Promise<void> {
         })(),
     );
     const index = assertArtifactIntegrity(runDir, { require: true })!;
-    console.log(`Verified ${index.entries.length} artifacts; root ${index.rootSha256}`);
+    cliOutput.log(`Verified ${index.entries.length} artifacts; root ${index.rootSha256}`);
+    cliOutput.result({
+      runDir,
+      verifiedArtifacts: index.entries.length,
+      rootSha256: index.rootSha256,
+    });
     return;
   }
 
@@ -824,7 +848,7 @@ async function main(): Promise<void> {
     const lint = privacyLint(target);
     for (const finding of lint.findings)
       console.error(`${finding.file}:${finding.line}\t${finding.rule}\t${finding.message}`);
-    console.log(
+    cliOutput.log(
       `Privacy lint ${lint.status}: ${lint.scannedFiles} text files scanned, ${lint.skippedBinaryFiles} binary files skipped, ${lint.findings.length} finding(s).`,
     );
     if (lint.status === "failed") process.exitCode = 2;
@@ -844,8 +868,8 @@ async function main(): Promise<void> {
     );
     const output = stringFlag(args, "output") ?? defaultPublicExportOutput(runDir);
     const exported = createPublicExport({ runDir, output });
-    console.log(`Public export: ${exported.directory}`);
-    console.log(
+    cliOutput.log(`Public export: ${exported.directory}`);
+    cliOutput.log(
       `Privacy lint passed: ${exported.lint.scannedFiles} text files scanned; ${exported.lint.skippedBinaryFiles} binary files skipped.`,
     );
     return;
@@ -870,16 +894,17 @@ async function main(): Promise<void> {
       stringFlag(args, "output") ??
       defaultCampaignComparisonOutput(candidate.file, baseline.report.campaignId);
     const artifacts = writeCampaignComparisonArtifacts(output, comparison);
-    console.log(
+    cliOutput.log(
       `Compared campaigns ${baseline.report.campaignId} → ${candidate.report.campaignId}: ${comparison.summary.improved} improved, ${comparison.summary.regressed} regressed; mean paired-case delta ${comparison.pairedCases.meanDelta ?? "n/a"}.`,
     );
-    console.log(`Artifacts: ${artifacts.json}, ${artifacts.html}`);
+    cliOutput.log(`Artifacts: ${artifacts.json}, ${artifacts.html}`);
     const failures = campaignComparisonFailures(comparison, {
       failOnRegression: Boolean(args.flags["fail-on-regression"]),
       requireCompatible: !allowIncompatible,
     });
     for (const failure of failures) console.error(`CI campaign comparison failed: ${failure}`);
     if (failures.length) process.exitCode = 2;
+    cliOutput.result({ comparison, artifacts, acceptanceFailures: failures });
     return;
   }
 
@@ -887,7 +912,7 @@ async function main(): Promise<void> {
     const { config } = configFor(args);
     if (args.positionals[0] === "list") {
       for (const reference of listTextReferences(config))
-        console.log(`${reference.name}\t${reference.snapshot}\t${reference.manifest.reviewer}`);
+        cliOutput.log(`${reference.name}\t${reference.snapshot}\t${reference.manifest.reviewer}`);
       return;
     }
     if (args.positionals[0] !== "promote") throw new Error("reference requires promote or list");
@@ -897,7 +922,7 @@ async function main(): Promise<void> {
     if (!runDir || !name || !reviewer)
       throw new Error("reference promote requires --run, --name, and --reviewer");
     const result = promoteTextReference({ config, runDir, name, reviewer });
-    console.log(
+    cliOutput.log(
       `Promoted text reference ${name}: ${result.snapshot}\n${result.directory}\nKeys: ${result.keys.join(", ")}`,
     );
     return;
@@ -937,18 +962,18 @@ async function main(): Promise<void> {
         mode: (stringFlag(args, "mode") ?? "release") as "release" | "milestone",
         ...omitUndefined({ reason: stringFlag(args, "reason") }),
       });
-      console.log(
+      cliOutput.log(
         `Promoted ${promoted.report.runId} as ${name} snapshot ${promoted.promotion.snapshotId}`,
       );
-      console.log(`Snapshot: ${promoted.directory}`);
+      cliOutput.log(`Snapshot: ${promoted.directory}`);
       return;
     }
     if (action === "list") {
       const { config } = configFor(args);
       const baselines = listPromotedBaselines(config);
-      if (!baselines.length) console.log("No promoted baselines.");
+      if (!baselines.length) cliOutput.log("No promoted baselines.");
       for (const baseline of baselines) {
-        console.log(
+        cliOutput.log(
           `${baseline.name}\t${baseline.sourceRunId}\t${baseline.promotedAt}\t${baseline.reviewer}\t${baseline.snapshotId}`,
         );
       }
@@ -989,10 +1014,10 @@ async function main(): Promise<void> {
       baselineFile: baseline.file,
       candidateFile: candidate.file,
     });
-    console.log(
+    cliOutput.log(
       `Compared ${baseline.report.runId} → ${candidate.report.runId}: score ${comparison.overall.scorePct.delta === null ? "n/a" : `${comparison.overall.scorePct.delta >= 0 ? "+" : ""}${comparison.overall.scorePct.delta}`} points; coverage ${comparison.overall.coveragePct.delta === null ? "n/a" : `${comparison.overall.coveragePct.delta >= 0 ? "+" : ""}${comparison.overall.coveragePct.delta}`} points`,
     );
-    console.log(`Artifacts: ${artifacts.json}, ${artifacts.html}`);
+    cliOutput.log(`Artifacts: ${artifacts.json}, ${artifacts.html}`);
     const failures = comparisonFailures(
       comparison,
       omitUndefined({
@@ -1004,6 +1029,7 @@ async function main(): Promise<void> {
     );
     for (const failure of failures) console.error(`CI comparison failed: ${failure}`);
     if (failures.length) process.exitCode = 2;
+    cliOutput.result({ comparison, artifacts, acceptanceFailures: failures });
     return;
   }
 
@@ -1046,9 +1072,12 @@ async function main(): Promise<void> {
     );
     for (const check of checks) {
       const marker = check.ok ? "✓" : check.required ? "✗" : "○";
-      console.log(`${marker} ${check.name}${check.required ? "" : " (optional)"}: ${check.detail}`);
+      cliOutput.log(
+        `${marker} ${check.name}${check.required ? "" : " (optional)"}: ${check.detail}`,
+      );
     }
     if (checks.some((check) => check.required && !check.ok)) process.exitCode = 1;
+    cliOutput.result({ checks });
     return;
   }
 
@@ -1059,6 +1088,7 @@ async function main(): Promise<void> {
           throw new Error(`${args.command} requires --run`);
         })(),
     );
+    cliOutput.context = { runDir };
     await withRunLock(runDir, async () => {
       const state = loadRunState(runDir);
       if (state.status !== "complete") {
@@ -1067,7 +1097,7 @@ async function main(): Promise<void> {
         );
       }
       if (recoverInterruptedReportUpdate(runDir)) {
-        console.log(`Recovered interrupted report update in ${runDir}`);
+        cliOutput.log(`Recovered interrupted report update in ${runDir}`);
       }
       assertArtifactIntegrity(runDir, { require: true });
       const sealed = state.mode === "judge" && stringFlag(args, "config") === undefined;
@@ -1106,10 +1136,10 @@ async function main(): Promise<void> {
             inputFile,
             reviewer,
           });
-          console.log(
+          cliOutput.log(
             `Adjudicated: ${report.overallScorePct ?? "n/a"}% / ${report.overallCoveragePct}% coverage; ${report.manualPending} pending manual`,
           );
-          enforceRunThresholds(args, report);
+          cliOutput.result(runResult(runDir, report, enforceRunThresholds(args, report)));
           return;
         }
         const report = finalizeReport(
@@ -1121,10 +1151,10 @@ async function main(): Promise<void> {
             reviewer: stringFlag(args, "reviewer"),
           }),
         );
-        console.log(
+        cliOutput.log(
           `Finalized: ${report.overallScorePct ?? "n/a"}% / ${report.overallCoveragePct}% coverage; ${report.manualPending} pending`,
         );
-        enforceRunThresholds(args, report);
+        cliOutput.result(runResult(runDir, report, enforceRunThresholds(args, report)));
         return;
       }
       assertRescoreSpecsCompatible(runDir, prior, receiptSpecs);
@@ -1164,10 +1194,10 @@ async function main(): Promise<void> {
         specs,
         state.mode === "judge" ? { config, specs: receiptSpecs } : undefined,
       );
-      console.log(
+      cliOutput.log(
         `Rescored: ${report.overallScorePct ?? "n/a"}% / ${report.overallCoveragePct}% coverage`,
       );
-      enforceRunThresholds(args, report);
+      cliOutput.result(runResult(runDir, report, enforceRunThresholds(args, report)));
     });
     return;
   }
@@ -1184,14 +1214,21 @@ async function main(): Promise<void> {
         labelsFile: required("labels"),
         configurationsFile: required("configurations"),
         output: required("output"),
-        onProgress: (message) => console.log(message),
+        onProgress: (message) => cliOutput.log(message),
       });
-      console.log(JSON.stringify(result.report.results));
-      console.log(
+      cliOutput.log(JSON.stringify(result.report.results));
+      cliOutput.log(
         `Artifacts: ${path.join(result.output, "validation-results.json")}, ${path.join(result.output, "validation-results.html")}`,
       );
       if (result.report.observations.some((item) => item.status === "execution_error"))
         process.exitCode = 1;
+      cliOutput.result({
+        results: result.report.results,
+        artifacts: {
+          report: path.join(result.output, "validation-results.json"),
+          html: path.join(result.output, "validation-results.html"),
+        },
+      });
       return;
     }
     const resumeDir = stringFlag(args, "resume");
@@ -1225,6 +1262,9 @@ async function main(): Promise<void> {
       true,
     );
     const result = await judgeCollected({
+      onRunCreated: (runDir) => {
+        cliOutput.context = { runDir };
+      },
       evidenceDir: sourceDir,
       config,
       configFile: file,
@@ -1233,10 +1273,12 @@ async function main(): Promise<void> {
       explicitConfig,
       configOverrides: overrides,
       ...omitUndefined({ resumeDir }),
-      onProgress: (message) => console.log(message),
+      onProgress: (message) => cliOutput.log(message),
     });
-    console.log(`Artifacts: ${result.runDir}`);
-    enforceRunThresholds(args, result.report);
+    cliOutput.log(`Artifacts: ${result.runDir}`);
+    cliOutput.result(
+      runResult(result.runDir, result.report, enforceRunThresholds(args, result.report)),
+    );
     return;
   }
 
@@ -1260,34 +1302,61 @@ async function main(): Promise<void> {
     loadFixtures(config.paths.fixtures);
     const templates = allSpecs.reduce((n, spec) => n + spec.scenarios.length, 0);
     const executions = materializeSpecs(allSpecs).reduce((n, spec) => n + spec.scenarios.length, 0);
-    console.log(
+    cliOutput.result({
+      configFile: file,
+      configurationValid: true,
+      areas: allSpecs.length,
+      scenarioTemplates: templates,
+      executableCases: executions,
+      rubricItems: allSpecs.reduce((n, spec) => n + spec.rubric.length, 0),
+      scope:
+        "Input contracts and referenced files; does not establish implementation readiness or evaluation quality.",
+    });
+    cliOutput.log(
       `Valid: ${file}; ${allSpecs.length} areas, ${templates} scenario templates, ${executions} executable cases, ${allSpecs.reduce((n, spec) => n + spec.rubric.length, 0)} rubric items.`,
     );
     return;
   }
   if (args.command === "list") {
+    cliOutput.result({
+      areas: allSpecs.map((spec) => ({
+        id: spec.id,
+        title: spec.title,
+        weight: spec.weight,
+        optional: spec.optional,
+        scenarios: spec.scenarios.map(({ id, name, kind }) => ({ id, name, kind })),
+        rubric: spec.rubric.map(({ id, criterion, weight, grader, gate, tags }) => ({
+          id,
+          criterion,
+          weight,
+          grader: grader.type,
+          gate,
+          tags,
+        })),
+      })),
+    });
     for (const spec of allSpecs) {
-      console.log(
+      cliOutput.log(
         `${spec.id.padEnd(20)} w${String(spec.weight).padEnd(5)} ${spec.title}${spec.optional ? " (optional)" : ""}`,
       );
       for (const scenario of spec.scenarios)
-        console.log(
+        cliOutput.log(
           `  scenario ${scenario.id.padEnd(18)} ${scenario.kind ?? "auto"}  ${scenario.name}`,
         );
       for (const scenario of spec.scenarios) {
         for (const scenarioCase of scenario.cases ?? []) {
-          console.log(
+          cliOutput.log(
             `    case   ${scenarioCase.id.padEnd(18)} ${scenarioCase.split ?? scenario.split ?? "all"} [${scenarioCase.strata.join(", ") || "no strata"}]`,
           );
         }
       }
       for (const [dataset, cases] of Object.entries(spec.datasets ?? {}))
         for (const c of cases)
-          console.log(
+          cliOutput.log(
             `  text case ${spec.id}/${dataset}/${c.id} ${c.split ?? "all"} [${c.strata.join(", ")}]`,
           );
       for (const rubric of spec.rubric)
-        console.log(
+        cliOutput.log(
           `  rubric   ${rubric.id.padEnd(18)} w${rubric.weight} ${rubric.grader.type}${rubric.gate ? " GATE" : ""} [${rubric.tags.join(", ")}]`,
         );
     }
@@ -1354,12 +1423,17 @@ async function main(): Promise<void> {
         previewRepetitions: repetitions,
       });
     } else {
-      await runCampaign({
+      const result = await runCampaign({
         ...options,
+        onProgress: cliOutput.log,
+        onCampaignCreated: (campaignDir) => {
+          cliOutput.context = { campaignDir };
+        },
         repetitions,
         thresholds: omitUndefined(thresholds),
         ...omitUndefined({ output: stringFlag(args, "output"), resumeCampaign: campaignResume }),
       });
+      cliOutput.result(result);
     }
     return;
   }
@@ -1376,10 +1450,14 @@ async function main(): Promise<void> {
       )
     : (csv(stringFlag(args, "text-cases")) ?? resumeState?.selectedTextCases);
   if (textCaseIds !== undefined && !args.flags.json)
-    console.log(
+    cliOutput.log(
       `Selected ${textCaseIds.length} text dataset cases; unselected cases reduce coverage.`,
     );
   const result = await runEvaluation({
+    onProgress: cliOutput.log,
+    onRunCreated: (runDir) => {
+      cliOutput.context = { runDir };
+    },
     ...omitUndefined({
       textCaseIds,
       config,
@@ -1396,19 +1474,50 @@ async function main(): Promise<void> {
     collectOnly: args.command === "collect",
   });
   if (result.report) {
-    console.log(`Artifacts: ${result.runDir}`);
-    enforceRunThresholds(args, result.report);
+    cliOutput.log(`Artifacts: ${result.runDir}`);
+    cliOutput.result(
+      runResult(result.runDir, result.report, enforceRunThresholds(args, result.report)),
+    );
+  } else if (args.command === "collect" && !args.flags["dry-run"]) {
+    cliOutput.result({
+      runId: path.basename(result.runDir),
+      runDir: result.runDir,
+      execution: "complete",
+      mode: "collect",
+      artifacts: { collection: path.join(result.runDir, "collection.json") },
+    });
   }
 }
 
+const cliArgs = parseArgs(process.argv.slice(2));
+const commandKey =
+  [
+    "campaign",
+    "judge",
+    "author",
+    "image",
+    "benchmark",
+    "baseline",
+    "reference",
+    "privacy",
+  ].includes(cliArgs.command) && cliArgs.positionals[0]
+    ? `${cliArgs.command} ${cliArgs.positionals[0]}`
+    : cliArgs.command;
+const cliOutput = new CliOutput(
+  commandKey,
+  cliArgs.flags.json === true,
+  cliArgs.flags.debug === true,
+  JSON_RESULT_COMMANDS.has(commandKey) && !cliArgs.flags["dry-run"] && !cliArgs.flags.help,
+);
 const execute = ["image", "run", "campaign", "benchmark", "collect", "judge"].includes(
   process.argv[2] ?? "",
 )
   ? () => withCliSignals(main)
   : main;
-execute().catch((error) => {
-  if (error instanceof CliInterruptionError) return;
-  console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
-  if (process.exitCode !== 130 && process.exitCode !== 143)
-    process.exitCode = error instanceof PromotionPolicyError ? 2 : 1;
-});
+execute()
+  .then(() => cliOutput.finish())
+  .catch((error) => {
+    if (process.exitCode !== 130 && process.exitCode !== 143)
+      process.exitCode = error instanceof PromotionPolicyError ? 2 : 1;
+    cliOutput.finish(error instanceof Error ? error : new Error(String(error)));
+  });

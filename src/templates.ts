@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { visualStarterFiles } from "./starters/visual.js";
+import { editorSchemas } from "./editor-schemas.js";
 
 export const STARTER_KINDS = ["web", "repository", "command", "artifact", "visual"] as const;
 export type StarterKind = (typeof STARTER_KINDS)[number];
@@ -364,6 +365,18 @@ export function initializeProject(directory: string, requestedKind: string = "we
     files.push({ target: path.join(root, "evals", "check.mjs"), content: commandChecker });
   if (kind === "artifact")
     files.push({ target: path.join(root, "evals", "collect.mjs"), content: artifactCollector });
+  const schemaDirectory = path.join(root, "evals", "schemas");
+  for (const file of files) {
+    if (!file.target.endsWith(".yaml") || path.basename(file.target) === "fixtures.yaml") continue;
+    const name = path.basename(file.target) === "evalkit.yaml" ? "config" : "spec";
+    const schema = path
+      .relative(path.dirname(file.target), path.join(schemaDirectory, `${name}.schema.json`))
+      .split(path.sep)
+      .join("/");
+    file.content = `# yaml-language-server: $schema=${schema}\n${file.content}`;
+  }
+  for (const [name, content] of Object.entries(editorSchemas()))
+    files.push({ target: path.join(schemaDirectory, name), content });
   const conflicts = files.filter(({ target }) => fs.existsSync(target)).map(({ target }) => target);
   if (conflicts.length) {
     throw new Error(`Refusing to overwrite existing files:\n  - ${conflicts.join("\n  - ")}`);

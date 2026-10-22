@@ -10,6 +10,75 @@ import { assertScenarioTargetCompatibility, loadFixtures, loadSpecs } from "../s
 
 const temporary = () => fs.mkdtempSync(path.join(os.tmpdir(), "aek-test-"));
 
+test("named-suite validation reports source paths for selected and unselected overrides", (t) => {
+  const root = temporary();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, "evalkit.yaml");
+  fs.writeFileSync(
+    file,
+    `version: 1
+project: { name: Suite diagnostics }
+target: { kind: repository }
+judge:
+  timeoutSeconds: 60
+suites:
+  valid: {}
+  broken:
+    judge:
+      timeoutSeconds: 0
+`,
+  );
+  for (const suite of ["broken", "valid"]) {
+    assert.throws(() => loadConfig(file, { suite }), {
+      message: `Invalid ${file}:\n  - ${file}:10:23 suites.broken.judge.timeoutSeconds: Too small: expected number to be >0`,
+    });
+  }
+  fs.writeFileSync(
+    file,
+    fs.readFileSync(file, "utf8").replace("timeoutSeconds: 0", "model: review"),
+  );
+  for (const suite of ["broken", "valid"]) {
+    const config = loadConfig(file, { suite });
+    assert.equal(config.judge.timeoutSeconds, 60, "Validation must not inject override defaults");
+    assert.equal(config.judge.model, suite === "broken" ? "review" : undefined);
+  }
+});
+
+test("suite diagnostics keep inherited errors at the base and locate malformed overrides", (t) => {
+  const root = temporary();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, "evalkit.yaml");
+  const cases = [
+    {
+      base: "{ timeoutSeconds: 0 }",
+      overlay: "judge: { model: review }",
+      location: "4:26 judge.timeoutSeconds",
+    },
+    { base: "null", overlay: "judge: { model: review }", location: "4:8 judge" },
+    { base: "{}", overlay: "judge: null", location: "7:12 suites.review.judge" },
+    { base: "{}", overlay: "instructions: 42", location: "7:19 suites.review.instructions" },
+    {
+      base: "{}",
+      overlay: "judge: { extraArgs: [42] }",
+      location: "7:26 suites.review.judge.extraArgs.0",
+    },
+  ];
+  for (const { base, overlay, location } of cases) {
+    fs.writeFileSync(
+      file,
+      `version: 1\nproject: { name: Diagnostics }\ntarget: { kind: repository }\njudge: ${base}\nsuites:\n  review:\n    ${overlay}\n`,
+    );
+    assert.throws(
+      () => loadConfig(file, { suite: "review" }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.ok(error.message.includes(`${file}:${location}:`), error.message);
+        return true;
+      },
+    );
+  }
+});
+
 test("spec normalization preserves tagged YAML case variables", (t) => {
   const root = temporary();
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

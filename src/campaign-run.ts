@@ -131,12 +131,15 @@ export async function runCampaign(
     output?: string;
     resumeCampaign?: string;
     thresholds: CiThresholds;
+    onCampaignCreated?: (directory: string) => void;
   },
-): Promise<void> {
+) {
   await prepareEvaluation(options);
   const directory = options.resumeCampaign
     ? path.resolve(options.resumeCampaign)
     : createCampaignDirectory(options.config, options.output);
+  options.onCampaignCreated?.(directory);
+  const progress = options.onProgress ?? console.log;
   const receiptOptions = {
     config: options.config,
     specs: options.specs,
@@ -145,7 +148,7 @@ export async function runCampaign(
     ...(options.scenarioIds ? { scenarioIds: options.scenarioIds } : {}),
     ignoredTargetPaths: [directory],
   };
-  await withRunLock(directory, async () => {
+  return withRunLock(directory, async () => {
     const saved = options.resumeCampaign ? loadCampaignState(directory) : undefined;
     if (saved?.recoveryError)
       throw new Error(`Campaign checkpoint failed: ${saved.recoveryError}. Start a new campaign.`);
@@ -316,16 +319,14 @@ export async function runCampaign(
         });
     }
     publish();
-    console.log(
+    progress(
       `Campaign ${state.campaignId}: ${state.runs.length}/${state.plannedRepetitions} attempts retained; ${directory}`,
     );
     for (let ordinal = state.runs.length + 1; ordinal <= state.plannedRepetitions; ordinal++) {
       throwIfCancelled();
       state.active = { ordinal };
       saveState(directory, state);
-      console.log(
-        `Campaign ${state.campaignId}: repetition ${ordinal}/${state.plannedRepetitions}`,
-      );
+      progress(`Campaign ${state.campaignId}: repetition ${ordinal}/${state.plannedRepetitions}`);
       let record: CampaignRunRecord;
       try {
         const result = await runEvaluation({
@@ -352,7 +353,7 @@ export async function runCampaign(
     }
     const artifacts = publish();
     const campaign = buildCampaignReport({ ...state, runs: state.runs as CampaignRunRecord[] });
-    console.log(
+    progress(
       `Campaign complete: ${campaign.coverage.completedRuns}/${state.plannedRepetitions} runs; artifacts ${artifacts.json}, ${artifacts.html}`,
     );
     const failures = [...reports].flatMap(([ordinal, report]) =>
@@ -367,5 +368,6 @@ export async function runCampaign(
     for (const failure of failures) console.error(`CI campaign failed: ${failure}`);
     if (state.runs.some((run) => run.status === "failed")) process.exitCode = 1;
     else if (failures.length) process.exitCode = 2;
+    return { campaignDir: directory, campaign, artifacts, acceptanceFailures: failures };
   });
 }

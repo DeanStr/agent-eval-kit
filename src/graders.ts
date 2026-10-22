@@ -82,21 +82,27 @@ export async function runCommandGrader(options: {
   });
   assertGraderMethods(config, item, runDir);
   const diagnostic = `Command grader ${item.id}; see ${stderrFile} and ${stdoutFile}`;
-  if (result.timedOut)
-    throw new Error(`${diagnostic}: timed out after ${item.grader.timeoutSeconds ?? 300}s`);
+  const failure = (message: string) =>
+    new Error(
+      `${diagnostic}: ${message}${result.stderr.trim() ? `\nChecker stderr:\n${result.stderr.trim().slice(0, 1500)}` : ""}\nRepair the checker or its environment. Changes to checker code or declared inputs require a new run; keep the failed run for diagnostics.`,
+    );
+  if (result.timedOut) throw failure(`timed out after ${item.grader.timeoutSeconds ?? 300}s`);
   if (result.exitCode === null)
-    throw new Error(`${diagnostic}: terminated by ${result.signal ?? "an unknown signal"}`);
+    throw failure(`terminated by ${result.signal ?? "an unknown signal"}`);
   if (item.grader.output === "json") {
     if (result.exitCode !== 0)
-      throw new Error(`${diagnostic}: JSON grader exited ${result.exitCode}; expected exit 0`);
+      throw failure(`JSON grader exited ${result.exitCode}; expected exit 0`);
     let output: unknown;
     try {
       output = JSON.parse(result.stdout);
     } catch {
-      throw new Error(`${diagnostic}: expected an exact JSON object on stdout`);
+      throw failure(`expected an exact JSON object on stdout`);
     }
     const parsed = commandOutputValidator.safeParse(output);
-    if (!parsed.success) throw new Error(`${diagnostic}: invalid structured output`);
+    if (!parsed.success)
+      throw failure(
+        `invalid structured output: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`,
+      );
     return {
       id: item.id,
       ...parsed.data,
@@ -114,8 +120,7 @@ export async function runCommandGrader(options: {
     4: "not_found",
   };
   const verdict = byExit[result.exitCode];
-  if (!verdict)
-    throw new Error(`${diagnostic}: unexpected exit code ${result.exitCode}; expected 0 through 4`);
+  if (!verdict) throw failure(`unexpected exit code ${result.exitCode}; expected 0 through 4`);
   const output = result.stdout.trim() || result.stderr.trim();
   return {
     id: item.id,

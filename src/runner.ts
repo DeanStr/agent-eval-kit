@@ -1,3 +1,4 @@
+import { shellQuote } from "./cli-recovery.js";
 import { buildExecutionPlan, formatExecutionPlan } from "./execution-plan.js";
 import { specSourceBytes } from "./specs.js";
 import { assertSavedWorkflowEvidence, bindInputs, validateWorkflowSelection } from "./workflow.js";
@@ -56,6 +57,7 @@ export interface RunOptions {
   textCaseIds?: string[];
   previewRepetitions?: number;
   onRunCreated?: (runDir: string) => void;
+  onProgress?: (message: string) => void;
 }
 
 function createRunDir(root: string): string {
@@ -291,7 +293,7 @@ export async function runEvaluation(
     writeJson(stateFile, state);
     writeJson(path.join(runDir, "receipt.json"), receipts.current);
 
-    const logger = new RunLogger(path.join(runDir, "run.log"));
+    const logger = new RunLogger(path.join(runDir, "run.log"), options.onProgress);
     const priorReport = reportIsSealed ? loadResumableRunReport(reportFile).report : undefined;
     const reusePriorEvidence =
       !priorReport ||
@@ -634,7 +636,9 @@ export async function runEvaluation(
       state.lastError = error instanceof Error ? error.message : String(error);
       writeJson(stateFile, state);
       logger.line(`FATAL ${state.lastError}`);
-      logger.line(`Resume with: aek ${options.collectOnly ? "collect" : "run"} --resume ${runDir}`);
+      logger.line(
+        `With unchanged inputs, retry with: aek ${options.collectOnly ? "collect" : "run"} --resume ${shellQuote(runDir)}. After changing config, checker/collector code, fixtures, or the target, repeat the original command without --resume to start a new run.`,
+      );
       throw error;
     } finally {
       await lifecycle?.stop();
