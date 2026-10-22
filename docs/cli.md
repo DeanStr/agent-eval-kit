@@ -15,6 +15,16 @@ creates the saved map before an eval config exists; `--description` sets its sco
 `--require-ready`. They check decisions, rubric links, and recorded trial evidence;
 `--require-ready` exits 2 for a valid but incomplete inventory. See [authoring](authoring.md).
 
+## Improve an existing project
+
+`aek improve install` installs `$aek-improve` for a bounded hypothesis/edit/evaluate
+workflow. `improve start --goal text --output new-directory` creates an owned Git
+worktree and baseline. Register edits with `improve attempt --session directory
+--hypothesis text`, then run `improve evaluate --session directory` for full-suite
+acceptance and restoration. Use `improve status` to inspect and `improve stop
+--reason text` to end early. All take `--json`; see [project improvement](improvement.md)
+for budgets, frozen inputs, stop reasons, artifacts, and exit statuses.
+
 ## Compare two images
 
 ```bash
@@ -82,7 +92,7 @@ arguments fail; boolean flags such as `--headed` take no value.
 ## Structured results
 
 `run`, `collect`, `judge`, `judge validate`, `campaign`, `campaign compare`, `compare`,
-`validate`, `list`, `doctor`, `verify`, `rescore`, `finalize`, and `adjudicate` accept
+`validate`, `list`, `doctor`, `verify`, `rescore`, `finalize`, `adjudicate`, and all `improve` subcommands accept
 `--json`. Actual execution writes one version-1 JSON envelope to stdout; progress
 and diagnostics go to stderr. Exit statuses keep their ordinary meanings.
 

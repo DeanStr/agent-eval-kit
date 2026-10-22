@@ -101,7 +101,7 @@ gates, and regression comparison without provider access.
 
 No repository clone, TypeScript build, or development dependencies are needed in
 the consuming project. The package includes first-run, text-datasets, and authoring
-examples plus the authoring skill. Provider CLIs and browser dependencies still
+examples plus the authoring and improvement skills. Provider CLIs and browser dependencies still
 apply to the selected evaluation mode. For a published GitHub release, download its `.tgz` and
 matching `.sha256`, verify with `sha256sum -c`, then install the tarball.
 
@@ -225,6 +225,11 @@ explanations, and evidence. See [judge validation](docs/judge-validation.md) for
 the input contracts, exit semantics, and a packaged offline example.
 
 ## Guided project authoring
+
+For an existing suite, use [bounded project improvement](docs/improvement.md):
+`aek improve install` adds `$aek-improve`, which guides hypothesis-driven edits
+through full-suite acceptance and preserves the best checkpoint in its own Git
+worktree. Rejected candidates retain their evidence and are restored automatically.
 
 Install the authoring skill into your project's agent skill directory:
 

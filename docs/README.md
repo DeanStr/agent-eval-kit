@@ -46,6 +46,7 @@ checks, and file/integration workflows, including a user-story YAML example.
 
 | Task | Guide |
 | --- | --- |
+| Improve a project through bounded edits, full evaluation, and restoration | [Project improvement](improvement.md) |
 | Look up configuration fields, defaults, limits, and precedence | [Configuration reference](configuration.md) |
 | Find commands, selection flags, defaults, and exit statuses | [Command guide](cli.md) |
 | Diagnose setup failures, blocked scenarios, or low coverage | [Troubleshooting](troubleshooting.md) |

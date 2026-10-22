@@ -54,6 +54,14 @@ const descriptions: Record<string, string> = {
   email: "Use the persona's configured magic-link or verification-code flow.",
   kind: "Starter: web (default), repository, command, artifact, or visual.",
   directory: "Skill installation directory (default: .agents/skills).",
+  goal: "Product improvement objective; acceptance comes from the frozen suite.",
+  session: "Existing improvement session directory.",
+  hypothesis: "Concrete change and expected benefit, recorded before editing.",
+  guidance: "Optional UTF-8 repair notes (max 64 KiB); never supplied to acceptance judges.",
+  "max-attempts": "Maximum candidate evaluations, 1–100 (default: 3).",
+  "max-stalls": "Stop after this many consecutive rejections, 1–100 (default: 2).",
+  "budget-seconds": "Session wall-clock budget, including edits, 1–86400 (default: 3600).",
+  "minimum-gain": "Minimum score gain in percentage points, 0–100; ties always fail (default: 0).",
   project: "Project directory (default: current directory).",
   description: "Scope of the authoring project or feature.",
   "require-ready": "Exit 2 for a valid but incomplete authoring inventory.",
@@ -79,6 +87,12 @@ const usages: Record<string, string> = {
   "image batch": "--manifest file.json [options] | --resume directory",
   "image compare": "--candidate file --reference file --criterion text [options]",
   "author install": "[--directory directory]",
+  "improve install": "[--directory directory] [--json]",
+  "improve start": "--goal text --output new-directory [--config file] [--suite name] [options]",
+  "improve attempt": "--session directory --hypothesis text [--json]",
+  "improve evaluate": "--session directory [--guidance file] [--json]",
+  "improve status": "--session directory [--json]",
+  "improve stop": "--session directory --reason text [--json]",
   "author init": "[--project directory] [--mode project|feature] [--description text]",
   "author status": "[--project directory] [--json] [--require-ready]",
   "author validate": "[--project directory] [--json] [--require-ready]",
@@ -123,6 +137,7 @@ export function commandHelp(
     benchmark: ["experiment"],
     image: ["compare", "batch"],
     author: ["install", "init", "status", "validate"],
+    improve: ["install", "start", "attempt", "evaluate", "status", "stop"],
     baseline: ["promote", "list"],
     reference: ["promote", "list"],
     privacy: ["lint"],
@@ -136,6 +151,11 @@ export function commandHelp(
     if (key === "image compare" && flag === "candidate") description = "Candidate image file.";
     if (key === "author init" && flag === "mode")
       description = "Authoring scope: project (default) or feature.";
+    if (key === "improve stop" && flag === "reason")
+      description = "Reason for ending this session and restoring its best checkpoint.";
+    if (key === "improve start" && flag === "output")
+      description =
+        "New session directory outside the source checkout; owns its candidate Git worktree.";
     if (command === "campaign" && flag === "resume")
       description =
         "Continue only unstarted repetitions; only --json and --debug may accompany it. Retains failures and thresholds.";
@@ -146,10 +166,12 @@ export function commandHelp(
     return `  ${(`--${flag}${booleans.has(flag) ? "" : " <value>"}`).padEnd(34)} ${description}`;
   });
   const exit =
-    key === "judge validate"
-      ? "Exit: 0 completed (reviewer disagreements do not fail); 1 input/execution error; 130/143 interrupted."
-      : key === "benchmark experiment"
-        ? "Uses explicit candidate blocks and a shared resource lock. Output resolves from the working directory. Reports descriptive differences; no automatic performance acceptance.\n\nExit: 0 compared; 1 input/execution error; 2 requirement failure or inconclusive; 130/143 interrupted."
-        : "Exit: 0 completed; 1 input/execution error; 2 acceptance failure; 130/143 interrupted.";
+    command === "improve"
+      ? "Exit: 0 completed (evaluate: accepted); 1 input/execution error; 2 rejected, inconclusive, or no new attempt permitted; 130/143 interrupted. Status/stop return 0 for successful inspection/stopping."
+      : key === "judge validate"
+        ? "Exit: 0 completed (reviewer disagreements do not fail); 1 input/execution error; 130/143 interrupted."
+        : key === "benchmark experiment"
+          ? "Uses explicit candidate blocks and a shared resource lock. Output resolves from the working directory. Reports descriptive differences; no automatic performance acceptance.\n\nExit: 0 compared; 1 input/execution error; 2 requirement failure or inconclusive; 130/143 interrupted."
+          : "Exit: 0 completed; 1 input/execution error; 2 acceptance failure; 130/143 interrupted.";
   return `Usage: aek ${key} ${commandUsage(key)}\n\nOptions:\n${lines.join("\n")}\n\n${command === "judge" && !positional ? "Also: aek judge validate --help for reviewed-evidence validation.\n\n" : ""}${exit}`;
 }

@@ -37,6 +37,9 @@ test("command and subcommand help lists exact accepted options without loading a
     [["judge"], "--evidence", "--dataset"],
     [["judge", "validate"], "--dataset", "--evidence"],
     [["reference", "list"], "--suite", "--reviewer"],
+    [["improve", "start"], "--max-attempts", "--areas"],
+    [["improve", "evaluate"], "--guidance", "--judge"],
+    [["improve", "status"], "--session", "--hypothesis"],
   ] as const) {
     const result = runCli(os.tmpdir(), [...args, "--help"]);
     assert.equal(result.status, 0, result.stderr);

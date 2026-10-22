@@ -119,6 +119,7 @@ function allowedCliFlags(args: Args): string[] {
   const knownCommands = new Set([
     "image",
     "author",
+    "improve",
     "adjudicate",
     "auth",
     "baseline",
@@ -170,6 +171,30 @@ function allowedCliFlags(args: Args): string[] {
   ];
   let allowed: string[] = [];
   switch (args.command) {
+    case "improve": {
+      const commands: Record<string, string[]> = {
+        install: ["directory"],
+        start: [
+          "config",
+          "suite",
+          "goal",
+          "output",
+          "max-attempts",
+          "max-stalls",
+          "budget-seconds",
+          "minimum-gain",
+        ],
+        attempt: ["session", "hypothesis"],
+        evaluate: ["session", "guidance"],
+        status: ["session"],
+        stop: ["session", "reason"],
+      };
+      const subcommand = args.positionals[0] ?? "";
+      if (!Object.hasOwn(commands, subcommand) && !(args.flags.help === true && !subcommand))
+        throw new Error(`improve requires ${Object.keys(commands).join(", ")}`);
+      allowed = Object.hasOwn(commands, subcommand) ? commands[subcommand]! : [];
+      break;
+    }
     case "benchmark":
       allowed = ["recipe", "output"];
       break;
@@ -311,7 +336,7 @@ function allowedCliFlags(args: Args): string[] {
   }
   if (allowed.includes("config")) allowed.push("suite");
   const key =
-    ["campaign", "judge"].includes(args.command) && args.positionals[0]
+    ["campaign", "judge", "improve"].includes(args.command) && args.positionals[0]
       ? `${args.command} ${args.positionals[0]}`
       : args.command;
   if (JSON_RESULT_COMMANDS.has(key)) allowed.push("json");
@@ -325,6 +350,7 @@ function validateCliShape(args: Args): void {
     benchmark: ["experiment"],
     image: ["compare", "batch"],
     author: ["install", "init", "status", "validate"],
+    improve: ["install", "start", "attempt", "evaluate", "status", "stop"],
     baseline: ["promote", "list"],
     reference: ["promote", "list"],
     privacy: ["lint"],
@@ -367,6 +393,7 @@ function validateCliShape(args: Args): void {
     [
       "image",
       "author",
+      "improve",
       "baseline",
       "benchmark",
       "reference",
@@ -425,6 +452,14 @@ Usage: aek <command> [flags]
   author status [--project directory] [--json] [--require-ready]
   author validate [--project directory] [--json] [--require-ready]
                                    Validate the map, check rubric links and recorded trials
+  improve install [--directory .agents/skills]
+                                   Install the bounded project improvement skill
+  improve start --goal text --output directory [--config evalkit.yaml] [--suite name]
+  improve attempt --session directory --hypothesis text
+  improve evaluate --session directory [--guidance file]
+  improve status --session directory
+  improve stop --session directory --reason text
+                                   Retain candidates and restore the best checkpoint
   init [directory] [--kind web|repository|command|artifact|visual]
                                    Create a starter kit and onboarding guide
   validate [--config file]         Validate configuration, specs, and fixture paths
@@ -761,6 +796,11 @@ async function main(): Promise<void> {
   }
   if (args.command === "author") {
     await authoringCommand(args.positionals[0], args.flags);
+    return;
+  }
+  if (args.command === "improve") {
+    const { improvementCommand } = await import("./improvement/cli.js");
+    await improvementCommand(args.positionals[0]!, args.flags, cliOutput);
     return;
   }
   if (args.command === "image" && args.positionals[0] === "batch") {
@@ -1495,6 +1535,7 @@ const commandKey =
     "campaign",
     "judge",
     "author",
+    "improve",
     "image",
     "benchmark",
     "baseline",
@@ -1509,7 +1550,7 @@ const cliOutput = new CliOutput(
   cliArgs.flags.debug === true,
   JSON_RESULT_COMMANDS.has(commandKey) && !cliArgs.flags["dry-run"] && !cliArgs.flags.help,
 );
-const execute = ["image", "run", "campaign", "benchmark", "collect", "judge"].includes(
+const execute = ["image", "run", "campaign", "benchmark", "collect", "judge", "improve"].includes(
   process.argv[2] ?? "",
 )
   ? () => withCliSignals(main)

@@ -1,0 +1,4 @@
+interface:
+  display_name: "AEK Improve"
+  short_description: "Improve projects with measured, bounded attempts"
+  default_prompt: "Use $aek-improve to improve this project against its AEK suite and retain the best accepted revision."

@@ -493,6 +493,88 @@ console.log(JSON.stringify({verdict:r.valid?'pass':'fail',confidence:'high',reas
   assert.match(campaignHelp, /--fail-on-regression/);
   assert.doesNotMatch(campaignHelp, /--resume/);
   const skillDirectory = path.join(consumer, ".agents", "skills");
+  // Exercise the installed improvement CLI and skill without source/dev dependencies.
+  await run(cli, ["improve", "install", "--directory", skillDirectory], consumer);
+  assert.ok(fs.existsSync(path.join(skillDirectory, "aek-improve", "SKILL.md")));
+  assert.ok(fs.existsSync(path.join(skillDirectory, "aek-improve", "agents", "openai.yaml")));
+  assert.ok(fs.existsSync(path.join(installed, "docs", "improvement.md")));
+  await run(cli, ["improve", "install", "--directory", skillDirectory], consumer, 1);
+  const improvementProject = path.join(scratch, "improvement-project");
+  fs.cpSync(path.join(installed, "examples", "first-run"), improvementProject, { recursive: true });
+  const improvementSpecFile = path.join(improvementProject, "specs/cart.yaml");
+  const improvementSpec = YAML.parse(fs.readFileSync(improvementSpecFile, "utf8"));
+  improvementSpec.rubric = improvementSpec.rubric.filter(
+    (item: { grader: { type: string } }) => item.grader.type === "command",
+  );
+  fs.writeFileSync(improvementSpecFile, YAML.stringify(improvementSpec));
+  const correctCart = fs.readFileSync(path.join(improvementProject, "cart.mjs"));
+  fs.writeFileSync(
+    path.join(improvementProject, "cart.mjs"),
+    "export function total(lines) { return lines.reduce((sum, line) => sum + line.priceCents, 0); }\n",
+  );
+  await run("git", ["init", "-b", "main"], improvementProject);
+  await run("git", ["add", "."], improvementProject);
+  await run(
+    "git",
+    [
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-c",
+      "user.name=AEK smoke",
+      "-c",
+      "user.email=smoke@aek.invalid",
+      "commit",
+      "-m",
+      "Fixture",
+    ],
+    improvementProject,
+  );
+  const improvementOutput = path.join(scratch, "improvement-session");
+  const improvementStart = JSON.parse(
+    await run(
+      cli,
+      [
+        "improve",
+        "start",
+        "--goal",
+        "Repair quantities",
+        "--output",
+        improvementOutput,
+        "--max-attempts",
+        "1",
+        "--json",
+      ],
+      improvementProject,
+    ),
+  );
+  assert.equal(improvementStart.result.status, "ready");
+  await run(
+    cli,
+    [
+      "improve",
+      "attempt",
+      "--session",
+      improvementOutput,
+      "--hypothesis",
+      "Include the quantity multiplier",
+    ],
+    improvementProject,
+  );
+  fs.writeFileSync(path.join(improvementStart.result.workspace, "cart.mjs"), correctCart);
+  const improvementResult = JSON.parse(
+    await run(
+      cli,
+      ["improve", "evaluate", "--session", improvementOutput, "--json"],
+      improvementProject,
+    ),
+  );
+  assert.equal(improvementResult.result.best.accepted, true);
+  assert.equal(improvementResult.result.stopReason, "attempt_limit");
+  assert.equal(
+    (await run("git", ["rev-parse", "HEAD"], improvementProject)).trim(),
+    improvementStart.result.initial,
+  );
+  assert.equal((await run("git", ["status", "--porcelain"], improvementProject)).trim(), "");
   // The authoring workflow must work entirely from the installed package.
   await run(cli, ["author", "install", "--directory", skillDirectory], consumer);
   assert.ok(fs.existsSync(path.join(skillDirectory, "aek-author", "references", "plan.md")));

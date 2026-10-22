@@ -16,12 +16,18 @@ export const JSON_RESULT_COMMANDS = new Set([
   "rescore",
   "finalize",
   "adjudicate",
+  "improve install",
+  "improve start",
+  "improve attempt",
+  "improve evaluate",
+  "improve status",
+  "improve stop",
 ]);
 
 /** The CLI owns stdout; progress remains separate from its final JSON result. */
 export class CliOutput {
   private value: unknown;
-  context: { runDir?: string; campaignDir?: string } = {};
+  context: { runDir?: string; campaignDir?: string; sessionDir?: string } = {};
 
   constructor(
     readonly command: string,
