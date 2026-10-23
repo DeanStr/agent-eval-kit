@@ -2,30 +2,62 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Keep climbing — Agent Eval Kit</title>
+<title>Give your agent something to climb — Agent Eval Kit</title>
 <style>
-:root{color-scheme:dark;font-family:Arial,Helvetica,sans-serif;background:#171b1a;color:#f4f2e9}*{box-sizing:border-box}body{margin:0;padding:40px 24px 64px}main{max-width:1160px;margin:auto}a{color:#dbff79;text-underline-offset:4px}.brand{font-size:17px;font-weight:700;letter-spacing:.02em}h1{font-size:clamp(36px,6vw,70px);letter-spacing:-.05em;font-weight:500;margin:40px 0 14px}p{color:#aebfbe;line-height:1.6;max-width:800px}.toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:30px 0 20px}button,.download{border:1px solid #40574d;background:#111e27;color:#eaf2e5;border-radius:8px;padding:12px 18px;font-size:15px;text-decoration:none;cursor:pointer}button[aria-pressed=true]{background:#dbff79;color:#112019}.download{margin-left:auto}button:focus-visible,a:focus-visible{outline:3px solid #dbff79;outline-offset:4px}video{display:block;width:100%;background:#171b1a;border-radius:12px;border:1px solid #263b3a}video[hidden]{display:none}#portrait{max-width:540px;margin:auto}.meta{font-size:14px;margin-top:20px}.references{border-top:1px solid #2c3d3a;margin-top:44px;padding-top:24px}.references p{font-size:15px}.references a{white-space:nowrap}@media(max-width:600px){body{padding:24px 16px}.download{margin-left:0}h1{margin-top:30px}}
+:root{color-scheme:dark;font-family:Arial,Helvetica,sans-serif;background:#111a17;color:#f4f1e7}*{box-sizing:border-box}body{margin:0;padding:40px 24px 64px}main{max-width:1160px;margin:auto}a{color:#d9fc86;text-underline-offset:4px}.brand{font-size:17px;font-weight:700;letter-spacing:.02em}h1{font-size:clamp(36px,6vw,70px);letter-spacing:-.05em;font-weight:500;margin:40px 0 14px}p{color:#b5c2b8;line-height:1.6;max-width:850px}.toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:24px 0 20px}button,.download{border:1px solid #40574d;background:#1c2922;color:#f4f1e7;border-radius:8px;padding:12px 18px;font-size:15px;text-decoration:none;cursor:pointer}button[aria-pressed=true]{background:#d9fc86;color:#112019}.download{margin-left:auto}button:focus-visible,a:focus-visible{outline:3px solid #d9fc86;outline-offset:4px}video{display:block;width:100%;background:#111a17;border-radius:12px;border:1px solid #3e5146}video.portrait{max-width:540px;margin:auto}.meta{font-size:14px;margin-top:20px}.references{border-top:1px solid #3e5146;margin-top:44px;padding-top:24px}.references p{font-size:15px}details{margin:28px 0}summary{cursor:pointer;color:#d9fc86}#transcript p{margin:14px 0}#transcript strong{color:#f4f1e7}.proof{display:flex;flex-wrap:wrap;gap:12px 24px}@media(max-width:600px){body{padding:24px 16px}.download{margin-left:0}h1{margin-top:30px}}
 </style>
 </head>
 <body><main>
 <a class="brand" href="index.html">↗ agent eval kit</a>
-<h1>Let your agent keep climbing.</h1>
-<p>Start with the climb. Follow one checkout candidate through its failure, fix, evidence, judges, and the next attempt. See which gains survive—and why some results stay unknown. AEK returns the evidence; your coding agent keeps improving.</p>
+<h1>Turn “make this better”<br>into measured progress.</h1>
+<p>Give your coding agent standards it can evaluate and feedback it can act on. Follow one dispatch prototype from a 70% baseline through two agent revisions, measured by the same five-criterion AEK suite. Then try the evaluated final workflow.</p>
+<p><a href="dispatch/">Try the dispatch workflow</a> · <a href="example.html">Compare the product designs</a></p>
+<div class="toolbar" aria-label="Choose a video">
+<button type="button" aria-pressed="true" data-cut="main">Product film · 60s</button>
+<button type="button" aria-pressed="false" data-cut="social">Quick cut · 20s</button>
+<button type="button" aria-pressed="false" data-cut="walkthrough">Walkthrough · 2m 30s</button>
+</div>
 <div class="toolbar" aria-label="Video format">
 <button type="button" aria-pressed="true" data-format="landscape">16:9 · landscape</button>
 <button type="button" aria-pressed="false" data-format="portrait">4:5 · social feed</button>
 <a class="download" href="video-output/landscape.mp4" download="agent-eval-kit-landscape.mp4">Download MP4 ↓</a>
 </div>
-<video id="landscape" controls muted playsinline preload="metadata" poster="video-output/landscape-poster.png" aria-label="Agent Eval Kit landscape film"><source src="video-output/landscape.mp4" type="video/mp4">Your browser cannot play this video. Use the download link.</video>
-<video id="portrait" hidden controls muted playsinline preload="metadata" poster="video-output/portrait-poster.png" aria-label="Agent Eval Kit portrait film"><source src="video-output/portrait.mp4" type="video/mp4">Your browser cannot play this video. Use the download link.</video>
-<p class="meta">100 seconds · silent · illustrative storefront, code and scores</p>
-<p><a href="https://github.com/DeanStr/agent-eval-kit">Explore the repository ↗</a></p>
-<div class="references"><p>Creative targets: <a href="https://linear.app/changelog/2026-03-24-introducing-linear-agent">Linear Agent</a> for composition, <a href="https://linear.app/agents">Cursor × Linear</a> for workflow storytelling, and <a href="https://deepmind.google/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/">AlphaEvolve</a> for exploration and selection. All footage in our film is original.</p></div>
+<video id="film" controls muted playsinline preload="metadata" poster="video-output/landscape-poster.png" aria-label="Agent Eval Kit product film" src="video-output/landscape.mp4"><track kind="captions" srclang="en" label="English" src="video-output/landscape.vtt">Your browser cannot play this video. Use the download link.</video>
+<p class="meta" id="meta">60 seconds · silent · one dispatch improvement loop · actual browser captures and AEK results</p>
+<p><a href="https://github.com/DeanStr/agent-eval-kit#guided-project-authoring">Build your evaluation suite ↗</a> · <a id="captions" href="video-output/landscape.vtt" download>Download captions</a></p>
+<details><summary>Read the video transcript</summary><div id="transcript"></div></details>
+<p>The “before” and “after” are revisions of the same dispatch prototype. AEK finds a phone queue that hides deliveries and text down to 9px. The coding agent fixes those findings, then improves type, contrast and map labels: 70% → 90% → 100% under one frozen suite, with a fresh repeat of the final revision. Data is synthetic; the scores describe these five criteria. Browser captures check reassignment, reload and undo. The film is an edited sequence of retained captures and results.</p>
+<p>The walkthrough adds a separate dashboard example and clearly labeled illustrations of critical regression rejection and scores withheld for insufficient coverage. Those policy illustrations are not observed dispatch results.</p>
+<div class="proof" aria-label="Inspect the demonstration evidence"><a href="video-output/proof/dispatch/baseline/report.html">Dispatch baseline · 70%</a><a href="video-output/proof/dispatch/phone-queue/report.html">Phone revision · 90%</a><a href="video-output/proof/dispatch/type-and-map/report.html">Craft revision · 100%</a><a href="video-output/proof/dispatch/repeat/report.html">Fresh final repeat</a><a href="video-output/proof/dispatch/comparisons/compare-overall/comparison.html">Dispatch comparison</a><a href="video-output/proof/workflow-manifest.json">Capture provenance</a><a href="video-output/proof/workflow/observations.json">Browser observations</a><a href="video-output/proof/baseline/report.html">Walkthrough: dashboard baseline</a><a href="video-output/proof/proportions/report.html">Walkthrough: chart revision</a><a href="video-output/proof/comparison/comparison.html">Dashboard comparison</a><a href="video-output/proof/manifest.json">Dashboard evidence</a></div>
+<p>Try the same product: <a href="video-output/proof/dispatch/prototype-baseline/">dispatch baseline</a> · <a href="dispatch/">evaluated final revision</a>. Walkthrough example: <a href="video-output/proof/baseline.html">original dashboard</a> · <a href="video-output/proof/overview.html">improved dashboard</a>.</p>
+<div class="references"><p>Creative references: <a href="https://linear.app/agents">Cursor × Linear</a> for a clear request-to-result story; <a href="https://linear.app/changelog/2026-03-24-introducing-linear-agent">Linear Agent</a> for focused framing; <a href="https://langfuse.com/changelog/2024-11-22-prompt-experimentation">Langfuse</a> and <a href="https://www.langchain.com/blog/regression-testing">LangSmith</a> for making evaluation results inspectable. No reference footage is included.</p></div>
 </main><script>
-for (const button of document.querySelectorAll('[data-format]')) button.addEventListener('click',()=>{
-  const format=button.dataset.format;
-  for (const video of document.querySelectorAll('video')) {video.pause();video.hidden=video.id!==format;}
-  for (const option of document.querySelectorAll('[data-format]')) option.setAttribute('aria-pressed',String(option===button));
-  const link=document.querySelector('.download');link.href=`video-output/${format}.mp4`;link.download=`agent-eval-kit-${format}.mp4`;
-});
+let cut='main',format='landscape';
+const film=document.querySelector('#film');
+const durations={main:60,social:20,walkthrough:150};
+const titles={main:'product film',social:'quick cut',walkthrough:'walkthrough'};
+let request=0;
+async function update(){
+  const version=++request;
+  const name=cut==='main'?format:`${cut}-${format}`;
+  film.pause();film.classList.toggle('portrait',format==='portrait');
+  film.src=`video-output/${name}.mp4`;film.poster=`video-output/${name}-poster.png`;
+  film.setAttribute('aria-label',`Agent Eval Kit ${titles[cut]}, ${format}`);
+  film.querySelector('track').src=`video-output/${name}.vtt`;film.load();
+  for(const button of document.querySelectorAll('[data-cut]'))button.setAttribute('aria-pressed',String(button.dataset.cut===cut));
+  for(const button of document.querySelectorAll('[data-format]'))button.setAttribute('aria-pressed',String(button.dataset.format===format));
+  const download=document.querySelector('.download');download.href=`video-output/${name}.mp4`;download.download=`agent-eval-kit-${name}.mp4`;
+  document.querySelector('#captions').href=`video-output/${name}.vtt`;
+  document.querySelector('#meta').textContent=`${durations[cut]} seconds · silent · one dispatch improvement loop · actual browser captures and AEK results`;
+  const transcript=document.querySelector('#transcript');transcript.textContent='Loading transcript…';
+  try{
+    const response=await fetch(`video-output/${name}.vtt`);if(!response.ok)throw Error(`Transcript unavailable (${response.status})`);
+    const text=await response.text();if(version!==request)return;
+    transcript.replaceChildren();
+    for(const block of text.trim().split(/\n\n+/).slice(1)){const [time,...lines]=block.split('\n');const p=document.createElement('p');const strong=document.createElement('strong');strong.textContent=time.split(' --> ')[0].slice(3,8)+' ';p.append(strong,document.createTextNode(lines.join(' ')));transcript.append(p);}
+  }catch(error){if(version===request)transcript.textContent=error.message;}
+}
+for(const button of document.querySelectorAll('[data-cut]'))button.addEventListener('click',()=>{cut=button.dataset.cut;update();});
+for(const button of document.querySelectorAll('[data-format]'))button.addEventListener('click',()=>{format=button.dataset.format;update();});
+update();
 </script></body></html>

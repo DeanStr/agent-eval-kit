@@ -55,6 +55,11 @@ and the visible search history in [Sakana AI's DGM archive tree](https://sakana.
 The AEK terrain, route, and illustration are original vector work; no reference
 imagery is included in the demo or exports.
 
-The silent 100-second Remotion film has 16:9 and 4:5 exports. Open
-[the video preview](video.html) after rendering; see
-[video build, references, and eval instructions](../../video/marketing/README.md).
+The silent Remotion films include a 60-second product film, 20-second social cut,
+and 150-second walkthrough, each with 16:9 and 4:5 exports. The main and social
+films follow one dispatch prototype: baseline → finding → agent revisions → the
+same evaluation → improved task. Its frozen suite measures 70% → 90% → 100%.
+The walkthrough adds the separate dashboard example and explicitly illustrative
+examples of rejecting critical regressions and withholding scores when coverage
+is insufficient. Open [the video preview](video.html) after restoring the retained
+evidence and rendering; see [build and reproduction instructions](../../video/marketing/README.md).

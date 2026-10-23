@@ -1,0 +1,102 @@
+id: dispatch
+title: A dispatch workflow people can rely on
+weight: 100
+description: Recover a late shipment in the synthetic dispatch prototype. Criteria follow the documented decision-quality, working-task, data-integrity, usability and craft targets.
+scenarios:
+  - id: WORKFLOW
+    name: Recover the late shipment on desktop and phone
+    kind: command
+    instructions: >-
+      Serve the snapshotted prototype locally, then complete the recovery task at 1440px and 390px:
+      filter, search, inspect, compare drivers, cancel, confirm, reload, undo and reset. The page
+      contract is queue rows marked data-shipment, the summary labelled "Dispatch summary", the
+      #driver-list and the #detail panel. Screenshots are actual Chromium captures at device scale 1.
+    collect:
+      command: node evals/collect.mjs
+      timeoutSeconds: 240
+      methodFiles: [evals/collect.mjs]
+      sources:
+        html: dispatch/index.html
+        css: dispatch/style.css
+        app: dispatch/app.js
+        data: dispatch/data.js
+        font: dispatch/InterVariable.woff2
+      files: [observations]
+      images: [desktop, desktop-dialog, desktop-after, phone, phone-detail, phone-dialog]
+rubric:
+  - id: DATA
+    criterion: Every count derives from the shipment records, and a reassignment is valid, complete, persistent and reversible.
+    weight: 1
+    gate: true
+    scenarios: [WORKFLOW]
+    grader:
+      type: command
+      command: node evals/check.mjs DATA
+      methodFiles: [evals/check.mjs]
+      output: json
+    passCriteria: >-
+      On desktop and phone, the summary counts match the visible queue (9 scheduled, 3 completed,
+      6 in transit, 1 at risk initially). RL-2048 is due 14:30 and arrives 14:52 with Maya. Driver
+      loads start at Maya 3/6, Leo 2/5, Nina 2/4. Nina is offered but cannot be chosen because the
+      shipment needs a temperature-controlled vehicle. Assigning Leo changes only RL-2048 (Leo,
+      14:18, on time), clears the at-risk count, moves loads to Maya 1/6 and Leo 4/5, and survives
+      reload. Undo restores every original row, count and load, also after reload.
+  - id: TASK
+    criterion: The recovery task works end to end with pointer and keyboard, including its recovery paths.
+    weight: 1
+    gate: true
+    scenarios: [WORKFLOW]
+    grader:
+      type: command
+      command: node evals/check.mjs TASK
+      methodFiles: [evals/check.mjs]
+      output: json
+    passCriteria: >-
+      On both viewports the At risk, Completed and All filters show 1, 3 and 9 deliveries; an
+      unmatched search shows an empty state whose action restores all deliveries; an on-time
+      shipment offers no reassignment; Escape closes the recovery dialog and returns focus to the
+      control that opened it; Enter reopens it; confirming closes the dialog and updates the
+      shipment; undo is available; reset asks for confirmation, keeps changes when cancelled and
+      restores the original state when confirmed. No page errors occur.
+  - id: PHONE
+    criterion: The complete workflow is usable on a 390-pixel phone.
+    weight: 1
+    scenarios: [WORKFLOW]
+    grader:
+      type: command
+      command: node evals/check.mjs PHONE
+      methodFiles: [evals/check.mjs]
+      output: json
+    passCriteria: >-
+      The page never scrolls horizontally. Every delivery is reachable by ordinary page scrolling;
+      no deliveries are hidden inside a nested scroll region. All delivery-queue text, all
+      driver-option text and the selected shipment's arrival and deadline are at least 12 CSS
+      pixels. Reassign, confirm and undo controls are at least 40 CSS pixels tall.
+      Selecting a delivery brings its details into view, and the recovery dialog fits the viewport
+      with its confirm control reachable.
+  - id: DECISION
+    criterion: A dispatcher can see the exception and make an informed recovery decision.
+    weight: 1
+    scenarios: [WORKFLOW]
+    grader: { type: llm }
+    passCriteria: >-
+      Judge the desktop, desktop-dialog, phone and phone-detail screenshots with the collector
+      observations. Pass when the late shipment, its cause, deadline and how late it is are
+      immediately evident and visually prioritized, and the recovery choices compare arrival,
+      vehicle capacity and handling constraints before confirmation, with ineligible choices
+      clearly explained. Partial when the information is present but buried, ambiguous or split
+      across views without clear relationships. Fail when the exception, its consequence or the
+      constraints are missing or misleading. Accept any layout or wording that achieves this.
+  - id: CRAFT
+    criterion: The interface has a professional, coherent product finish.
+    weight: 1
+    scenarios: [WORKFLOW]
+    grader: { type: llm }
+    passCriteria: >-
+      Judge all six screenshots. Pass for coherent typography and spacing, useful information
+      density, a purposeful relationship between queue, details and map, restrained color with text
+      labels for status, clear before/after state feedback, and a phone layout that feels designed
+      rather than merely shrunk. Partial for noticeable issues such as cramped or tiny secondary
+      text, colliding or unclear map labels, weak state feedback or awkward phone composition. Fail
+      for broken, placeholder or visually incoherent UI. Name the specific screens and elements
+      behind the verdict.

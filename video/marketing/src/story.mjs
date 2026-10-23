@@ -1,245 +1,239 @@
 export const FPS = 30;
-export const DURATION = 100;
 export const FORMATS = {
-  landscape: { id: "HillClimbWide", width: 1920, height: 1080 },
-  portrait: { id: "HillClimbFeed", width: 1080, height: 1350 },
+  landscape: { width: 1920, height: 1080 },
+  portrait: { width: 1080, height: 1350 },
 };
-export const scenes = [
-  {
-    start: 0,
-    end: 8,
-    kind: "summit",
-    speed: 1,
-    label: "AUTONOMOUS HILL CLIMBING",
-    title: "Help your coding agent improve your project.",
+const shot = (start, end, kind, title, caption, illustrative = false) => ({
+  start,
+  end,
+  kind,
+  title,
+  caption,
+  illustrative,
+});
+const HOOK = "Turn ‘make this better’\ninto measured progress.";
+const CLOSE = "Give your agent\nsomething to climb.";
+export const CUTS = {
+  main: {
+    duration: 60,
+    label: "The product film",
+    scenes: [
+      shot(
+        0,
+        6,
+        "hook",
+        HOOK,
+        "One dispatch prototype. AEK evaluates the baseline at 70% against five fixed criteria.",
+      ),
+      shot(
+        6,
+        12,
+        "target",
+        "Define better.\nKeep the standard fixed.",
+        "Protect the data and task. Make the phone usable. Support clear decisions with a coherent interface.",
+      ),
+      shot(
+        12,
+        19,
+        "dispatchFinding",
+        "Find what blocks the task.",
+        "AEK finds deliveries hidden in a nested phone queue and text down to 9px. Phone: fail.",
+      ),
+      shot(
+        19,
+        27,
+        "dispatchRevision",
+        "Give the agent a concrete fix.",
+        "The agent lets the queue scroll with the page and enlarges option text. The same suite scores 90%; craft still needs work.",
+      ),
+      shot(
+        27,
+        35,
+        "measured",
+        "Same suite. Measured progress.",
+        "The next agent revision improves type, contrast and map labels. The unchanged suite measures 70% → 90% → 100%; a fresh repeat confirms the final result.",
+      ),
+      shot(
+        35,
+        43,
+        "result",
+        "Now use the improved workflow.",
+        "The evaluated final revision keeps the late shipment, its cause and its deadline together, with a readable phone queue.",
+      ),
+      shot(
+        43,
+        53,
+        "compare",
+        "Reassign it. Check the result.",
+        "Nina arrives sooner but lacks a temperature-controlled van. Leo arrives at 14:18. The assignment survives reload and can be undone.",
+      ),
+      shot(
+        53,
+        60,
+        "close",
+        CLOSE,
+        "Ask your coding agent to build an AEK evaluation suite for your project.",
+      ),
+    ],
   },
-  {
-    start: 8,
-    end: 11,
-    kind: "hook",
-    speed: 1.2,
-    label: "YOUR PROJECT / ONE EXAMPLE",
-    title: "Your agent built this.",
+  social: {
+    duration: 20,
+    label: "The quick cut",
+    scenes: [
+      shot(0, 3, "hook", HOOK, "One dispatch prototype. Five fixed criteria. Baseline: 70%."),
+      shot(
+        3,
+        7,
+        "dispatchFinding",
+        "Find what blocks the task.",
+        "AEK finds hidden deliveries and 9px phone text.",
+      ),
+      shot(
+        7,
+        12,
+        "measured",
+        "Same suite. Measured progress.",
+        "Two coding-agent revisions fix phone usability and craft: 70% → 90% → 100%, measured by the same AEK suite.",
+      ),
+      shot(
+        12,
+        16,
+        "compare",
+        "Reassign it. Check the result.",
+        "The evaluated final prototype saves the assignment to Leo at 14:18. Reload and undo are checked.",
+      ),
+      shot(
+        16,
+        20,
+        "close",
+        CLOSE,
+        "Ask your coding agent to build an AEK evaluation suite for your project.",
+      ),
+    ],
   },
-  {
-    start: 11,
-    end: 16,
-    kind: "story",
-    speed: 1.3,
-    label: "01 / THE USER STORY",
-    title: "Your stories set the target.",
+  walkthrough: {
+    duration: 150,
+    label: "Inside the improvement loop",
+    scenes: [
+      shot(
+        0,
+        8,
+        "hook",
+        HOOK,
+        "Start with the original dispatch prototype. Human-authored direction becomes five project-specific AEK criteria.",
+      ),
+      shot(
+        8,
+        20,
+        "target",
+        "Make your standards explicit.",
+        "Data and task correctness are critical gates. Phone usability, decision quality and craft complete this frozen suite.",
+      ),
+      shot(
+        20,
+        33,
+        "dispatchFinding",
+        "Inspect the evidence.",
+        "The baseline scores 70%. Its phone queue hides deliveries in a nested scroll region; text falls to 9px.",
+      ),
+      shot(
+        33,
+        47,
+        "dispatchRevision",
+        "Use findings to guide the edit.",
+        "The coding agent makes the queue part of page scrolling and raises option text to 12px. Phone passes; craft remains partial. Score: 90%.",
+      ),
+      shot(
+        47,
+        62,
+        "measured",
+        "Same suite. Measured progress.",
+        "The second agent revision improves type, contrast and map labels: 70% → 90% → 100%, under one evaluator. A fresh final repeat confirms the result.",
+      ),
+      shot(
+        62,
+        72,
+        "result",
+        "Use the evaluated final revision.",
+        "Inspect the late delivery, its cause and deadline, and the improved phone queue in the same dispatch product.",
+      ),
+      shot(
+        72,
+        86,
+        "compare",
+        "Reassign it. Check the result.",
+        "Compare vehicle eligibility, save Leo's 14:18 assignment, reload and undo. The retained browser evidence checks these actions.",
+      ),
+      shot(
+        86,
+        98,
+        "regression",
+        "A higher score is not enough.",
+        "Illustrative policy example: an attractive revision loses the saved driver after reload. AEK reports a critical task regression; the coding agent rejects the candidate.",
+        true,
+      ),
+      shot(
+        98,
+        110,
+        "coverage",
+        "Missing evidence stays unscored.",
+        "Illustrative policy example: persistence stays unscored and coverage falls. Below required coverage, the overall score is withheld. Collector execution errors remain errors.",
+        true,
+      ),
+      shot(
+        110,
+        120,
+        "finding",
+        "Another project. Its own criteria.",
+        "Separate measured dashboard example: three criteria cover data, overview and phone fit. Central's 180 deliveries are drawn shorter than North's 140.",
+      ),
+      shot(
+        120,
+        132,
+        "first",
+        "The same loop works here too.",
+        "The agent corrects the dashboard chart. Its own suite improves from 50% to 83%; the overview still needs work. These scores apply only to this dashboard.",
+      ),
+      shot(
+        132,
+        142,
+        "author",
+        "Bring the loop to your project.",
+        "Ask your agent to clarify what good means, author checks, evaluate a baseline, then revise. Use evidence, coverage and gates when selecting candidates.",
+      ),
+      shot(
+        142,
+        150,
+        "close",
+        CLOSE,
+        "Your coding agent edits and chooses revisions. AEK supplies evaluations and evidence.",
+      ),
+    ],
   },
-  {
-    start: 16,
-    end: 21,
-    kind: "run",
-    speed: 1.8,
-    label: "02 / RUN THE JOURNEY",
-    title: "Two lamps. One broken total.",
-  },
-  {
-    start: 21,
-    end: 27,
-    kind: "inspect",
-    speed: 1,
-    label: "03 / INSPECT THE FAILURE",
-    title: "A failure it can act on.",
-  },
-  {
-    start: 27,
-    end: 31,
-    kind: "edit",
-    speed: 1.7,
-    label: "04 / THE CODING AGENT EDITS",
-    title: "Evidence becomes the next edit.",
-  },
-  {
-    start: 31,
-    end: 37,
-    kind: "retest",
-    speed: 1.2,
-    label: "05 / RUN THE SAME STORY AGAIN",
-    title: "Same journey. Better outcome.",
-  },
-  {
-    start: 37,
-    end: 43,
-    kind: "rubric",
-    speed: 1,
-    label: "",
-    title: "",
-  },
-  {
-    start: 43,
-    end: 49,
-    kind: "sources",
-    speed: 1,
-    label: "",
-    title: "",
-  },
-  {
-    start: 49,
-    end: 57,
-    kind: "judges",
-    speed: 1.4,
-    label: "",
-    title: "",
-  },
-  {
-    start: 57,
-    end: 63,
-    kind: "compare",
-    speed: 1,
-    label: "",
-    title: "",
-  },
-  {
-    start: 63,
-    end: 71,
-    kind: "loop",
-    speed: 1,
-    label: "",
-    title: "",
-  },
-  {
-    start: 71,
-    end: 77,
-    kind: "coverage",
-    speed: 1,
-    label: "",
-    title: "",
-  },
-  {
-    start: 77,
-    end: 82,
-    kind: "breadth",
-    speed: 1.2,
-    label: "ANOTHER USER STORY",
-    title: "Your users define the climb.",
-  },
-  {
-    start: 82,
-    end: 94,
-    kind: "climb",
-    speed: 1,
-    label: "ACCEPTED PROGRESS / SAME RUBRIC",
-    title: "Every attempt teaches the next.",
-  },
-  {
-    start: 94,
-    end: 100,
-    kind: "close",
-    speed: 1,
-    label: "AGENT EVAL KIT",
-    title: "Give your agent a way to get better.",
-  },
-];
-export const sampleGroups = [
-  [6, 10],
-  [13.5, 18.5],
-  [23, 26],
-  [29.5, 34],
-  [36, 40],
-  [46, 52],
-  [55.8, 60.5],
-  [64, 69.5],
-  [74, 80],
-  [83.5, 85.5],
-  [89, 92.5],
-  [97.5],
-];
-export const sampleTimes = sampleGroups.flat();
-export function sceneAt(time) {
-  if (!Number.isFinite(time) || time < 0 || time >= DURATION)
-    throw new Error(`Time outside video: ${time}`);
-  const scene = scenes.find((s) => time >= s.start && time < s.end);
-  if (!scene) throw new Error(`No scene at ${time}s`);
+};
+export const sampleTimes = [2, 9, 15, 22, 26, 31, 34, 38, 42, 46, 51, 57];
+export const sampleGroups = sampleTimes.map((time) => [time]);
+export function sceneAt(time, cut = "main") {
+  const definition = CUTS[cut];
+  if (!definition || !Number.isFinite(time) || time < 0 || time >= definition.duration)
+    throw new Error(`Time outside video: ${cut} at ${time}s`);
+  const scene = definition.scenes.find((s) => time >= s.start && time < s.end);
+  if (!scene) throw new Error(`No scene at ${time}s in ${cut}`);
   return scene;
 }
-export const CHECKOUT_TIMING = { quantity: 2.4, payStart: 3.4, confirm: 4.8 };
-export function cartState(kind, local) {
-  if (!["run", "retest"].includes(kind)) throw new Error(`Not a checkout scene: ${kind}`);
-  const quantity = local >= CHECKOUT_TIMING.quantity ? 2 : 1;
-  const fixed = kind === "retest";
-  return {
-    quantity,
-    total: fixed ? quantity * 120 : 120,
-    expected: quantity * 120,
-    confirmed: fixed && local >= CHECKOUT_TIMING.confirm,
-  };
-}
-export function panelState(local) {
-  const count = local < 5.5 ? 3 : 5;
-  const votes =
-    local < 2
-      ? []
-      : local < 7.5
-        ? ["PASS", "FAIL", "PASS"]
-        : ["PASS", "FAIL", "PASS", "PASS", "PASS"];
-  return {
-    count,
-    votes,
-    decision:
-      votes.length === 5
-        ? "4 / 5 AGREE · PASS"
-        : votes.length
-          ? "2 / 3 · INCONCLUSIVE"
-          : "REVIEWING EVIDENCE",
-  };
-}
-
-export const WORKFLOW_KINDS = ["rubric", "sources", "judges", "compare", "loop", "coverage"];
-export function climbState(t) {
-  if (t < 1) return { best: 54, status: "baseline", step: 0 };
-  if (t < 2.5) return { best: 68, status: "accepted", step: 1 };
-  if (t < 4.5) return { best: 68, status: "rejected", step: 2 };
-  if (t < 6.5) return { best: 82, status: "accepted", step: 3 };
-  if (t < 9) return { best: 82, status: "withheld", step: 4 };
-  return { best: 91, status: "accepted", step: 5 };
-}
-// Shared carrier geometry keeps the product visible across evaluation phases.
-export function carrierAt(time, portrait) {
-  const mix = (a, b, f) => a + (b - a) * f;
-  const ease = (v) => {
-    const x = Math.min(1, Math.max(0, v));
-    return x * x * (3 - 2 * x);
-  };
-  const main = portrait ? { x: 60, y: 255, w: 960, h: 460 } : { x: 100, y: 300, w: 740, h: 620 };
-  const source = portrait ? { ...main, x: 110, w: 860, h: 412 } : { ...main, x: 1080 };
-  const knots = [
-    [37, main],
-    [43, main],
-    [43.8, source],
-    [49, source],
-    [49.8, main],
-    [62.4, main],
-  ];
-  const centers = portrait
-    ? [
-        [540, 600],
-        [540, 635],
-        [540, 600],
-        [540, 600],
-      ]
-    : [
-        [650, 635],
-        [680, 610],
-        [650, 635],
-        [650, 635],
-      ];
-  const small = portrait ? { w: 900, h: 431 } : { w: 920, h: 770 };
-  const at = (point) => ({ x: point[0] - small.w / 2, y: point[1] - small.h / 2, ...small });
-  knots.push([63, at(centers[0])]);
-  for (let cycle = 0; cycle < 2; cycle++) {
-    for (let i = 1; i <= 3; i++) knots.push([63 + cycle * 4 + (i * 4) / 3, at(centers[i])]);
-  }
-  knots.push([71.8, main], [77, main]);
-  for (let i = 1; i < knots.length; i++)
-    if (time <= knots[i][0]) {
-      const [start, a] = knots[i - 1],
-        [end, b] = knots[i];
-      const f = ease((time - start) / (end - start));
-      return Object.fromEntries(Object.keys(main).map((k) => [k, mix(a[k], b[k], f)]));
-    }
-  return main;
+export const compositionId = (cut, format) => `${cut}-${format}`;
+export const exportName = (cut, format) => (cut === "main" ? format : `${cut}-${format}`);
+export function captionVtt(cut) {
+  if (!CUTS[cut]) throw new Error(`Unknown cut: ${cut}`);
+  const stamp = (seconds) =>
+    `00:${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}.000`;
+  return (
+    "WEBVTT\n\n" +
+    CUTS[cut].scenes
+      .map(
+        (s) =>
+          `${stamp(s.start)} --> ${stamp(s.end)}\n${s.title.replaceAll("\n", " ")} ${s.caption}\n`,
+      )
+      .join("\n")
+  );
 }

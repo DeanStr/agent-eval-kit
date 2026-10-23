@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "sha256": "5a0a7719637baf6e9fa93607382e642bb3b03aa21adc67ac1a8d17620ff79ad4",
+  "bytes": 6749068,
+  "files": 612,
+  "scope": "Retained synthetic dashboard and dispatch sessions, source snapshots, reports and browser captures. Restoring replays historical evidence; it does not run a fresh evaluation."
+}

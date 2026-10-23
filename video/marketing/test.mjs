@@ -5,157 +5,277 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { assertToolchain, deliveryIssues, probe, decode, hash } from "./media.mjs";
-import { decideVotes } from "../../src/visual/votes.ts";
+import { loadEvidence } from "./evidence.mjs";
+import { loadWorkflow } from "./workflow.mjs";
+import { hashTarget } from "./improvement/snapshot.mjs";
+import { renderInputs, verifyExport } from "./release.mjs";
+import { CUTS, FORMATS, FPS, sceneAt, sampleTimes, exportName, captionVtt } from "./src/story.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const config = parse(await fs.readFile(new URL("./evalkit.yaml", import.meta.url), "utf8"));
-const spec = parse(await fs.readFile(new URL("./evals/specs/video.yaml", import.meta.url), "utf8"));
-test("Judge policy uses exactly the requested model, bounded voting and a single batch", () => {
-  assert.equal(config.judge.model, "gpt-6-astra");
-  assert.equal(config.judge.effort, "medium");
-  assert.ok(spec.scenarios[0].collect.images.length <= 30);
-  assert.equal(config.judge.voting.minimumVotes, 3);
-  assert.equal(config.judge.voting.maximumVotes, 5);
-  assert.ok(config.judge.concurrency <= 3);
-  assert.equal(spec.rubric.filter((r) => r.grader.type === "pairwise").length, 0);
-  const policy = config.judge.voting;
-  assert.equal(decideVotes(["pass", "pass"], policy, ["pass"]).decision, "continue");
-  assert.equal(decideVotes(["pass", "pass", "pass"], policy, ["pass"]).decision, "pass");
-  assert.equal(decideVotes(["pass", "fail", "pass"], policy, ["pass"]).decision, "continue");
-  assert.equal(
-    decideVotes(["pass", "fail", "pass", "pass"], policy, ["pass"]).decision,
-    "continue",
-  );
-  assert.equal(
-    decideVotes(["pass", "fail", "pass", "pass", "pass"], policy, ["pass"]).decision,
-    "pass",
-  );
-  assert.equal(
-    decideVotes(["pass", "fail", "pass", "fail", "pass"], policy, ["pass"]).decision,
-    "inconclusive",
-  );
-  assert.equal(
-    decideVotes(["abstain", "abstain", "pass", "pass", "pass"], policy, ["pass"]).decision,
-    "inconclusive",
-  );
-  assert.equal(decideVotes(["fail", "fail", "fail"], policy, ["pass"]).decision, "fail");
-});
-test("Actual exports decode and conform; checker rejects audio, wrong duration and wrong geometry", async () => {
-  await assertToolchain();
-  for (const [name, dimensions] of Object.entries({
-    landscape: { width: 1920, height: 1080 },
-    portrait: { width: 1080, height: 1350 },
-  })) {
-    const file = path.join(root, `.agent-eval/marketing-video/${name}.mp4`);
-    const metadata = probe(file);
-    decode(file);
-    assert.deepEqual(deliveryIssues(metadata, dimensions), []);
-    const withAudio = structuredClone(metadata);
-    withAudio.streams.push({ codec_type: "audio" });
-    assert.match(deliveryIssues(withAudio, dimensions).join(" "), /no audio/);
-    const short = structuredClone(metadata);
-    short.format.duration = "29";
-    assert.match(deliveryIssues(short, dimensions).join(" "), /100-second/);
-    const badFrames = structuredClone(metadata);
-    badFrames.streams[0].nb_frames = "2999";
-    assert.match(deliveryIssues(badFrames, dimensions).join(" "), /3,000/);
-    assert.ok(deliveryIssues(metadata, { width: 720, height: 720 }).length);
+const output = path.join(root, ".agent-eval/marketing-video");
+
+test("Every frame and caption belongs to one scene; the findings precede each revision", () => {
+  for (const [cut, definition] of Object.entries(CUTS)) {
+    for (let frame = 0; frame < definition.duration * FPS; frame++) {
+      const time = frame / FPS;
+      assert.equal(definition.scenes.filter((s) => time >= s.start && time < s.end).length, 1);
+      assert.ok(sceneAt(time, cut));
+    }
+    assert.throws(() => sceneAt(definition.duration, cut), /outside video/);
+    assert.equal(captionVtt(cut).match(/ --> /g).length, definition.scenes.length);
   }
+  assert.throws(() => sceneAt(NaN), /outside video/);
+  const scenes = CUTS.main.scenes;
+  for (const scene of scenes)
+    assert.ok(
+      sampleTimes.some((time) => sceneAt(time) === scene),
+      `Missing sample for ${scene.kind}`,
+    );
+  for (const cut of Object.keys(CUTS)) {
+    const kinds = CUTS[cut].scenes.map((scene) => scene.kind);
+    const expected =
+      cut === "social"
+        ? ["hook", "dispatchFinding", "measured", "compare", "close"]
+        : [
+            "hook",
+            "target",
+            "dispatchFinding",
+            "dispatchRevision",
+            "measured",
+            "result",
+            "compare",
+            "close",
+          ];
+    const positions = expected.map((kind) => kinds.indexOf(kind));
+    assert.ok(
+      positions.every((position, i) => position >= 0 && (i === 0 || position > positions[i - 1])),
+      cut,
+    );
+    if (cut !== "walkthrough") {
+      assert.ok(
+        !kinds.includes("finding") && !kinds.includes("first"),
+        "Dashboard belongs only in the walkthrough",
+      );
+      assert.ok(CUTS[cut].scenes.every((scene) => !scene.illustrative));
+    }
+  }
+  const walkthrough = CUTS.walkthrough.scenes;
+  for (const kind of ["regression", "coverage"]) {
+    const scene = walkthrough.find((scene) => scene.kind === kind);
+    assert.equal(scene.illustrative, true);
+    assert.match(scene.caption, /Illustrative policy example/);
+  }
+  assert.match(
+    walkthrough.find((scene) => scene.kind === "regression").caption,
+    /coding agent rejects/,
+  );
+  assert.match(
+    walkthrough.find((scene) => scene.kind === "coverage").caption,
+    /unscored.*coverage.*withheld.*execution errors remain errors/,
+  );
+  assert.ok(
+    walkthrough.find((scene) => scene.kind === "finding").start >
+      walkthrough.find((scene) => scene.kind === "compare").end,
+  );
 });
-test("Reference bytes match reviewed targets and every sample is within its film", async () => {
+
+test("The film follows actual revisions against an unchanged evaluator", async () => {
+  const proof = await loadEvidence();
+  const fingerprints = new Set();
+  for (const name of ["baseline", "proportions", "overview", "repeat"]) {
+    const actual = JSON.parse(
+      await fs.readFile(path.join(root, proof.artifacts[name], "report.json"), "utf8"),
+    );
+    const shown = proof.results[name];
+    assert.equal(shown.score, actual.overallScorePct);
+    assert.equal(shown.coverage, actual.overallCoveragePct);
+    assert.equal(shown.gate, actual.gates.passed);
+    assert.equal(shown.coverage, 100);
+    fingerprints.add(shown.fingerprint);
+    for (const item of actual.areas.flatMap((area) => area.items)) {
+      assert.equal(shown.items[item.id].verdict, item.verdict);
+      assert.equal(shown.items[item.id].reasoning, item.reasoning);
+    }
+  }
+  assert.equal(fingerprints.size, 1);
+  assert.equal(proof.results.baseline.items.DATA.verdict, "fail");
+  assert.equal(proof.results.proportions.items.DATA.verdict, "pass");
+  assert.equal(proof.results.proportions.items.OVERVIEW.verdict, "partial");
+  assert.equal(proof.results.overview.items.OVERVIEW.verdict, "pass");
+  assert.deepEqual(
+    Object.values(proof.results.repeat.items).map((item) => item.verdict),
+    ["pass", "pass", "pass"],
+  );
+  const original = await fs.readFile(path.join(root, proof.session, "original.html"));
+  assert.equal(hash(original), proof.origin.sha256);
+  assert.equal(
+    hash(await fs.readFile(path.join(root, proof.session, "baseline.html"))),
+    proof.origin.sha256,
+  );
+  const journal = (await fs.readFile(path.join(root, proof.session, "journal.ndjson"), "utf8"))
+    .trim()
+    .split("\n")
+    .map(JSON.parse);
+  assert.deepEqual(
+    journal.map((entry) => entry.label),
+    ["baseline", "proportions", "overview", "repeat"],
+  );
+  assert.equal(journal[2].sha256, journal[3].sha256);
+  const observed = JSON.parse(
+    await fs.readFile(
+      path.join(root, proof.artifacts.overview, "DASHBOARD/collector-output/observations.json"),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(
+    observed.desktopWeekly.rows.map((row) => row.value),
+    [140, 180, 110],
+  );
+  assert.match(observed.desktopWeekly.text, /430/);
+  assert.match(observed.desktopWeekly.text, /Central/);
+  for (const key of [
+    "baselineDesktop",
+    "baselineMobile",
+    "proportionsDesktop",
+    "proportionsMobile",
+    "overviewDesktop",
+    "overviewMobile",
+  ])
+    assert.match(proof.screenshots[key].src, /^data:image\/png;base64,/);
+  const bars = Object.fromEntries(proof.phoneRows.baseline.map((row) => [row.region, row]));
+  assert.ok(bars.Central.value > bars.North.value && bars.Central.bar.width < bars.North.bar.width);
+});
+
+test("All six exports fully decode and match their own duration, geometry and evidence", async () => {
+  await assertToolchain();
+  const inputs = await renderInputs(root);
+  for (const [cut, definition] of Object.entries(CUTS))
+    for (const [format, dimensions] of Object.entries(FORMATS)) {
+      const name = exportName(cut, format),
+        file = path.join(output, "exports", name, "video.mp4");
+      const metadata = probe(file);
+      decode(file);
+      assert.deepEqual(deliveryIssues(metadata, dimensions, definition.duration), []);
+      const directory = await fs.realpath(path.join(output, "exports", name));
+      await verifyExport(directory, { cut, format, duration: definition.duration, ...inputs });
+      assert.equal(
+        await fs.readFile(path.join(directory, "captions.vtt"), "utf8"),
+        captionVtt(cut),
+      );
+      const invalid = structuredClone(metadata);
+      invalid.streams.push({ codec_type: "audio" });
+      assert.match(deliveryIssues(invalid, dimensions, definition.duration).join(" "), /no audio/);
+      invalid.streams.pop();
+      invalid.format.duration = "19";
+      assert.match(deliveryIssues(invalid, dimensions, definition.duration).join(" "), /second/);
+      assert.ok(deliveryIssues(metadata, { width: 720, height: 720 }, definition.duration).length);
+    }
+});
+
+test("The after is the evaluated, published and captured dispatch revision", async () => {
+  const workflow = await loadWorkflow();
+  for (const size of ["desktop", "mobile"]) {
+    assert.match(workflow.observations[`${size}Before`], /14:52/);
+    assert.match(workflow.observations[`${size}Choices`], /No temperature-controlled vehicle/);
+    assert.match(workflow.observations[`${size}After`], /Leo Chen/);
+    assert.match(workflow.observations[`${size}After`], /14:18/);
+    assert.deepEqual(workflow.observations[`${size}Checks`], {
+      reassignment: true,
+      persistedAfterReload: true,
+      undo: true,
+      shipmentCount: 9,
+      errors: [],
+    });
+  }
+  const { facts } = workflow;
+  assert.deepEqual(
+    [
+      facts.shipment.name,
+      facts.shipment.eta,
+      facts.shipment.due,
+      facts.after.eta,
+      facts.after.driver,
+    ],
+    ["Riverton Medical", "14:52", "14:30", "14:18", "Leo Chen"],
+  );
+  const rejected = facts.options.find((o) => !o.eligible),
+    chosen = facts.options.find((o) => o.eligible);
+  assert.equal(chosen.name, facts.after.driver);
+  assert.ok(rejected.eta < chosen.eta, "The film says the ineligible driver arrives sooner");
+  assert.match(rejected.reason, /temperature-controlled/);
+
+  // The film's dispatch scores are the retained reports, from one unchanged evaluator.
+  const results = workflow.evaluation.results;
+  assert.equal(results[0].label, "baseline");
+  assert.equal(results.at(-1).label, "repeat");
+  for (const result of results) {
+    const report = JSON.parse(
+      await fs.readFile(path.join(root, result.run, "report.json"), "utf8"),
+    );
+    assert.equal(result.score, report.overallScorePct);
+    assert.equal(result.coverage, 100);
+    for (const item of report.areas.flatMap((area) => area.items))
+      assert.equal(result.items[item.id].verdict, item.verdict);
+  }
+  assert.equal(new Set(results.map((r) => r.fingerprint)).size, 1);
+  const [baseline, final, repeat] = [results[0], results.at(-2), results.at(-1)];
+  assert.ok(results.slice(1, -1).every((r, i) => r.score > results[i].score));
+  assert.deepEqual([repeat.sha256, repeat.score], [final.sha256, final.score]);
+  assert.ok(Object.values(final.items).every((item) => item.verdict === "pass"));
+  // On-screen finding copy must match what AEK reported.
+  assert.equal(baseline.items.PHONE.verdict, "fail");
+  assert.match(baseline.items.PHONE.reasoning, /nested scroll/);
+  assert.match(baseline.items.PHONE.reasoning, /9px/);
+  for (const cut of ["main", "walkthrough"]) {
+    const caption = CUTS[cut].scenes.find((scene) => scene.kind === "measured").caption;
+    assert.ok(caption.includes(`${Math.round(baseline.score)}%`), cut);
+    assert.ok(caption.includes(`${Math.round(final.score)}%`), cut);
+  }
+  const teaser = CUTS.social.scenes.find((scene) => scene.kind === "measured").caption;
+  assert.ok(
+    teaser.includes(`${Math.round(baseline.score)}%`) &&
+      teaser.includes(`${Math.round(final.score)}%`),
+  );
+  assert.equal(
+    hashTarget(path.join(root, "video/marketing/assets/dispatch-baseline")),
+    baseline.sha256,
+  );
+  assert.notEqual(baseline.sha256, final.sha256);
+  for (const key of [
+    "desktopBaseline",
+    "mobileQueueBaseline",
+    "mobileQueueRevision",
+    "mobileQueueFinal",
+  ])
+    assert.ok(workflow.screenshots[key].src.startsWith("data:image/png;base64,"), key);
+
+  // The published prototype is the evaluated final revision, byte for byte.
+  const published = path.join(root, workflow.published.path);
+  assert.equal(hashTarget(published), workflow.published.sha256);
+  assert.equal(workflow.published.sha256, final.sha256);
+  for (const name of await fs.readdir(published))
+    assert.deepEqual(
+      await fs.readFile(path.join(published, name)),
+      await fs.readFile(path.join(root, workflow.session, "site", name)),
+      name,
+    );
+  for (const directory of Object.values(workflow.evaluation.comparisons))
+    assert.ok(workflow.sources.some((source) => source.path.startsWith(directory + "/")));
+  assert.match(workflow.scope, /earlier dashboard verdicts do not score this workflow/);
+});
+
+test("Pinned creative references retain their approved bytes and sampling limits", async () => {
   const { references } = JSON.parse(
     await fs.readFile(new URL("./references.json", import.meta.url), "utf8"),
   );
-  assert.equal(references.length, 3);
   for (const ref of references) {
-    const file = path.join(root, `.agent-eval/marketing-video/references/${ref.id}.mp4`);
+    const file = path.join(output, `references/${ref.id}.mp4`);
     const bytes = await fs.readFile(file);
     assert.equal(hash(bytes), ref.sha256);
     assert.equal(bytes.length, ref.bytes);
-    const metadata = probe(file);
-    assert.ok(ref.times.every((time) => time >= 0 && time < Number(metadata.format.duration)));
+    assert.ok(ref.times.every((time) => time >= 0 && time < Number(probe(file).format.duration)));
   }
-});
-
-test("The same cart story exposes the defect, retests the fix and confirms payment", async () => {
-  const { cartState, panelState, sceneAt, scenes, sampleTimes, DURATION } = await import(
-    "./src/story.mjs"
+  const spec = parse(
+    await fs.readFile(new URL("./evals/specs/video.yaml", import.meta.url), "utf8"),
   );
-  assert.equal(DURATION, 100);
-  assert.deepEqual(cartState("run", 1), {
-    quantity: 1,
-    total: 120,
-    expected: 120,
-    confirmed: false,
-  });
-  assert.deepEqual(cartState("run", 6), {
-    quantity: 2,
-    total: 120,
-    expected: 240,
-    confirmed: false,
-  });
-  assert.deepEqual(cartState("retest", 4), {
-    quantity: 2,
-    total: 240,
-    expected: 240,
-    confirmed: false,
-  });
-  assert.equal(cartState("retest", 6.5).confirmed, true);
-  assert.throws(() => cartState("story", 3), /Not a checkout/);
-  assert.equal(panelState(3.5).count, 3);
-  assert.match(panelState(3.5).decision, /INCONCLUSIVE/);
-  assert.equal(panelState(6).count, 5);
-  assert.equal(panelState(6).votes.length, 3);
-  assert.equal(panelState(9).votes.filter((v) => v === "PASS").length, 4);
-  assert.equal(scenes[0].start, 0);
-  assert.equal(scenes.at(-1).end, DURATION);
-  for (let i = 1; i < scenes.length; i++) assert.equal(scenes[i].start, scenes[i - 1].end);
-  for (const scene of scenes)
-    assert.ok(
-      sampleTimes.some((t) => sceneAt(t) === scene),
-      `Unsampled scene: ${scene.kind}`,
-    );
-  assert.throws(() => sceneAt(100), /outside video/);
-});
-
-test("The combined cut preserves the old mechanisms and completes the faster demo", async () => {
-  const { scenes, sampleGroups } = await import("./src/story.mjs");
-  assert.equal(scenes.find((s) => s.kind === "retest").end, 37);
-  for (const kind of ["summit", "loop", "rubric", "sources", "inspect", "coverage", "climb"])
-    assert.ok(scenes.some((s) => s.kind === kind));
-  assert.equal(scenes[0].kind, "summit");
-  assert.equal(scenes[0].start, 0);
-  assert.equal(sampleGroups.length, 12);
-  assert.ok(sampleGroups.every((g) => g.length <= 2));
-  const retest = scenes.find((s) => s.kind === "retest");
-  assert.ok(
-    retest.end - retest.start - 4.8 / retest.speed >= 2,
-    "Keep a readable confirmation hold",
-  );
-});
-
-test("Evidence precedes the fix and the candidate moves continuously through evaluation", async () => {
-  const { scenes, carrierAt, WORKFLOW_KINDS, climbState } = await import("./src/story.mjs");
-  assert.ok(
-    scenes.find((s) => s.kind === "inspect").end <= scenes.find((s) => s.kind === "edit").start,
-  );
-  const sequence = scenes.filter((s) => WORKFLOW_KINDS.includes(s.kind));
-  for (let i = 1; i < sequence.length; i++) assert.equal(sequence[i - 1].end, sequence[i].start);
-  for (const portrait of [false, true]) {
-    for (const scene of sequence.slice(1)) {
-      const a = carrierAt(scene.start - 0.0001, portrait),
-        b = carrierAt(scene.start, portrait);
-      for (const key of Object.keys(a))
-        assert.ok(Math.abs(a[key] - b[key]) < 1, `Carrier jumps at ${scene.start}s: ${key}`);
-    }
-    assert.deepEqual(carrierAt(63, portrait), carrierAt(67, portrait));
-    for (let frame = 37 * 30; frame < 77 * 30; frame++) {
-      const { x, y, w, h } = carrierAt(frame / 30, portrait);
-      assert.ok(w > 0 && h > 0 && x >= 0 && y >= 225);
-      assert.ok(x + w <= (portrait ? 1080 : 1920));
-      assert.ok(y + h < (portrait ? 1280 : 1030), "Carrier must clear the footer");
-    }
-  }
-  assert.deepEqual(climbState(3), { best: 68, status: "rejected", step: 2 });
-  assert.deepEqual(climbState(7), { best: 82, status: "withheld", step: 4 });
-  assert.deepEqual(climbState(10), { best: 91, status: "accepted", step: 5 });
+  assert.ok(spec.scenarios[0].collect.images.length <= 30);
 });

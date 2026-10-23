@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Delivery workspace · Agent Eval Kit</title>
+    <style>
+    @font-face {
+      font-family: Inter;
+      src: url("dispatch/InterVariable.woff2");
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      background: #f7f8f6;
+      color: #30372d;
+      font:
+        14px Inter,
+        Arial,
+        sans-serif;
+    }
+    main {
+      max-width: 1500px;
+      margin: auto;
+      padding: 30px;
+    }
+    a {
+      color: #3b5834;
+      text-underline-offset: 3px;
+    }
+    .top {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      font-size: 12px;
+      border-bottom: 1px solid #d5dccf;
+      padding-bottom: 20px;
+      color: #69775f;
+    }
+    h1 {
+      font-size: 28px;
+      font-weight: 550;
+      letter-spacing: -0.7px;
+      margin: 30px 0 13px;
+    }
+    .intro {
+      color: #68775e;
+      max-width: 750px;
+      font-size: 13px;
+      line-height: 1.8;
+      margin-bottom: 22px;
+    }
+    .review {
+      border: 1px solid #cdd5c6;
+      background: white;
+    }
+    .bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+      padding: 12px 16px;
+      border-bottom: 1px solid #d9dfd3;
+      background: #f1f4ed;
+    }
+    .tabs {
+      display: flex;
+      gap: 8px;
+    }
+    .tabs button {
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      border-radius: 3px;
+      padding: 8px 11px;
+      background: transparent;
+      color: #67785a;
+    }
+    .tabs button[aria-pressed="true"] {
+      background: #fff;
+      border-color: #cbd6c1;
+      color: #293e20;
+    }
+    .bar > a {
+      font-size: 12px;
+    }
+    iframe {
+      display: block;
+      width: 100%;
+      height: 1080px;
+      border: 0;
+    }
+    .review-note,
+    .honesty {
+      font-size: 12px;
+      line-height: 1.8;
+      color: #75816a;
+      max-width: 950px;
+      margin: 18px 0;
+    }
+    .honesty {
+      border-top: 1px solid #d5dccf;
+      padding-top: 18px;
+      margin-top: 25px;
+    }
+    button:focus-visible,
+    a:focus-visible {
+      outline: 2px solid #4c673b;
+      outline-offset: 3px;
+    }
+    @media (max-width: 700px) {
+      main {
+        padding: 22px 14px;
+      }
+      .top {
+        font-size: 10px;
+      }
+      .bar {
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 10px;
+      }
+      .tabs button {
+        font-size: 11px;
+        padding: 8px;
+      }
+      .bar > a {
+        font-size: 11px;
+      }
+      iframe {
+        height: 1000px;
+      }
+      h1 {
+        font-size: 25px;
+      }
+    }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="top">
+        <span>Agent Eval Kit / Example review</span><a href="video.html">Current film</a>
+      </div>
+      <h1>Delivery workspace</h1>
+      <p class="intro">
+        Riverton Medical is due at 14:30. Its assigned driver will arrive at 14:52. The demo lets
+        you compare replacement drivers and reassign the shipment.
+      </p>
+      <div class="review">
+        <div class="bar">
+          <div class="tabs" aria-label="Example versions">
+            <button data-view="new" aria-pressed="true">Current design</button
+            ><button data-view="old" aria-pressed="false">Baseline prototype</button>
+          </div>
+          <a id="open" href="dispatch/">Open workspace</a>
+        </div>
+        <iframe id="example" src="dispatch/" title="Delivery workspace" loading="eager"></iframe>
+      </div>
+      <p class="review-note">
+        Choose “Reassign delivery” in the shipment details. Leo can arrive at 14:18; Nina is closer
+        but has no temperature-controlled van. You can undo the change or reload to check that it
+        was saved.
+      </p>
+      <p class="honesty">
+        Prototype with synthetic data and fixed route estimates. Changes stay in browser storage.
+        The baseline and final design are revisions of the same dispatch product. One frozen AEK
+        suite measured the baseline at 70%, then guided two coding-agent revisions to 90% and
+        100%. These results apply to the five criteria in this synthetic scenario.
+      </p>
+    </main>
+    <script>
+    for (const button of document.querySelectorAll("[data-view]"))
+      button.addEventListener("click", () => {
+        const next = button.dataset.view === "new";
+        for (const tab of document.querySelectorAll("[data-view]"))
+          tab.setAttribute("aria-pressed", String(tab === button));
+        document.querySelector("#example").src = next
+          ? "dispatch/"
+          : "video-output/proof/dispatch/prototype-baseline/";
+        document.querySelector("#example").title = next
+          ? "Delivery workspace"
+          : "Original dispatch prototype";
+        document.querySelector("#open").href = next
+          ? "dispatch/"
+          : "video-output/proof/dispatch/prototype-baseline/";
+      });
+    </script>
+  </body>
+</html>

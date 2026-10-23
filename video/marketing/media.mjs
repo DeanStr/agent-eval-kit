@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
-import { DURATION, FPS } from "./src/story.mjs";
+import { FPS } from "./src/story.mjs";
 export const hash = (data) => createHash("sha256").update(data).digest("hex");
 export function toolchain() {
   return {
@@ -30,16 +30,18 @@ export function probe(file) {
     }),
   );
 }
-export function deliveryIssues(metadata, { width, height }) {
+export function deliveryIssues(metadata, { width, height }, duration) {
+  if (!Number.isFinite(duration) || duration <= 0)
+    throw new Error("Specify the expected duration.");
   const issues = [],
     video = metadata.streams.filter((s) => s.codec_type === "video");
   if (metadata.streams.length !== 1 || video.length !== 1)
     issues.push("Expected exactly one video stream and no audio or other streams.");
   if (
-    Math.abs(Number(metadata.format.duration) - DURATION) > 1 / FPS ||
+    Math.abs(Number(metadata.format.duration) - duration) > 1 / FPS ||
     !Number.isFinite(Number(metadata.format.duration))
   )
-    issues.push(`Expected a ${DURATION}-second video.`);
+    issues.push(`Expected a ${duration}-second video.`);
   if (video.length === 1) {
     const s = video[0];
     if (s.width !== width || s.height !== height) issues.push(`Expected ${width}×${height}.`);
@@ -48,10 +50,10 @@ export function deliveryIssues(metadata, { width, height }) {
     if (
       s.r_frame_rate !== `${FPS}/1` ||
       s.avg_frame_rate !== `${FPS}/1` ||
-      Number(s.nb_frames) !== DURATION * FPS
+      Number(s.nb_frames) !== duration * FPS
     )
       issues.push(
-        `Expected ${(DURATION * FPS).toLocaleString("en-US")} frames at a constant ${FPS} fps.`,
+        `Expected ${(duration * FPS).toLocaleString("en-US")} frames at a constant ${FPS} fps.`,
       );
   }
   return issues;

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#182331">
+    <title>Relay — Dispatch workspace prototype</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <div class="app">
+      <div class="content">
+        <header class="topbar">
+          <div class="breadcrumb">
+            <a class="brand" href="../example.html">Relay</a><span>/</span
+            ><strong>Metro dispatch</strong>
+          </div>
+          <div class="top-actions">
+            <span class="demo-badge"><i></i>Demo · 13:45</span
+            ><button class="text-button" id="reset">
+              Reset demo <span aria-hidden="true">↺</span>
+            </button>
+          </div>
+        </header>
+        <main>
+          <section class="heading">
+            <div>
+              <h1>Deliveries</h1>
+              <p id="overview-message">1 delivery at risk of missing its window.</p>
+            </div>
+            <time datetime="2026-10-22">Thursday, 22 October</time>
+          </section>
+          <section class="metrics" aria-label="Dispatch summary">
+            <div><strong id="total-count">9</strong><span>scheduled</span></div>
+            <div><strong id="completed-count">3</strong><span>completed</span></div>
+            <div><strong id="transit-count">6</strong><span>in transit</span></div>
+            <div class="attention-metric">
+              <strong id="risk-count">1</strong><span>at risk</span>
+            </div>
+          </section>
+          <div class="workspace-heading">
+            <div class="tabs" aria-label="Shipment filter">
+              <button data-filter="all" aria-pressed="true">
+                All deliveries <span id="all-count">9</span>
+              </button><button data-filter="attention" aria-pressed="false">
+                At risk <span id="attention-count">1</span>
+              </button><button data-filter="delivered" aria-pressed="false">
+                Completed <span id="delivered-count">3</span>
+              </button>
+            </div>
+            <label class="search"
+              ><span aria-hidden="true">⌕</span>
+              <input
+                id="search"
+                type="search"
+                placeholder="Find a delivery…"
+                aria-label="Find a delivery"
+              ></label
+            >
+          </div>
+          <div class="dispatch-grid">
+            <section class="queue" aria-label="Deliveries">
+              <div class="table-heading">
+                <span>Customer / reference</span><span>Driver</span><span>Arrival</span
+                ><span>Status</span>
+              </div>
+              <div id="shipments"></div>
+              <div class="queue-footer">
+                <span id="result-count">9 deliveries</span><span>All times local</span>
+              </div>
+              <div class="drivers">
+                <div class="drivers-heading">
+                  <h2>Drivers</h2>
+                  <span>Active vehicle load</span>
+                </div>
+                <div id="driver-list"></div>
+              </div>
+            </section>
+            <section class="context" aria-label="Selected delivery">
+              <div id="detail" class="detail"></div>
+              <div class="map">
+                <div class="map-title">
+                  <span>Routes</span><span>Schematic</span>
+                </div>
+                <svg
+                  id="route-map"
+                  viewBox="0 0 580 420"
+                  preserveAspectRatio="xMidYMid slice"
+                  role="img"
+                  aria-label="Schematic of three delivery routes. Select a shipment in the list for its details."
+                >
+                  <defs>
+                    <pattern
+                      id="blocks"
+                      width="58"
+                      height="58"
+                      patternTransform="rotate(-12)"
+                      patternUnits="userSpaceOnUse"
+                    >
+                      <rect width="58" height="58" fill="#e9ece8" />
+                      <rect x="5" y="5" width="48" height="48" rx="5" fill="#f5f4ed" />
+                      <path d="M0 0H58 M0 0V58" stroke="white" stroke-width="5" />
+                    </pattern>
+                    <filter id="pin-shadow" x="-80%" y="-80%" width="260%" height="260%">
+                      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-opacity=".14" />
+                    </filter>
+                  </defs>
+                  <rect width="580" height="420" fill="url(#blocks)" />
+                  <path
+                    d="M0 335C110 315 62 238 149 252S283 296 345 244 404 123 580 123"
+                    fill="none"
+                    stroke="#bad6e0"
+                    stroke-width="40"
+                  />
+                  <path
+                    d="M0 335C110 315 62 238 149 252S283 296 345 244 404 123 580 123"
+                    fill="none"
+                    stroke="#c9e1e9"
+                    stroke-width="32"
+                  />
+                  <path
+                    d="M355 0L370 106 390 170 405 220 450 420M0 205L580 205M80 0L170 420M0 110L580 55"
+                    stroke="#fff"
+                    fill="none"
+                    stroke-width="13"
+                  />
+                  <path
+                    d="M355 0L370 106 390 170 405 220 450 420M0 205L580 205M80 0L170 420M0 110L580 55"
+                    stroke="#dddcd2"
+                    fill="none"
+                    stroke-width="1.5"
+                  />
+                  <path
+                    d="M21 37L107 19 122 77 37 94Z M414 29L510 10 525 73 432 92Z M297 328L372 310 390 385 312 404Z"
+                    fill="#d2dfcb"
+                    stroke="#c1d3b8"
+                  />
+                  <g
+                    fill="#95a09b"
+                    font-size="11"
+                    font-family="Arial,sans-serif"
+                    letter-spacing="2"
+                  >
+                    <text x="165" y="51">NORTHSIDE</text>
+                    <text x="157" y="220">CENTRAL</text>
+                    <text x="423" y="265">EAST BANK</text>
+                  </g>
+                  <text x="47" y="61" font-size="9" fill="#819778" transform="rotate(-12 47 61)">
+                    Memorial Park
+                  </text>
+                  <text x="418" y="183" font-size="9" fill="#888c86">Bridge St</text>
+                  <g id="map-routes"></g>
+                  <g id="map-pins"></g>
+                </svg>
+                <div class="map-key">
+                  <span><i class="key-blue"></i>East</span
+                  ><span><i class="key-green"></i>Central</span
+                  ><span><i class="key-purple"></i>North</span
+                  ><span class="map-scale">Demo routes</span>
+                </div>
+              </div>
+            </section>
+          </div>
+          <footer class="page-footer">
+            <span>Demo data. Changes are saved in this browser.</span
+            ><a href="../example.html">About this example</a>
+          </footer>
+        </main>
+      </div>
+    </div>
+    <dialog id="recovery" aria-labelledby="recovery-title">
+      <form method="dialog">
+        <button class="close" aria-label="Close recovery options">×</button>
+      </form>
+      <div id="recovery-content"></div>
+    </dialog>
+    <dialog id="reset-dialog" aria-labelledby="reset-title">
+      <form method="dialog"><button class="close" aria-label="Cancel reset">×</button></form>
+      <div class="reset-content">
+        <h2 id="reset-title">Reset the demo?</h2>
+        <p>This restores the original nine deliveries and removes your local reassignment.</p>
+        <p id="reset-error" class="save-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button class="secondary" id="cancel-reset">Keep my changes</button
+          ><button class="primary" id="confirm-reset">Reset demo</button>
+        </div>
+      </div>
+    </dialog>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

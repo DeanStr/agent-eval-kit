@@ -1,0 +1,43 @@
+id: dashboard
+title: A dashboard people can use
+weight: 100
+description: Improve the existing delivery dashboard's information hierarchy and phone usability while preserving its dataset and time-step behavior.
+scenarios:
+  - id: DASHBOARD
+    name: Read the dashboard on desktop and phone
+    kind: command
+    instructions: Execute the snapshotted dashboard, capture desktop and phone views, and exercise the existing dataset and time controls.
+    collect:
+      command: node evals/collect.mjs
+      methodFiles: [evals/collect.mjs]
+      sources: { page: dashboard.html }
+      files: [observations]
+      images: [desktop, mobile]
+rubric:
+  - id: DATA
+    criterion: Region labels, values and chart proportions remain accurate across datasets and time steps.
+    weight: 1
+    gate: true
+    scenarios: [DASHBOARD]
+    grader:
+      type: command
+      command: node evals/check.mjs DATA
+      methodFiles: [evals/check.mjs]
+      output: json
+    passCriteria: Weekly values are 140, 180, 110; monthly values are 70, 100, 160; advancing weekly by one gives 150, 190, 120; reset restores weekly. Labels remain North, Central, South. Bar lengths remain proportional to values on desktop and phone.
+  - id: OVERVIEW
+    criterion: A reader can quickly understand the period, total deliveries and leading region from a clear desktop hierarchy.
+    weight: 1
+    scenarios: [DASHBOARD]
+    grader: { type: llm }
+    passCriteria: Judge the desktop screenshot and desktop text. The weekly period is explicit, the correct total of 430 deliveries is directly displayed without requiring mental addition, and the leading region Central with 180 deliveries is readily identifiable. Title, summary and regional breakdown form a readable hierarchy with clear labels and adequate spacing. Accept any layout or wording that accomplishes this. Pass when all are satisfied; partial when some information is available but a requirement is absent or unclear; fail for wrong summary data or an unreadable dashboard. Abstain if desktop evidence is missing. Do not use the phone view to downgrade this desktop-only criterion.
+  - id: MOBILE
+    criterion: The regional breakdown is readable on a 375-pixel phone without horizontal scrolling.
+    weight: 1
+    scenarios: [DASHBOARD]
+    grader:
+      type: command
+      command: node evals/check.mjs MOBILE
+      methodFiles: [evals/check.mjs]
+      output: json
+    passCriteria: Page scroll width does not exceed viewport width. Each regional label, bar and value fits horizontally within the viewport; label and value fonts are at least 14 CSS pixels. All three rows remain visible and laid out with nonzero dimensions. Check both weekly and monthly datasets.

@@ -1,166 +1,259 @@
-# Silent hill-climbing video
+# Give your agent something to climb — AEK product films
 
-A 100-second Remotion film for LinkedIn, X, and Reddit. Two separately composed
-exports: **1920×1080 (16:9)** and **1080×1350 (4:5)**, 30 fps, H.264, no audio track.
-The coding agent edits and selects; AEK evaluates, compares, and returns evidence.
-The storefront, user story, code and scores are illustrative. No reference footage is
-included in the delivered film.
+## Current film
 
-## Build and preview
+The main and quick films follow **one dispatch product**: its baseline, an AEK
+finding, coding-agent revisions under the same frozen suite, and the improved
+task. Scores progress from 70% to 90% to 100%, with a fresh final repeat. The
+**after** is the evaluated final revision: inspect a late shipment, compare
+drivers, and save an assignment to Leo with an estimated arrival of 14:18.
 
-From the repository root, install the root dependencies (`pnpm install`) and
-Playwright Chromium (`pnpm exec playwright install chromium`) if not already
-available. The separate video package keeps Remotion out of AEK's runtime deps.
+The walkthrough also shows a separate dashboard example. Its two policy examples
+are explicitly labeled **illustrative**: the coding agent rejects a candidate
+when AEK reports a critical task regression, and insufficient evidence reduces
+coverage and can withhold the overall score. These are explanations of the
+selection policy, not additional observed dispatch outcomes. Execution errors
+remain errors.
 
-```bash
+Both fixtures use synthetic data. Actual demonstration footage is an edited
+sequence of browser captures and AEK results, with camera moves and highlights
+placed from measured element positions. Scores apply to each project's stated
+criteria, not general product quality.
+
+Three silent Remotion cuts, separately composed for 1920×1080 and 1080×1350,
+30 fps, H.264/yuv420p:
+
+| Cut | Duration | Story |
+| --- | --- | --- |
+| Product film | 60 seconds | Dispatch baseline → five fixed criteria → phone finding → agent fix (90%) → craft revision (100%) → improved task → CTA. |
+| Quick cut | 20 seconds | Dispatch baseline, phone finding, two measured revisions, saved reassignment, CTA. |
+| Walkthrough | 150 seconds | Dispatch loop, regression and coverage policy illustrations, a separate dashboard example, and authoring. |
+
+On-screen dispatch facts (shipment, times, drivers, eligibility) are read from the
+captured interface, and scores and findings from sealed reports. Tests bind the
+copy to those reports and keep dashboard scenes and illustrative policies out of
+the main and social cuts.
+
+## Dashboard improvement session
+
+The unchanged `examples/visual/index.html` was copied into an isolated session.
+No defects were introduced. The criteria were agent-authored for this demonstration
+and frozen before the first evaluation; they are not independently human-labeled
+standards:
+
+- Data values and bar proportions across weekly/monthly datasets, advance and reset;
+  checked in a browser on desktop and phone, with data accuracy a critical gate.
+- A clear weekly overview showing the total and leading region; assessed by a
+  fresh Codex `gpt-6-astra` judgment from the captured desktop evidence.
+- Phone labels, values and bars fit at 375px without horizontal scrolling;
+  checked by browser geometry and font measurements.
+
+| Evaluated revision | Data | Overview | Phone fit | Score / coverage |
+| --- | --- | --- | --- | --- |
+| Existing dashboard | Fail | Partial | Pass | 50% / 100% |
+| Equal-width tracks and proportional bars | Pass | Partial | Pass | 83.333% / 100% |
+| Computed summary and responsive hierarchy | Pass | Pass | Pass | 100% / 100% |
+| Fresh evaluation of unchanged final revision | Pass | Pass | Pass | 100% / 100% |
+
+The baseline phone layout shrank each bar differently: Central's 180 deliveries
+looked smaller than North's 140. The first revision fixed that. The overview judge
+continued to identify the missing 430 total, which guided the second revision.
+All four evaluations share an evaluator fingerprint. The session is
+`.agent-eval/marketing-video/dashboard-6qCjpf/`, sealed in `evidence.json`;
+`loadEvidence()` verifies the retained files and binds each revision to its evaluated source hashes before rendering.
+`assets/dashboard.html` retains the final page as a reference.
+
+## Dispatch improvement session
+
+Human feedback directed the original prototype retained in `assets/dispatch-baseline/`. The evaluated final revision is in `docs/marketing/dispatch/`. Its quality
+targets (`improvement/next-example.md`) became five frozen criteria in
+`improvement/dispatch/suite.yaml`:
+
+- **Data** (gate): counts derive from the queue; the reassignment changes only the
+  late shipment, respects cold chain and capacity, survives reload and is fully
+  reversed by undo and reset. Deterministic browser check on desktop and phone.
+- **Task** (gate): filters, empty search recovery, keyboard cancel and reopen,
+  confirmation, undo and confirmed reset work end to end. Deterministic check.
+- **Phone**: at 390px, no horizontal scrolling, no deliveries hidden in a nested
+  scroll region, queue and option text at least 12px, task controls at least 40px.
+- **Decision**: a dispatcher can see the exception, its cause and consequence, and
+  compare constrained recovery options. Fresh Codex judgment, three to five votes.
+- **Craft**: coherent, professional product finish across six screens. Fresh
+  Codex judgment, three to five votes.
+
+| Evaluated revision | Data | Task | Phone | Decision | Craft | Score |
+| --- | --- | --- | --- | --- | --- | --- |
+| Human-directed prototype | Pass | Pass | Fail | Pass | Partial | 70% |
+| Phone queue and option text | Pass | Pass | Pass | Pass | Partial | 90% |
+| Type scale, contrast and map labels | Pass | Pass | Pass | Pass | Pass | 100% |
+| Fresh repeat of the final revision | Pass | Pass | Pass | Pass | Pass | 100% |
+
+The baseline phone queue showed 5 of 9 deliveries inside a 320px nested scroll,
+with deadlines, statuses and eligibility notes at 9–11px. The judges also found
+secondary text and map labels tiny and faint. Every run has complete coverage and
+the same evaluator fingerprint. The session is
+`.agent-eval/marketing-video/dispatch-bLOsT1/`.
+
+The PHONE thresholds were written after a code review had noted the nested phone
+queue, so they are agent-authored standards rather than an independent discovery.
+The suite measures this fixed synthetic scenario; it does not establish general
+judge accuracy, audience preference or operational value.
+
+## Restore and render the recorded demonstration
+
+From a fresh checkout, install dependencies and build the CLI:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm build
+pnpm exec playwright install chromium
 npm ci --prefix video/marketing
-node video/marketing/render.mjs
+node video/marketing/recording.mjs restore
 node video/marketing/references.mjs
-npm --prefix video/marketing test
 ```
 
-The renderer embeds the original lamp image and licensed Inter variable font from
-`assets/`, waits for font loading, and uses the installed monospace font for the
-illustrative patch. No network requests are needed during rendering. Extraction requires
-FFmpeg/ffprobe, Sharp, and libvips versions recorded in `toolchain.json`; a mismatch
-fails with the actual and expected versions. Review extraction changes before
-updating that file. Dependencies are locked separately for Remotion and AEK.
+The checked-in `assets/recording.json.gz` contains both recorded sessions, their
+source snapshots, reports, comparisons, screenshots and manifests. Its checksum
+is pinned in `assets/recording-index.json`. Restoration verifies every file and
+refuses to overwrite a different existing file. It uses no provider calls and
+replays historical evidence; it does not claim a new evaluation. The reference
+command downloads the pinned creative references for the optional visual review
+and the reference-integrity test.
 
-Outputs live in `.agent-eval/marketing-video/`: `landscape.mp4`, `portrait.mp4`,
-story stills, reference samples, and evaluation runs. `render.mjs` publishes a
-local preview under `docs/marketing/video-output` (ignored). Serve
-`docs/marketing` and open `video.html`. The existing Tailscale preview is
-`http://100.74.32.71:8766/video.html` while its local server is running.
+```sh
+node video/marketing/render.mjs --stills --main
+node video/marketing/render.mjs
+npm --prefix video/marketing test
+python3 -m http.server 8766 --bind 127.0.0.1 --directory docs/marketing
+```
 
-For a faster composition pass, use `node video/marketing/render.mjs --stills`.
-Use `--landscape` or `--portrait` to render just one format, then run
-`node video/marketing/preview.mjs` to refresh the preview once both exports exist.
-Each completed MP4 replaces the previous file atomically. Do not render over
-candidate files during an evaluation; AEK rejects source changes during a run.
+Open <http://127.0.0.1:8766/video.html>. Select a cut and format, download MP4 and
+captions, read the transcript or inspect the evidence. `example.html` compares
+the original and final dispatch prototypes. Dashboard artifacts are retained for
+the walkthrough. All demo actions stay in browser storage.
 
-Edit copy and scene boundaries in `src/story.mjs`; edit composition and animation
-in `src/Video.jsx` and `src/visuals.jsx`. Motion is driven by Remotion frames:
-quantity changes, cursor movement and click feedback, the failed-total annotation,
-a code patch, a successful retest and order confirmation, judge expansion, and a
-returning loop. The same fictional storefront stays recognizable throughout. Contextual close-ups
-isolate quantity and totals, the evidence overlay, and the checkout summary.
-Asymmetric landscape compositions, subtle perspective, a light edit stage, and
-a larger closing loop vary the framing without changing the underlying story.
-Checkout fills the frame in both formats, and payment ends on a photographic
-confirmation. After selection, US-02 visibly searches for “aluminum” and returns
-the lamp, making the next evaluation explicit.
+Rendering uses no providers. Each full export is written to a new immutable
+release directory. Only after full decoding and verification does the renderer
+atomically switch `exports/NAME` to that directory. A receipt binds the video,
+poster, captions and stills to the evidence and composition inputs. The preview
+is also staged as a complete release and switched only after every export passes.
+A failed render leaves the previous release intact. `--stills` writes only to
+`drafts/`, so draft captions and posters cannot replace published assets.
 
+Use `--main`, `--social` or `--walkthrough` and optionally `--landscape` or
+`--portrait` to render a subset. Run `node video/marketing/preview.mjs` after all
+six exports match the current evidence and composition. Edit story and captions
+in `src/story.mjs`; composition is in `src/Video.jsx`.
 
-## Reference films
+## Run a new improvement session
 
-`references.json` records official source pages, direct media URLs, SHA-256 hashes,
-file sizes, chosen timestamps, and each reference's specific comparison role.
-`references.mjs` downloads missing files and verifies cached files; changed
-reference bytes require deliberate review, never silent substitution. Files stay
-in ignored local artifacts. Original reference audio is not evaluated or reused.
+```sh
+pnpm aek doctor --providers codex
+node video/marketing/improvement/prepare.mjs dispatch
+```
 
-| Official film | Comparison target | Limits |
-| --- | --- | --- |
-| [Introducing Linear Agent](https://linear.app/changelog/2026-03-24-introducing-linear-agent) | Deliberate framing, focal hierarchy, restrained palette, visual finish | Its small UI type is not our social-feed legibility target. |
-| [Cursor × Linear](https://linear.app/agents) | Concrete workflow progression, sparse staging, clear outcome and brand close | Our fictional storefront demonstrates an original journey; no reference UI is copied. |
-| [AlphaEvolve code evolution](https://deepmind.google/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/) | Continuity of exploration and candidate selection | Dense code is conceptual context, not a readability benchmark. |
+Preparation prints a new isolated session. Dispatch starts from the retained
+original prototype, not the already-improved published design. Dashboard starts
+from `examples/visual/index.html`. Both copy the frozen evaluation methods.
+Substitute the printed path for `SESSION`; edit only its project target between
+runs, based on actual findings:
 
-These are curated creative targets, not a claim of an objective global ranking.
-A Linear AI hero loop was also inspected but excluded: it adds less narrative
-coverage than the three selected films. Reference contact sheets can be found in
-`.agent-eval/marketing-video/references/*-board.png`.
+```sh
+node video/marketing/improvement/run.mjs SESSION baseline 'Evaluate the unchanged prototype.'
+# Inspect the report, then change SESSION/project/dispatch/.
+node video/marketing/improvement/run.mjs SESSION phone-queue 'Describe the actual phone change.'
+# Inspect again, then make the next justified revision.
+node video/marketing/improvement/run.mjs SESSION type-and-map 'Describe the actual craft change.'
+node video/marketing/improvement/run.mjs SESSION repeat 'Reevaluate the unchanged final revision.'
+```
 
-## Evaluate
+Each run invokes a real subscription judge. A critical product failure exits 2;
+execution errors remain errors. `run.mjs` snapshots the target before evaluating,
+compares every file with the report's collector-source hashes, never overwrites a
+label and journals every evaluation attempt. A concurrent edit that makes the
+snapshot differ from the evaluated inputs is an execution error with no accepted
+score. Both sealers and evidence loaders independently enforce this binding.
 
-Render both candidates and prepare references first, then:
+New results are not predetermined. If they differ from the recorded demonstration,
+change the film's story. For dispatch, copy the final evaluated revision into
+`docs/marketing/dispatch/` before capture. Capture requires unchanged evaluation
+methods, complete coverage, a matching repeat and a passing final revision whose
+score improves on the baseline:
 
-```bash
+```sh
+node video/marketing/workflow.mjs DISPATCH_SESSION
+# For a dashboard session use labels baseline, proportions, overview, repeat:
+node video/marketing/evidence.mjs DASHBOARD_SESSION
+```
+
+The sealers write AEK comparisons and manifests; workflow capture includes the
+baseline, intermediate phone revision and evaluated final product. Capture before
+rendering. `loadWorkflow()` rejects a published prototype that differs from the
+evaluated final revision. To retain a reviewed replacement recording for fresh
+checkouts, explicitly run `node video/marketing/recording.mjs pack` and review the
+changed archive and checksum together. Keep historical observations intact;
+restoring the bundled recording must never be used to conceal a failed new run.
+
+The broader functional check covers six viewport widths, constraints,
+persistence, undo, filtering and visible errors:
+
+```sh
+node video/marketing/improvement/prototype-check.mjs http://127.0.0.1:8766/
+```
+
+## Creative references
+
+| Reference | What informed the cut |
+| --- | --- |
+| [Cursor × Linear](https://linear.app/agents) | A recognizable action, visible work, and a reviewable result. |
+| [Introducing Linear Agent](https://linear.app/changelog/2026-03-24-introducing-linear-agent) | Tight framing, restrained typography and focal hierarchy. |
+| [Langfuse Prompt Experiments](https://langfuse.com/changelog/2024-11-22-prompt-experimentation) | Keep the same evaluation task visible from input to comparison. |
+| [LangSmith Regression Testing](https://www.langchain.com/blog/regression-testing) | Move from a changed result to its supporting evidence. |
+
+The two Linear films were reviewed through sampled frames; the Langfuse and
+LangSmith references use their official walkthrough descriptions. These are
+curated targets, not an objective conversion ranking. No reference footage is
+included. The pinned Linear and AlphaEvolve files remain available for
+comparative still assessment through `references.json` and `references.mjs`.
+
+## Verification
+
+```sh
+npm --prefix video/marketing test
+node video/marketing/smoke.mjs http://127.0.0.1:8766/video.html
 pnpm aek validate --config video/marketing/evalkit.yaml
+```
+
+Tests verify the narrative order, scores and findings against retained reports,
+captured dispatch facts, that the published prototype is the evaluated final
+revision, reference integrity, full decoding, all six delivery contracts and
+render hashes. The browser smoke test checks all six files, cut/format selection,
+captions, transcripts, evidence links and narrow-screen layouts. Accelerated
+playback is an operational check, not creative approval.
+
+Integrity regressions are covered by
+`npm --prefix video/marketing run test:integrity`: concurrent edits, complete
+source binding, original-baseline preparation, clean-checkout restoration,
+corrupted archives, incomplete releases, changed captions/posters and stale
+composition inputs. The full test command also checks the six rendered exports.
+Playback checks establish operation, not creative approval or reading time.
+
+An optional model review assesses sampled images of the **60-second main film**
+against a demanding craft bar and the bounded claims above:
+
+```sh
 pnpm aek run --config video/marketing/evalkit.yaml --fail-under-coverage 100
 ```
 
-One ordinary LLM area batches **both formats and all four visual criteria**.
-Every fresh judgment uses **`gpt-6-astra` with medium reasoning**. Voting starts at
-**3** and expands to at most **5** if any criterion or case lacks agreement. Votes
-are sequential, so there is never more than one active judge. This stays below
-the requested limit of three at a time; `judge.concurrency` only parallelizes
-image-pairwise workers and does not change ordinary vote scheduling. There are no
-pairwise graders or separate judge calls per reference.
+It uses sequential `gpt-6-astra` medium votes: three initially, at most five, with
+0.8 agreement. Inconclusive outcomes reduce coverage; corrupt inputs are execution
+errors. It does not assess continuous motion or the other cuts, and a pass does
+not establish marketing effectiveness. **It has not been run for this version**;
+earlier reviews of previous cuts are retained under
+`.agent-eval/marketing-video/eval-runs/` and do not apply.
 
-Agreement is 0.8: unanimous three stops; a 2–1 split can resolve at 4–1 after five.
-A 3–2 split, abstentions, or insufficient confidence remain inconclusive and
-reduce coverage. Invalid provider output and missing/corrupt inputs are execution
-errors. Command collection and technical grading use no model calls.
-
-The collector samples sealed candidate and reference MP4s, preserving provenance.
-The rubric evaluates sampled narrative, native feed-width text, and comparative
-visual craft. The separate delivery gate verifies full decoding, duration, frame
-count, dimensions, codec/pixel format, and the absence of audio.
-
-**A passing sampled-image eval is not continuous-motion approval.** Before
-publishing, play both full exports at normal speed to review reading time,
-transitions, and any transient visual defects. Do not interpret automated scores
-as proof of smooth animation. This limitation also applies to reference films.
-
-Provider requests, individual votes, confidence, evidence references, and final
-reports are retained under `.agent-eval/marketing-video/eval-runs/`.
-
-
-## User-story cut
-
-The checkout sequence follows US-01: a shopper changes quantity and pays the correct
-total. Two $120 lamps initially produce a broken $120 total. AEK returns a
-screenshot and failed assertion, the coding agent revises the calculation, and
-the same story passes at $240. An independent panel assesses subjective checkout
-clarity; it does not vote on arithmetic. Revision selection illustrates a
-critical gate, followed by an animated search journey and a withheld refund
-score when its provider is unavailable.
-
-Twenty-three samples per format include the failed cart, patch, corrected cart, order
-confirmation and both panel sizes. The 29 evidence images stay within the judge's
-2,000-pixel attachment limit. `USER_STORY` requires observable interface behavior;
-`CRAFT` is now a critical gate with a demanding comparison against the pinned
-Linear films. Clear generic diagrams alone cannot pass either bar. This change
-responds to human feedback that the earlier diagram cut passed automated checks
-but lacked specificity and visual polish.
-
-The previous 70-second diagram exports are preserved locally under
-`.agent-eval/marketing-video/checkpoint-expanded/`. The earlier calibration and rejected-cut assessments are retained under
-`calibration/`; the original
-40-second committed checkpoint remains under `checkpoint-05d7419/`.
-
-## Continuous-workflow cut (100 seconds)
-
-The terrain opens the film (0–8s), explicitly connecting AEK to improving your coding
-agent’s work on your project. The storefront is introduced as an example project
-with “Your agent built this”; AEK remains the evaluation layer throughout the demo. The checkout failure is inspected immediately
-(21–27s), before the agent fixes the code and the retest confirms payment.
-The inspector links the failed screenshot, assertion log and illustrative source
-snapshot. It no longer revisits an unexplained failure after the successful retest.
-
-From 37–77s, `src/Workflow.jsx` keeps one product carrier mounted through criteria,
-evidence collection, subjective judging, gated selection, the returning agent loop,
-and a blocked refund scenario. The carrier changes from the photographed cart to its
-assertion log, a close-up of the payable total, confirmation, and the next code edit.
-The enlarged loop keeps that evidence prominent while it moves between owners. A shared continuous clock moves the carrier between
-stages; it does not fade out and restart at each scene boundary. The loop physically
-returns the candidate to the coding agent for the next revision. The blocked
-attempt leaves the accepted best at 82.
-
-The final terrain (82–94s) expands on the opening: the gate-failing 77 branch leaves
-the accepted baseline at 68, the unknown branch leaves it at 82, and collected
-evidence allows the next accepted 91. Rejected and withheld attempts remain visible
-as context instead of appearing as improvements. The original terrain is extracted
-from `docs/marketing/hill-climbing.svg` by `terrain.mjs`.
-
-The previous approved 100-second film and source are preserved in
-`.agent-eval/marketing-video/checkpoint-hill-first-100/`. The previous 82-second
-cut remains in `checkpoint-combined-82/`; the earlier approved 70-second checkout
-film remains in `checkpoint-user-story-approved/`.
-
-Twenty-three timestamps are grouped into twelve native-width panels per format;
-eleven panels contain two vertically stacked frames. Five-column overview boards
-keep all 29 attachments under the judge's 30-image and 2,000-pixel limits. The
-collector fails if an attachment exceeds those dimensions. Scene timing is
-sealed as a collection/grading dependency. Parallel per-format rendering uses
-separate bundle directories; refresh `preview.mjs` after both formats finish.
+Before publication, watch the complete films at normal speed and test the rough
+cut with unfamiliar developers: what does AEK do, who makes the edit, how the
+standards and feedback guided successive improvements, and what should they do
+next? Keep that audience feedback separate from delivery tests and model
+judgments.

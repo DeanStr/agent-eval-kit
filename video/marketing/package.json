@@ -6,7 +6,10 @@
   "scripts": {
     "render": "node render.mjs",
     "references": "node references.mjs",
-    "test": "node --import tsx --test test.mjs"
+    "test": "node --import tsx --test integrity.test.mjs test.mjs",
+    "test:integrity": "node --import tsx --test integrity.test.mjs",
+    "recording": "node recording.mjs restore",
+    "evidence": "node evidence.mjs"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.522",
