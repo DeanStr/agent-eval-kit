@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { cancellationSignal, withCancellation } from "../cancellation.js";
+import { cancellationSignal, CliInterruptionError, withCancellation } from "../cancellation.js";
 import { collectorInputs } from "../collectors/inputs.js";
 import {
   compareReports,
@@ -12,7 +12,8 @@ import {
 import { loadConfig } from "../config.js";
 import { assertArtifactIntegrity } from "../integrity.js";
 import { isWithin, prospectiveRealPath, sha256, stableJson, writeJson } from "../io.js";
-import { evaluatePromotion } from "../promotion.js";
+import { evaluateSuiteCompleteness } from "../promotion.js";
+import { withProcessRegistry, drainProcessRegistry } from "../process-registry.js";
 import { runEvaluation } from "../runner.js";
 import { assertEvaluationPlatform } from "../platform.js";
 import { evaluatorInputPaths } from "../run/inputs.js";
@@ -34,6 +35,16 @@ import {
 } from "./contracts.js";
 import { assertClean, assertNoSubmodules, checkpoint, git, restore, workingTree } from "./git.js";
 import { caseRegressionFailures } from "./cases.js";
+
+/** Only failures raised while executing a candidate, after invariant validation. */
+class CandidateExecutionError extends Error {
+  constructor(error: unknown) {
+    super(error instanceof Error ? error.message : String(error), { cause: error });
+    this.name = "CandidateExecutionError";
+  }
+}
+
+class EvaluationCleanupError extends Error {}
 
 const stateFile = (directory: string) => path.join(directory, "session.json");
 const workspace = (directory: string) => path.join(directory, "workspace");
@@ -242,10 +253,21 @@ function budgetReason(state: Session): StopReason | undefined {
   if (state.attempts.length >= state.maxAttempts) return "attempt_limit";
   let stalls = 0;
   for (const attempt of [...state.attempts].reverse()) {
-    if (attempt.status !== "rejected") break;
+    if (!["rejected", "inconclusive", "execution_error"].includes(attempt.status)) break;
     stalls++;
   }
   return stalls >= state.maxStalls ? "no_improvement" : undefined;
+}
+
+function finishAttempt(state: Session): void {
+  state.status = "ready";
+  const reason = budgetReason(state);
+  if (reason) stop(state, reason);
+}
+
+function interruptionReason(state: Session, error: unknown): StopReason {
+  if (error instanceof CliInterruptionError) return "user_stopped";
+  return Date.now() >= Date.parse(state.deadline) ? "budget_exhausted" : "execution_error";
 }
 
 function completeAttempt(directory: string, state: Session, attempt: Attempt): void {
@@ -280,25 +302,62 @@ async function evaluate(
   const parent = cancellationSignal();
   const signal = parent ? AbortSignal.any([parent, controller.signal]) : controller.signal;
   try {
-    const result = await withCancellation(signal, () =>
-      runEvaluation({
-        ...configuration(directory, state),
-        onProgress,
-        onRunCreated: (runDir) => {
-          if (attempt) {
-            attempt.evaluationDirectory = path.relative(directory, runDir);
-            save(directory, state);
-          }
-        },
-      }),
-    );
-    signal.throwIfAborted();
-    if (!result.report) throw new Error("Full evaluation completed without a report");
-    assertPinned(directory, state);
-    if (git(root, ["rev-parse", "HEAD"]) !== head || workingTree(root, directory) !== tree)
-      throw new Error(
-        "Candidate source changed during evaluation. Keep setup outputs ignored and do not edit while evaluating.",
+    const options = configuration(directory, state);
+    const assertUnchanged = () => {
+      ownedWorkspace(directory, state);
+      assertDetached(root);
+      assertPinned(directory, state);
+      if (git(root, ["rev-parse", "HEAD"]) !== head || workingTree(root, directory) !== tree)
+        throw new Error(
+          "Candidate source changed during evaluation. Keep setup outputs ignored and do not edit while evaluating.",
+        );
+    };
+    let result: Awaited<ReturnType<typeof runEvaluation>> | undefined;
+    let executionFailure: Error | undefined;
+    const processFile = path.join(directory, "process-groups.json");
+    try {
+      result = await withProcessRegistry(processFile, () =>
+        withCancellation(signal, () =>
+          runEvaluation({
+            ...options,
+            onProgress,
+            onRunCreated: (runDir) => {
+              if (attempt) {
+                attempt.evaluationDirectory = path.relative(directory, runDir);
+                save(directory, state);
+              }
+            },
+          }),
+        ),
       );
+    } catch (error) {
+      executionFailure = error instanceof Error ? error : new Error(String(error));
+    }
+    try {
+      await drainProcessRegistry(processFile);
+    } catch (error) {
+      throw new EvaluationCleanupError(
+        `Evaluation process cleanup failed. Inspect ${processFile} and stop surviving workers before any further Git operation.`,
+        { cause: error },
+      );
+    }
+    // Check only after all owned workers have exited, including on failed runs.
+    assertUnchanged();
+    signal.throwIfAborted();
+    if (executionFailure) {
+      if (!attempt?.evaluationDirectory) throw executionFailure;
+      if (state.best) readRun(directory, state.best.run);
+      const failedRun = path.join(directory, attempt.evaluationDirectory);
+      if (loadRunState(failedRun).status !== "failed") throw executionFailure;
+      // A failed run can contain new diagnostics and service shutdown logs. Its
+      // sealed inputs, reports and evidence must remain intact before more work.
+      assertArtifactIntegrity(failedRun, {
+        allowUnindexed: true,
+        allowChangedPaths: ["lifecycle/start.stdout.log", "lifecycle/start.stderr.log"],
+      });
+      throw new CandidateExecutionError(executionFailure);
+    }
+    if (!result?.report) throw new Error("Full evaluation completed without a report");
     const run = {
       directory: path.relative(directory, result.runDir),
       reportHash: sha256(fs.readFileSync(path.join(result.runDir, "report.json"))),
@@ -323,6 +382,14 @@ export async function startImprovement(
     throw new Error("Improvement currently requires project.root to equal the Git repository root");
   if (!isWithin(source, configFile))
     throw new Error("Evaluation config must be tracked inside project.root");
+  try {
+    git(source, ["ls-files", "--error-unmatch", "--", path.relative(source, configFile)]);
+  } catch (error) {
+    throw new Error(
+      `Evaluation config must be tracked before starting improvement: ${configFile}`,
+      { cause: error },
+    );
+  }
   assertClean(source);
   assertNoSubmodules(source);
   const directory = prospectiveRealPath(options.output);
@@ -368,11 +435,11 @@ export async function startImprovement(
         save(directory, state);
         return state;
       } catch (error) {
-        stop(
-          state,
-          Date.now() >= Date.parse(state.deadline) ? "budget_exhausted" : "execution_error",
-        );
-        state.error = error instanceof Error ? error.message : String(error);
+        const reason = interruptionReason(state, error);
+        stop(state, reason);
+        const detail = error instanceof Error ? error.message : String(error);
+        if (reason === "user_stopped") state.stopDetail = detail;
+        else state.error = detail;
         save(directory, state);
         throw error;
       }
@@ -465,6 +532,7 @@ export async function evaluateAttempt(
         restoreBest(directory, state, attempt.checkpoint);
         const { run, report } = await evaluate(directory, state, onProgress, attempt);
         attempt.run = run;
+        readRun(directory, previousBest.run);
         const comparison = compareReports(baseline, report);
         const comparisonDir = path.join(
           directory,
@@ -484,11 +552,12 @@ export async function evaluateAttempt(
           attempt.reasons = [
             "The full suite has insufficient evidence; this is not a product quality score.",
           ];
-          stop(state, "insufficient_evidence");
         } else {
           attempt.reasons = [
-            ...evaluatePromotion(configuration(directory, state).config, report, "release")
-              .failures,
+            ...evaluateSuiteCompleteness(configuration(directory, state).config, report, {
+              split: "all",
+              includeOptional: true,
+            }).failures,
             ...comparisonFailures(comparison, { requireCompatible: true, failOnRegression: true }),
             ...caseRegressionFailures(
               baseline.areas.flatMap((area) => area.caseResults),
@@ -506,10 +575,8 @@ export async function evaluateAttempt(
           attempt.status = attempt.reasons.length ? "rejected" : "accepted";
           if (attempt.status === "accepted")
             state.best = { checkpoint: attempt.checkpoint, run, accepted: true };
-          state.status = "ready";
-          const reason = budgetReason(state);
-          if (reason) stop(state, reason);
         }
+        finishAttempt(state);
         restoreBest(directory, state, state.best.checkpoint);
       } catch (error) {
         state.best = previousBest;
@@ -517,28 +584,37 @@ export async function evaluateAttempt(
         attempt.status = "execution_error";
         delete attempt.scoreGain;
         attempt.reasons = [failure.message];
-        // Execution errors never supply an acceptance decision or score.
-        stop(
-          state,
-          Date.now() >= Date.parse(state.deadline) ? "budget_exhausted" : "execution_error",
-        );
-        state.error = attempt.reasons[0]!;
+        // A failed execution remains an error, without a quality score or automatic retry.
+        const reason = interruptionReason(state, error);
+        const recoverable =
+          error instanceof CandidateExecutionError && reason === "execution_error";
+        if (recoverable) finishAttempt(state);
+        else {
+          stop(state, reason);
+          if (reason === "user_stopped") {
+            attempt.status = "stopped";
+            state.stopDetail = failure.message;
+          } else state.error = failure.message;
+        }
         save(directory, state);
-        // Preserve writes from a failing checker/setup before restoring the best source.
-        try {
-          ownedWorkspace(directory, state);
-          assertDetached(root);
-          attempt.recoveryCheckpoint = checkpoint(
-            root,
-            directory,
-            ref(state, `attempt-${attempt.number}-error`),
-            "AEK failed evaluation workspace",
-          );
-          restoreBest(directory, state, state.best.checkpoint);
-        } catch (recoveryError) {
-          state.error += `; automatic restoration failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}. Inspect the retained workspace before any further Git operation.`;
-          attempt.reasons.push(state.error);
-          failure = new Error(state.error, { cause: failure });
+        if (!(error instanceof EvaluationCleanupError)) {
+          // Preserve writes from a failing checker/setup before restoring the best source.
+          try {
+            ownedWorkspace(directory, state);
+            assertDetached(root);
+            attempt.recoveryCheckpoint = checkpoint(
+              root,
+              directory,
+              ref(state, `attempt-${attempt.number}-error`),
+              "AEK failed evaluation workspace",
+            );
+            restoreBest(directory, state, state.best.checkpoint);
+          } catch (recoveryError) {
+            stop(state, "execution_error");
+            state.error = `${failure.message}; automatic restoration failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}. Inspect the retained workspace before any further Git operation.`;
+            attempt.reasons.push(state.error);
+            failure = new Error(state.error, { cause: failure });
+          }
         }
       }
       completeAttempt(directory, state, attempt);
@@ -563,6 +639,7 @@ export async function stopImprovement(directoryInput: string, reason: string): P
       if (!state.best)
         throw new Error("Session has no completed baseline; inspect its retained diagnostics");
       const retained = checkpoint(root, directory, ref(state, "stopped"), `AEK stopped: ${reason}`);
+      state.stoppedCheckpoint = retained;
       if (attempt && ["editing", "evaluating"].includes(attempt.status)) {
         if (attempt.checkpoint) attempt.recoveryCheckpoint = retained;
         else attempt.checkpoint = retained;

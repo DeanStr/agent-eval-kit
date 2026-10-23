@@ -12,9 +12,16 @@ an existing skill. Commit the installation if it lives in the project before sta
 
 ## Prepare the acceptance suite
 
-Start with a calibrated, executable suite that measures the improvement objective
-and protects existing requirements. The objective text is a record of intent; it
-does not alter the rubric or become judge instructions.
+Use a deterministic, executable acceptance suite that measures the improvement
+objective and protects existing requirements. This version compares one baseline
+run with one run per candidate and allows no item or case regression. It has no
+repeated-run acceptance protocol or noise tolerance. LLM judges and other noisy
+checks can reject useful candidates or retain a lucky run as best; calibration
+alone does not remove that limitation. Use independent repeated evaluation for
+claims about noisy performance outside this strict loop.
+
+The objective text is a record of intent; it does not alter the rubric or become
+judge instructions.
 
 - Use a clean Git checkout with the intended product and evaluator files committed.
   AEK never stashes unrelated edits. `project.root` must equal the repository root;
@@ -60,8 +67,9 @@ aek improve status --session ../project-improvement --json
 ```
 
 Use `--suite name` on `start` to select an existing named suite. Session settings
-are fixed at creation: default three candidate evaluations, two consecutive
-rejections, and a one-hour wall-clock budget including editing. New attempts check
+are fixed at creation: default three candidate attempts, two consecutive
+attempts without improvement (including inconclusive and execution-error attempts),
+and a one-hour wall-clock budget including editing. New attempts check
 the deadline; active evaluations are cancelled when it expires. Editing is
 external to AEK, so an idle editor is not terminated by the deadline.
 
@@ -89,8 +97,7 @@ A candidate replaces the best checkpoint only when:
 1. The complete evaluation succeeds with compatible evaluator fingerprints and
    intact report/evidence artifacts.
 2. Every area has 100% evidence coverage and the score is available. Required
-   scenarios were exercised; critical gates and the configured release minimum
-   score pass.
+   scenarios were exercised.
 3. No comparable rubric item or dataset/template case regresses, loses coverage,
    or disappears, including optional areas. This prevents an aggregate gain from
    hiding a local regression.
@@ -104,21 +111,35 @@ unrounded difference for a fully measured, compatible candidate.
 
 The initial baseline may contain measured failures. `best.accepted: false` means
 no improvement has yet passed acceptance; it is not a release approval of that
-baseline. After acceptance, each candidate is compared against the latest best.
+baseline. Previously failing critical gates may remain failed, and incremental
+improvements may remain below `promotion.minimumScore`. Previously passing gates
+are protected by the no-regression rule. Even `best.accepted: true` records an
+improvement, not release approval: release promotion still requires passing gates
+and its configured score threshold. After acceptance, each candidate is compared
+against the latest best.
 
 | Result | Meaning and action |
 | --- | --- |
 | `accepted` | Keep the candidate as best; continue if budget permits. |
 | `rejected` | Measured acceptance failure; retain evidence and restore best. |
-| `inconclusive` | Missing evidence; stop with `insufficient_evidence`, restore best. |
-| `execution_error` | Checker/provider/input/integrity failure; stop without an acceptance score, retain diagnostics, restore best when ownership is intact. |
+| `inconclusive` | Missing evidence, including blocked or agent-error scenarios; retain diagnostics, restore best, and continue within the original budgets. |
+| `execution_error` | Candidate execution failed; retain diagnostics without an acceptance score and restore best. Another attempt is permitted only if source, evaluator, retained artifacts, and restoration remain valid. |
+| `stopped` | User interruption or explicit stop; retain the candidate and restore best when ownership is intact. |
 
-Session stop reasons are `attempt_limit`, `no_improvement` (consecutive rejections),
-`budget_exhausted`, `insufficient_evidence`, `execution_error`, and `user_stopped`.
+An initial baseline with insufficient evidence stops the session because there is
+no fully measured reference. A candidate with insufficient evidence consumes an
+attempt without replacing that reference. Execution errors still return exit 1;
+continuation requires a new explicit attempt, not an automatic retry. Evaluator
+changes, corrupted retained artifacts, ownership changes, and failed restoration
+stop the session with `execution_error`. Process cleanup failures also stop the
+session and leave the workspace for inspection before any restoration.
+
+Session stop reasons are `attempt_limit`, `no_improvement` (consecutive attempts
+without improvement), `budget_exhausted`, `insufficient_evidence`, `execution_error`, and `user_stopped`.
 An accepted final attempt can also stop at the attempt limit. A score ceiling or
 plateau is not permission to relax requirements. A minimum gain is an effect-size
-threshold, not a statistical confidence guarantee; noisy judges still need
-calibration and, where appropriate, independent repeated validation.
+threshold, not a statistical confidence guarantee. SIGINT and SIGTERM stop the
+session with `user_stopped` and exit 130/143, including during baseline evaluation.
 
 ## Review artifacts and recovery
 
@@ -130,21 +151,25 @@ workspace/                           # owned detached Git worktree
 runs/<run-id>/                       # ordinary sealed AEK runs and reports
 attempts/<n>/decision.json            # hypothesis, decision, reasons, checkpoint, run
 attempts/<n>/comparison/              # JSON and HTML comparison against the prior best
+process-groups.json                  # owned process groups; empty after successful cleanup
 ```
 
 Paths inside `session.json` are relative to its directory except the source and
 Git ownership metadata. Accepted and rejected commits are retained under
 `refs/aek/improvements/<session-id>/`; failed evaluation writes can have an
-additional recovery checkpoint. Ignored dependencies, credentials, and generated
-files survive source restoration. Reset mutable test data with your normal target
+additional recovery checkpoint. `stoppedCheckpoint` records the commit retained
+by `stop`, including edits made without an open attempt. Ignored dependencies,
+credentials, and generated files survive source restoration. Reset mutable test data with your normal target
 setup: Git restoration does not roll back databases, services, or ignored files.
 
 Mutating commands acquire a session lock. A crash can leave an active attempt or
 stale lock. Stop any surviving workers and inspect the retained state before
 manual recovery; stale locks are not reclaimed automatically. The loop does not
-resume a partially completed evaluation. A handled failure stops the session;
-correct the cause and start a new session when appropriate. If ownership changes
-(for example, the workspace is attached to a branch), AEK refuses restoration
+resume a partially completed evaluation. After a candidate execution failure,
+inspect its diagnostics and session status before choosing a new hypothesis. A
+`ready` session permits another attempt within its original limits; a `stopped`
+session does not. If ownership changes (for example, the workspace is attached to
+a branch), AEK refuses restoration
 rather than moving that branch. The error identifies the retained workspace for
 review. Keep session files intact; they are local workflow state, not a security
 boundary against an adversarial coding agent.

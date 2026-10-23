@@ -87,6 +87,7 @@ export const sessionSchema = z
     attempts: z.array(attemptSchema),
     error: z.string().optional(),
     stopDetail: z.string().optional(),
+    stoppedCheckpoint: commit.optional(),
   })
   .strict();
 export type Session = z.infer<typeof sessionSchema>;

@@ -224,12 +224,16 @@ This writes JSON metrics and an HTML review of expectations, decisions,
 explanations, and evidence. See [judge validation](docs/judge-validation.md) for
 the input contracts, exit semantics, and a packaged offline example.
 
-## Guided project authoring
+## Bounded project improvement
 
-For an existing suite, use [bounded project improvement](docs/improvement.md):
+For an existing deterministic suite, use [bounded project improvement](docs/improvement.md):
 `aek improve install` adds `$aek-improve`, which guides hypothesis-driven edits
 through full-suite acceptance and preserves the best checkpoint in its own Git
 worktree. Rejected candidates retain their evidence and are restored automatically.
+Incremental improvements may remain below the release bar. Acceptance uses single
+runs with strict regression checks; it does not provide noise tolerance for LLM judges.
+
+## Guided project authoring
 
 Install the authoring skill into your project's agent skill directory:
 

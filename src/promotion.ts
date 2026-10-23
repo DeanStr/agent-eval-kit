@@ -33,14 +33,8 @@ export function evaluatePromotion(
     split: "all" as const,
     includeOptional: false,
   };
-  // Optional areas may still supply prerequisites to required scored areas.
-  const sourceSpecs = loadSpecs(config.paths.specs).map((spec) =>
-    policy.includeOptional || !spec.optional ? spec : { ...spec, rubric: [] },
-  );
-  const plan = materializeSpecs(sourceSpecs, policy.split);
-  const expected = plan.filter((spec) => spec.rubric.length);
-  if (!expected.length)
-    throw new Error(`Promotion policy split ${policy.split} has no required areas`);
+  const selection = evaluateSuiteCompleteness(config, report, policy);
+  const expected = selection.expected;
   const expectedIds = new Set(expected.map((spec) => spec.id));
   const policyReport = {
     ...report,
@@ -52,6 +46,43 @@ export function evaluatePromotion(
     minimumCoverage: policy.minimumCoverage,
     ...omitUndefined({ minimumScore: policy.minimumScore }),
   });
+  failures.push(...selection.failures);
+  if (report.scoreWithheld) failures.push("headline score is withheld");
+  for (const spec of expected) {
+    const area = report.areas.find((area) => area.id === spec.id);
+    if (!area) continue;
+    for (const item of spec.rubric.filter((item) => item.gate)) {
+      const gate = area.gates.find((gate) => gate.itemId === item.id);
+      if (gate?.status !== "passed")
+        failures.push(`required gate ${spec.id}/${item.id} is ${gate?.status ?? "missing"}`);
+    }
+  }
+  return {
+    mode,
+    policy,
+    expectedAreas: expected.map((spec) => spec.id),
+    expectedScenarios: selection.plan.flatMap((spec) =>
+      spec.scenarios.map((scenario) => scenario.id),
+    ),
+    failures,
+  };
+}
+
+/** Full suite validation shared by release promotion and incremental improvement. */
+export function evaluateSuiteCompleteness(
+  config: EvalConfig,
+  report: RunReport,
+  policy: Pick<NonNullable<EvalConfig["promotion"]>, "includeOptional" | "split">,
+) {
+  // Optional areas may still supply prerequisites to required scored areas.
+  const sourceSpecs = loadSpecs(config.paths.specs).map((spec) =>
+    policy.includeOptional || !spec.optional ? spec : { ...spec, rubric: [] },
+  );
+  const plan = materializeSpecs(sourceSpecs, policy.split);
+  const expected = plan.filter((spec) => spec.rubric.length);
+  if (!expected.length)
+    throw new Error(`Promotion policy split ${policy.split} has no required areas`);
+  const failures: string[] = [];
   const runSplit = report.receipt.inputs.selection.split ?? "all";
   if (runSplit !== policy.split)
     failures.push(
@@ -94,7 +125,6 @@ export function evaluatePromotion(
         "text dataset selection is incomplete; evaluate all required cases before release promotion",
       );
   }
-  if (report.scoreWithheld) failures.push("headline score is withheld");
   for (const spec of plan) {
     if (report.receipt.inputs.specs[spec.id]?.sha256 !== sha256(specSourceBytes(spec)))
       failures.push(
@@ -116,11 +146,6 @@ export function evaluatePromotion(
       failures.push(
         `rubric selection does not match promotion split ${policy.split} in ${spec.id}`,
       );
-    for (const item of spec.rubric.filter((item) => item.gate)) {
-      const gate = area.gates.find((gate) => gate.itemId === item.id);
-      if (gate?.status !== "passed")
-        failures.push(`required gate ${spec.id}/${item.id} is ${gate?.status ?? "missing"}`);
-    }
     for (const scenario of spec.scenarios) {
       const result = area.scenarios.find((result) => result.scenarioId === scenario.id);
       if (!result || !["completed", "feature_not_found"].includes(result.outcome))
@@ -129,11 +154,5 @@ export function evaluatePromotion(
         );
     }
   }
-  return {
-    mode,
-    policy,
-    expectedAreas: expected.map((spec) => spec.id),
-    expectedScenarios: plan.flatMap((spec) => spec.scenarios.map((scenario) => scenario.id)),
-    failures,
-  };
+  return { plan, expected, failures };
 }

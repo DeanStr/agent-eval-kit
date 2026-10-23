@@ -58,8 +58,9 @@ const descriptions: Record<string, string> = {
   session: "Existing improvement session directory.",
   hypothesis: "Concrete change and expected benefit, recorded before editing.",
   guidance: "Optional UTF-8 repair notes (max 64 KiB); never supplied to acceptance judges.",
-  "max-attempts": "Maximum candidate evaluations, 1–100 (default: 3).",
-  "max-stalls": "Stop after this many consecutive rejections, 1–100 (default: 2).",
+  "max-attempts": "Maximum candidate attempts, 1–100 (default: 3).",
+  "max-stalls":
+    "Stop after this many consecutive attempts without improvement, 1–100 (default: 2).",
   "budget-seconds": "Session wall-clock budget, including edits, 1–86400 (default: 3600).",
   "minimum-gain": "Minimum score gain in percentage points, 0–100; ties always fail (default: 0).",
   project: "Project directory (default: current directory).",
