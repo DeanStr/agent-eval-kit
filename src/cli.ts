@@ -524,8 +524,8 @@ Usage: aek <command> [flags]
 
 Commands accepting --config also accept --suite <name>.
 Use --json with run, collect, judge, campaign, compare, validate, list, doctor,
-verify, rescore, finalize, or adjudicate for structured results. Progress goes to
-stderr. Execution previews keep their separate plan format. Use --debug for stacks.
+verify, rescore, finalize, adjudicate, or improve for structured results. Progress
+goes to stderr. Execution previews keep their separate plan format. Use --debug for stacks.
 The --fail-under-* gates also work with rescore and finalize. Rubric items with
 gate: true are always enforced. A failed CI gate uses exit code 2 while still
 preserving all generated artifacts. Compare requires compatible receipts unless

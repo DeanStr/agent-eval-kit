@@ -34,14 +34,24 @@ export function trackProcessGroup(child: ChildProcess): () => void {
   };
 }
 
-/** Call after the worker has exited, while still holding the shared resource. */
-export async function drainProcessRegistry(file: string): Promise<void> {
+function readProcessGroups(file: string): number[] {
   const groups: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
   if (
     !Array.isArray(groups) ||
     !groups.every((pid: unknown) => typeof pid === "number" && Number.isSafeInteger(pid) && pid > 0)
   )
     throw new Error(`Invalid process group registry: ${file}`);
+  return groups;
+}
+
+/** Inspect registered groups without terminating workers or changing their registry. */
+export function runningProcessGroups(file: string): number[] {
+  return readProcessGroups(file).filter(groupIsRunning);
+}
+
+/** Call after the worker has exited, while still holding the shared resource. */
+export async function drainProcessRegistry(file: string): Promise<void> {
+  const groups = readProcessGroups(file);
   const results = await Promise.allSettled(groups.map((pid: number) => terminateProcessGroup(pid)));
   const errors = results.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
   if (errors.length) throw new AggregateError(errors, `Worker process cleanup failed; see ${file}`);

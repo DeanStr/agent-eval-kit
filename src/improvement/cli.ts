@@ -103,4 +103,10 @@ export async function improvementCommand(
     output.log(
       `Attempt ${attempt.number}: ${attempt.status}${attempt.reasons.length ? `\n${attempt.reasons.join("\n")}` : ""}`,
     );
+  if (result.cleanup)
+    output.log(
+      `Once the result and evidence are no longer needed, remove the workspace and retained candidate commits:\n${result.cleanup.join("\n")}`,
+    );
+  if (result.cleanupBlockedReason)
+    output.log(`Cleanup unavailable: ${result.cleanupBlockedReason}`);
 }

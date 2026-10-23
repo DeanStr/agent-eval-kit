@@ -567,25 +567,166 @@ test("acceptance uses unrounded measurements for gain and missing optional evide
   });
 });
 
-test("wall-clock expiry prevents new attempts and interrupts an in-flight checker", async (t) => {
-  for (const stage of ["ready", "evaluating"]) {
+test("wall-clock expiry prevents new attempts and stops pending or in-flight evaluations", async (t) => {
+  for (const stage of ["ready", "editing", "evaluating"]) {
     await t.test(stage, async (t) => {
       const f = fixture(t);
       await f.start();
-      if (stage === "evaluating") {
-        await beginAttempt(f.session, "Run a slow checker");
-        f.edit({ wait: true });
+      if (stage !== "ready") {
+        await beginAttempt(f.session, "Run a candidate near the deadline");
+        f.edit(stage === "editing" ? { quality: "pass" } : { wait: true });
       }
       const state = f.saved();
-      state.deadline = new Date(Date.now() + (stage === "ready" ? -1 : 1000)).toISOString();
+      state.deadline = new Date(Date.now() + (stage === "evaluating" ? 1000 : -1)).toISOString();
       fs.writeFileSync(path.join(f.session, "session.json"), JSON.stringify(state));
       if (stage === "ready")
         assert.equal((await beginAttempt(f.session, "Too late")).stopReason, "budget_exhausted");
-      else await assert.rejects(evaluateAttempt(f.session), /budget exhausted/);
+      else {
+        // Budget expiry is a valid stop with an unscored, retained candidate, not an execution error.
+        const stopped =
+          stage === "editing"
+            ? cli(f.source, ["evaluate", "--session", f.session], 2).result
+            : await evaluateAttempt(f.session);
+        assert.equal(stopped.attempts[0]?.status, "stopped");
+        assert.equal(stopped.attempts[0]?.scoreGain, undefined);
+        assert.ok(stopped.attempts[0]?.checkpoint);
+        assert.match(stopped.stopDetail ?? "", /budget exhausted/);
+        assert.equal(stopped.error, undefined);
+      }
       assert.equal(f.saved().stopReason, "budget_exhausted");
       assert.equal(git(f.workspace, ["rev-parse", "HEAD"]), f.initial);
       const stopped = f.saved();
       assert.deepEqual(await beginAttempt(f.session, "Try after expiry"), stopped);
+    });
+  }
+});
+
+test("checker failures remain errors when the deadline expires during service shutdown", async (t) => {
+  for (const phase of ["baseline", "attempt"] as const) {
+    await t.test(phase, async (t) => {
+      const f = fixture(t);
+      const configFile = path.join(f.source, "evalkit.yaml");
+      const config = YAML.parse(fs.readFileSync(configFile, "utf8"));
+      config.target.start = "exec node service.mjs";
+      config.target.ready = { command: "test -f generated/service.pid", intervalMs: 10 };
+      fs.writeFileSync(configFile, YAML.stringify(config));
+      fs.writeFileSync(
+        path.join(f.source, "service.mjs"),
+        `import fs from 'node:fs';
+fs.mkdirSync('generated', {recursive: true});
+fs.writeFileSync('generated/service.pid', String(process.pid));
+setInterval(() => {}, 1000);
+process.once('SIGTERM', () => {
+  const product = JSON.parse(fs.readFileSync('product.json', 'utf8'));
+  if (product.quality !== 'error') process.exit(0);
+  const session = JSON.parse(fs.readFileSync('../session.json', 'utf8'));
+  const deadline = Date.parse(session.deadline);
+  const started = Date.now();
+  setTimeout(() => {
+    fs.writeFileSync('generated/shutdown.json', JSON.stringify({started, deadline, finished: Date.now()}));
+    process.exit(0);
+  }, Math.max(0, deadline - started) + 100);
+});
+`,
+      );
+      if (phase === "baseline")
+        fs.writeFileSync(
+          path.join(f.source, "product.json"),
+          JSON.stringify({ ...f.product, quality: "error" }),
+        );
+      f.commit();
+      const initial = git(f.source, ["rev-parse", "HEAD"]);
+      if (phase === "attempt") {
+        await f.start();
+        await beginAttempt(f.session, "Fail before a deadline reached during shutdown");
+        f.edit({ quality: "error" });
+        fs.unlinkSync(path.join(f.workspace, "generated/service.pid"));
+        const state = f.saved();
+        state.deadline = new Date(Date.now() + 3000).toISOString();
+        fs.writeFileSync(path.join(f.session, "session.json"), JSON.stringify(state));
+      }
+      const failure = cli(
+        f.source,
+        phase === "baseline"
+          ? [
+              "start",
+              "--goal",
+              "Fail before expiry",
+              "--output",
+              f.session,
+              "--budget-seconds",
+              "3",
+            ]
+          : ["evaluate", "--session", f.session],
+        1,
+      );
+      assert.match(failure.error.message, /Fixture checker failed/);
+      assert.deepEqual(failure.context.session, {
+        status: "stopped",
+        stopReason: phase === "baseline" ? "execution_error" : "budget_exhausted",
+        attemptStatus: phase === "baseline" ? null : "execution_error",
+      });
+      const state = f.saved();
+      if (phase === "baseline") assert.match(state.error!, /Fixture checker failed/);
+      else {
+        assert.match(state.attempts[0]!.reasons.join("\n"), /Fixture checker failed/);
+        assert.equal(state.attempts[0]?.scoreGain, undefined);
+        assert.ok(state.attempts[0]?.recoveryCheckpoint);
+        assert.equal(state.best?.checkpoint, initial);
+      }
+      const shutdown = JSON.parse(
+        fs.readFileSync(path.join(f.workspace, "generated/shutdown.json"), "utf8"),
+      );
+      assert.ok(shutdown.started < shutdown.deadline);
+      assert.ok(shutdown.finished >= shutdown.deadline);
+      assert.equal(git(f.workspace, ["rev-parse", "HEAD"]), initial);
+      const pid = Number(fs.readFileSync(path.join(f.workspace, "generated/service.pid"), "utf8"));
+      assert.throws(() => process.kill(pid, 0), /ESRCH/);
+      assert.equal(fs.existsSync(path.join(f.session, ".run.lock")), false);
+    });
+  }
+});
+
+test("wrapped cancellation errors remain normal budget stops", async (t) => {
+  for (const phase of ["readiness", "collector"] as const) {
+    await t.test(phase, (t) => {
+      const f = fixture(t);
+      fs.writeFileSync(path.join(f.source, "wait.mjs"), "setInterval(() => {}, 1000);\n");
+      if (phase === "readiness") {
+        const file = path.join(f.source, "evalkit.yaml");
+        const config = YAML.parse(fs.readFileSync(file, "utf8"));
+        // The default readiness delay rejects with an AbortError wrapping the deadline reason.
+        config.target.start = "exec node wait.mjs";
+        fs.writeFileSync(file, YAML.stringify(config));
+      } else {
+        const file = path.join(f.source, "specs/core.yaml");
+        const spec = YAML.parse(fs.readFileSync(file, "utf8"));
+        spec.scenarios[0].kind = "command";
+        spec.scenarios[0].collect = {
+          command: "exec node wait.mjs",
+          methodFiles: ["wait.mjs"],
+        };
+        fs.writeFileSync(file, YAML.stringify(spec));
+      }
+      f.commit();
+      const stopped = cli(
+        f.source,
+        [
+          "start",
+          "--goal",
+          "Expire during preparation",
+          "--output",
+          f.session,
+          "--budget-seconds",
+          "1",
+        ],
+        2,
+      ).result;
+      assert.equal(stopped.status, "stopped");
+      assert.equal(stopped.stopReason, "budget_exhausted");
+      assert.match(stopped.stopDetail, /budget exhausted/);
+      assert.equal(stopped.error, undefined);
+      assert.equal(stopped.best, undefined);
     });
   }
 });
@@ -634,6 +775,7 @@ test("start refuses dirty source and overlapping outputs; baseline uncertainty s
   assert.equal(state.stopReason, "insufficient_evidence");
   assert.equal(state.attempts.length, 0);
   assert.equal(state.best?.accepted, false);
+  await assert.rejects(f.start(), /output already exists.*improve status --session/);
 });
 
 test("retained best-run tampering cannot be used as an acceptance baseline", async (t) => {
@@ -703,6 +845,10 @@ test("CLI JSON exposes baseline, attempt decisions, stop reasons, and actionable
     cli(f.source, ["evaluate", "--session", f.session, "--areas", "core"], 1).error.message,
     /Unknown flag/,
   );
+  assert.match(
+    cli(f.source, ["status", "--session", f.directory], 1).error.message,
+    /Not an improvement session: .* has no session\.json/,
+  );
 });
 
 test("execution-error JSON distinguishes ready sessions from exhausted budgets", async (t) => {
@@ -725,7 +871,7 @@ test("execution-error JSON distinguishes ready sessions from exhausted budgets",
         attemptStatus: "execution_error",
       });
       assert.equal(f.saved().status, failure.context.session.status);
-      assert.equal(failure.context.session.scoreGain, undefined);
+      assert.equal(f.saved().attempts[0]?.scoreGain, undefined);
     });
   }
 });
@@ -875,6 +1021,7 @@ for (const phase of ["baseline", "attempt"] as const) {
 test("stopping without an open attempt records its retained checkpoint", async (t) => {
   const f = fixture(t);
   await f.start();
+  assert.equal(improvementStatus(f.session).cleanup, null);
   f.edit({ quality: "partial" });
   const state = await stopImprovement(f.session, "Retain edits outside an attempt");
   assert.ok(state.stoppedCheckpoint);
@@ -887,6 +1034,20 @@ test("stopping without an open attempt records its retained checkpoint", async (
     git(f.source, ["rev-parse", `refs/aek/improvements/${state.id}/stopped`]),
   );
   assert.equal(git(f.workspace, ["rev-parse", "HEAD"]), f.initial);
+  // Ignored files must not block the printed worktree removal.
+  fs.mkdirSync(path.join(f.workspace, "node_modules"));
+  fs.writeFileSync(path.join(f.workspace, "node_modules/dependency.js"), "");
+  const { cleanup } = improvementStatus(f.session);
+  assert.equal(cleanup?.length, 2);
+  for (const command of cleanup!) {
+    const result = spawnSync("sh", ["-c", command], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  }
+  assert.equal(fs.existsSync(f.workspace), false);
+  assert.doesNotMatch(git(f.source, ["worktree", "list", "--porcelain"]), /session\/workspace/);
+  assert.equal(git(f.source, ["for-each-ref", "refs/aek/"]), "");
+  assert.equal(git(f.source, ["rev-parse", "HEAD"]), f.initial);
+  assert.throws(() => improvementStatus(f.session), /workspace is missing/);
 });
 
 test("ignored configuration fails before creating an improvement worktree", async (t) => {
@@ -896,6 +1057,27 @@ test("ignored configuration fails before creating an improvement worktree", asyn
   f.commit();
   await assert.rejects(f.start(), /Evaluation config must be tracked.*evalkit.yaml/);
   assert.equal(fs.existsSync(f.session), false);
+});
+
+test("cleanup advice waits for session locks and rejects invalid worker registries", async (t) => {
+  const f = fixture(t);
+  await f.start();
+  await stopImprovement(f.session, "Finished reviewing");
+  await withRunLock(f.session, () => {
+    const status = cli(f.source, ["status", "--session", f.session]).result;
+    assert.equal(status.cleanup, null);
+    assert.match(status.cleanupBlockedReason, /Session lock remains/);
+  });
+  const guard = path.join(f.session, ".run.lock-acquisition");
+  fs.mkdirSync(guard);
+  assert.equal(improvementStatus(f.session).cleanup, null);
+  fs.rmdirSync(guard);
+  assert.equal(improvementStatus(f.session).cleanup?.length, 2);
+  const registry = path.join(f.session, "process-groups.json");
+  fs.writeFileSync(registry, "[0]");
+  assert.throws(() => improvementStatus(f.session), /Invalid process group registry/);
+  fs.unlinkSync(registry);
+  assert.throws(() => improvementStatus(f.session), /ENOENT.*process-groups\.json/);
 });
 
 test("blocked and agent-error scenarios finish unscored attempts without discarding the baseline", async (t) => {
@@ -1060,6 +1242,12 @@ test("failed process cleanup stops the session before restoring source under a s
     const groups = JSON.parse(fs.readFileSync(path.join(f.session, "process-groups.json"), "utf8"));
     assert.equal(groups.length, 1);
     assert.equal(kill(-groups[0], 0), true);
+    const status = cli(f.source, ["status", "--session", f.session]).result;
+    assert.equal(status.cleanup, null);
+    assert.match(status.cleanupBlockedReason, /Owned worker groups are still running/);
+    assert.ok(status.cleanupBlockedReason.includes(String(groups[0])));
+    assert.equal(fs.existsSync(f.workspace), true);
+    assert.equal(kill(-groups[0], 0), true);
   } finally {
     mock.mock.restore();
     const groups = JSON.parse(fs.readFileSync(path.join(f.session, "process-groups.json"), "utf8"));
@@ -1072,4 +1260,7 @@ test("failed process cleanup stops the session before restoring source under a s
     }
     await delay(100);
   }
+  const status = improvementStatus(f.session);
+  assert.equal(status.cleanupBlockedReason, null);
+  assert.equal(status.cleanup?.length, 2);
 });

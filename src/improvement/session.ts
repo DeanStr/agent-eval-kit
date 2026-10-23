@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { cancellationSignal, CliInterruptionError, withCancellation } from "../cancellation.js";
+import { shellQuote } from "../cli-recovery.js";
 import { collectorInputs } from "../collectors/inputs.js";
 import {
   compareReports,
@@ -13,7 +14,11 @@ import { loadConfig } from "../config.js";
 import { assertArtifactIntegrity } from "../integrity.js";
 import { isWithin, prospectiveRealPath, sha256, stableJson, writeJson } from "../io.js";
 import { evaluateSuiteCompleteness } from "../promotion.js";
-import { withProcessRegistry, drainProcessRegistry } from "../process-registry.js";
+import {
+  withProcessRegistry,
+  drainProcessRegistry,
+  runningProcessGroups,
+} from "../process-registry.js";
 import { runEvaluation } from "../runner.js";
 import { assertEvaluationPlatform } from "../platform.js";
 import { evaluatorInputPaths } from "../run/inputs.js";
@@ -47,6 +52,14 @@ class CandidateExecutionError extends Error {
 
 class EvaluationCleanupError extends Error {}
 
+/** The session deadline is a valid stop, distinct from candidate or evaluator failures. */
+class BudgetExhaustedError extends Error {
+  constructor() {
+    super("Improvement time budget exhausted");
+    this.name = "BudgetExhaustedError";
+  }
+}
+
 /** Carries the final persisted state without another workspace or artifact read. */
 export class ImprovementSessionError extends Error {
   readonly session: ImprovementSessionContext;
@@ -70,6 +83,10 @@ const save = (directory: string, state: Session) =>
 
 function ownedWorkspace(directory: string, state: Session): string {
   const root = workspace(directory);
+  if (!fs.existsSync(root))
+    throw new Error(
+      `Improvement workspace is missing: ${root}. A removed workspace cannot be inspected or restored; its run evidence remains in the session directory.`,
+    );
   if (fs.lstatSync(root).isSymbolicLink() || fs.realpathSync(root) !== root)
     throw new Error("Improvement workspace moved or became a symlink; refusing to modify it");
   if (
@@ -97,6 +114,15 @@ function restoreBest(directory: string, state: Session, commit: string): void {
 
 function load(directory: string): Session {
   return sessionSchema.parse(JSON.parse(fs.readFileSync(stateFile(directory), "utf8")));
+}
+
+function sessionDirectory(input: string): string {
+  const directory = path.resolve(input);
+  if (!fs.existsSync(stateFile(directory)))
+    throw new Error(
+      `Not an improvement session: ${directory} has no session.json. Pass the --output directory created by aek improve start.`,
+    );
+  return fs.realpathSync(directory);
 }
 
 function configuration(directory: string, state: Pick<Session, "config" | "suite">) {
@@ -274,9 +300,9 @@ function finishAttempt(state: Session): void {
   if (reason) stop(state, reason);
 }
 
-function interruptionReason(state: Session, error: unknown): StopReason {
+function interruptionReason(error: unknown): StopReason {
   if (error instanceof CliInterruptionError) return "user_stopped";
-  return Date.now() >= Date.parse(state.deadline) ? "budget_exhausted" : "execution_error";
+  return error instanceof BudgetExhaustedError ? "budget_exhausted" : "execution_error";
 }
 
 function completeAttempt(directory: string, state: Session, attempt: Attempt): void {
@@ -302,12 +328,9 @@ async function evaluate(
   const tree = workingTree(root, directory);
   const head = git(root, ["rev-parse", "HEAD"]);
   const remaining = Date.parse(state.deadline) - Date.now();
-  if (remaining <= 0) throw new Error("Improvement time budget exhausted");
+  if (remaining <= 0) throw new BudgetExhaustedError();
   const controller = new AbortController();
-  const timer = setTimeout(
-    () => controller.abort(new Error("Improvement time budget exhausted")),
-    remaining,
-  );
+  const timer = setTimeout(() => controller.abort(new BudgetExhaustedError()), remaining);
   const parent = cancellationSignal();
   const signal = parent ? AbortSignal.any([parent, controller.signal]) : controller.signal;
   try {
@@ -361,7 +384,13 @@ async function evaluate(
         `${violation.message}\nEvaluation also failed: ${executionFailure.message}`,
       );
     }
-    signal.throwIfAborted();
+    // Cleanup can cross the deadline after an unrelated execution failure. Only
+    // treat failures caused by this signal (including wrapped aborts) as cancellation.
+    if (signal.aborted) {
+      for (let cause: unknown = executionFailure; cause instanceof Error; cause = cause.cause) {
+        if (cause === signal.reason) throw signal.reason;
+      }
+    }
     if (executionFailure) {
       if (!attempt?.evaluationDirectory) throw executionFailure;
       if (state.best) readRun(directory, state.best.run);
@@ -375,6 +404,7 @@ async function evaluate(
       });
       throw new CandidateExecutionError(executionFailure);
     }
+    signal.throwIfAborted();
     if (!result?.report) throw new Error("Full evaluation completed without a report");
     const run = {
       directory: path.relative(directory, result.runDir),
@@ -414,7 +444,14 @@ export async function startImprovement(
   if (isWithin(source, directory) || isWithin(directory, source))
     throw new Error("Improvement output must be a new directory outside the source checkout");
   fs.mkdirSync(path.dirname(directory), { recursive: true });
-  fs.mkdirSync(directory);
+  try {
+    fs.mkdirSync(directory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    throw new Error(
+      `Improvement output already exists: ${directory}. Choose a new --output directory; inspect an existing session with aek improve status --session ${shellQuote(directory)}.`,
+    );
+  }
   return withRunLock(
     directory,
     async () => {
@@ -441,6 +478,7 @@ export async function startImprovement(
         attempts: [],
       };
       git(root, ["update-ref", ref(state, "initial"), initial]);
+      writeJson(path.join(directory, "process-groups.json"), []);
       save(directory, state);
       onProgress(`Improvement session: ${directory}\nEdit candidates only in: ${root}`);
       try {
@@ -453,12 +491,13 @@ export async function startImprovement(
         save(directory, state);
         return state;
       } catch (error) {
-        const reason = interruptionReason(state, error);
+        const reason = interruptionReason(error);
         stop(state, reason);
         const detail = error instanceof Error ? error.message : String(error);
-        if (reason === "user_stopped") state.stopDetail = detail;
-        else state.error = detail;
+        if (reason === "execution_error") state.error = detail;
+        else state.stopDetail = detail;
         save(directory, state);
+        if (reason === "budget_exhausted") return state;
         throw new ImprovementSessionError(error, state);
       }
     },
@@ -468,7 +507,7 @@ export async function startImprovement(
 
 export async function beginAttempt(directoryInput: string, hypothesis: string): Promise<Session> {
   if (!hypothesis.trim()) throw new Error("An attempt requires a concrete hypothesis");
-  const directory = fs.realpathSync(directoryInput);
+  const directory = sessionDirectory(directoryInput);
   return withRunLock(
     directory,
     () => {
@@ -515,7 +554,7 @@ export async function evaluateAttempt(
   guidanceFile?: string,
   onProgress = (_message: string) => {},
 ): Promise<Session> {
-  const directory = fs.realpathSync(directoryInput);
+  const directory = sessionDirectory(directoryInput);
   return withRunLock(
     directory,
     async () => {
@@ -598,21 +637,25 @@ export async function evaluateAttempt(
         restoreBest(directory, state, state.best.checkpoint);
       } catch (error) {
         state.best = previousBest;
-        failure = error instanceof Error ? error : new Error(String(error));
-        attempt.status = "execution_error";
+        const cause = error instanceof Error ? error : new Error(String(error));
         delete attempt.scoreGain;
-        attempt.reasons = [failure.message];
-        // A failed execution remains an error, without a quality score or automatic retry.
-        const reason = interruptionReason(state, error);
-        const recoverable =
-          error instanceof CandidateExecutionError && reason === "execution_error";
-        if (recoverable) finishAttempt(state);
-        else {
+        attempt.reasons = [cause.message];
+        const reason = interruptionReason(error);
+        if (reason === "execution_error") {
+          // A failed execution remains an error, without a quality score or automatic retry.
+          attempt.status = "execution_error";
+          failure = cause;
+          if (error instanceof CandidateExecutionError) finishAttempt(state);
+          else {
+            stop(state, reason);
+            state.error = cause.message;
+          }
+        } else {
+          // Interruption and budget expiry end the session without judging the candidate.
+          attempt.status = "stopped";
           stop(state, reason);
-          if (reason === "user_stopped") {
-            attempt.status = "stopped";
-            state.stopDetail = failure.message;
-          } else state.error = failure.message;
+          state.stopDetail = cause.message;
+          if (reason === "user_stopped") failure = cause;
         }
         save(directory, state);
         if (!(error instanceof EvaluationCleanupError)) {
@@ -629,9 +672,9 @@ export async function evaluateAttempt(
             restoreBest(directory, state, state.best.checkpoint);
           } catch (recoveryError) {
             stop(state, "execution_error");
-            state.error = `${failure.message}; automatic restoration failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}. Inspect the retained workspace before any further Git operation.`;
+            state.error = `${cause.message}; automatic restoration failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}. Inspect the retained workspace before any further Git operation.`;
             attempt.reasons.push(state.error);
-            failure = new Error(state.error, { cause: failure });
+            failure = new Error(state.error, { cause });
           }
         }
       }
@@ -645,7 +688,7 @@ export async function evaluateAttempt(
 
 export async function stopImprovement(directoryInput: string, reason: string): Promise<Session> {
   if (!reason.trim()) throw new Error("Stopping requires a reason");
-  const directory = fs.realpathSync(directoryInput);
+  const directory = sessionDirectory(directoryInput);
   return withRunLock(
     directory,
     () => {
@@ -676,15 +719,39 @@ export async function stopImprovement(directoryInput: string, reason: string): P
 }
 
 export function improvementStatus(directoryInput: string) {
-  const directory = fs.realpathSync(directoryInput);
+  const directory = sessionDirectory(directoryInput);
   const state = load(directory);
   ownedWorkspace(directory, state);
   assertDetached(workspace(directory));
   if (state.best) readRun(directory, state.best.run);
+  const source = shellQuote(state.source);
+  let cleanupBlockedReason: string | null = null;
+  if (state.status === "stopped") {
+    const lock = [".run.lock", ".run.lock-acquisition"]
+      .map((name) => path.join(directory, name))
+      .find((file) => fs.existsSync(file));
+    if (lock)
+      cleanupBlockedReason = `Session lock remains: ${lock}. Wait for the active command to finish; if it crashed, inspect the workspace and stop surviving workers before removing the stale lock.`;
+    else {
+      const processFile = path.join(directory, "process-groups.json");
+      const groups = runningProcessGroups(processFile);
+      if (groups.length)
+        cleanupBlockedReason = `Owned worker groups are still running: ${groups.join(", ")}. Inspect ${processFile}, stop surviving workers, and rerun status before removing the workspace or session.`;
+    }
+  }
   return {
     directory,
     workspace: workspace(directory),
     ...state,
     nextBudgetStop: state.status === "ready" ? (budgetReason(state) ?? null) : null,
+    cleanupBlockedReason,
+    // Never run automatically: these discard the workspace and every retained candidate commit.
+    cleanup:
+      state.status === "stopped" && !cleanupBlockedReason
+        ? [
+            `git -C ${source} worktree remove ${shellQuote(workspace(directory))}`,
+            `git -C ${source} for-each-ref --format='delete %(refname)' ${shellQuote(`refs/aek/improvements/${state.id}/`)} | git -C ${source} update-ref --stdin`,
+          ]
+        : null,
   };
 }

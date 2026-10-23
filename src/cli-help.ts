@@ -168,7 +168,7 @@ export function commandHelp(
   });
   const exit =
     command === "improve"
-      ? "Exit: 0 completed (evaluate: accepted); 1 input/execution error; 2 rejected, inconclusive, or no new attempt permitted; 130/143 interrupted. Status/stop return 0 for successful inspection/stopping."
+      ? "Exit: 0 completed (evaluate: accepted); 1 input/execution error; 2 rejected, inconclusive, time budget exhausted, or no new attempt permitted; 130/143 interrupted. Status/stop return 0 for successful inspection/stopping."
       : key === "judge validate"
         ? "Exit: 0 completed (reviewer disagreements do not fail); 1 input/execution error; 130/143 interrupted."
         : key === "benchmark experiment"

@@ -29,6 +29,9 @@
   "files": [
     "dist",
     "docs",
+    "!docs/marketing/dispatch",
+    "!docs/marketing/example.html",
+    "!docs/marketing/video.html",
     "skills",
     "README.md",
     "examples/first-run/*.mjs",

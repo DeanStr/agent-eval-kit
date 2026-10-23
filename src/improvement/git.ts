@@ -3,6 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
+// Checkout, staging, and reset of a large repository can take minutes; this
+// only bounds a wedged Git process.
+const GIT_TIMEOUT_MS = 10 * 60_000;
+
 /** No shell, hooks, or caller-supplied Git index/worktree overrides. */
 export function git(root: string, args: string[], extra: NodeJS.ProcessEnv = {}): string {
   const env = Object.fromEntries(
@@ -12,7 +16,7 @@ export function git(root: string, args: string[], extra: NodeJS.ProcessEnv = {})
     return execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-C", root, ...args], {
       encoding: "utf8",
       maxBuffer: 32 * 1024 * 1024,
-      timeout: 30_000,
+      timeout: GIT_TIMEOUT_MS,
       env: {
         ...env,
         GIT_TERMINAL_PROMPT: "0",
@@ -25,8 +29,10 @@ export function git(root: string, args: string[], extra: NodeJS.ProcessEnv = {})
       stdio: ["ignore", "pipe", "pipe"],
     }).trimEnd();
   } catch (error) {
-    const detail = error as { stderr?: Buffer | string };
-    throw new Error(`Git ${args[0]} failed: ${String(detail.stderr ?? error).trim()}`);
+    const detail = error as { stderr?: Buffer | string; code?: string };
+    throw new Error(
+      `Git ${args[0]} failed: ${detail.code === "ETIMEDOUT" ? `timed out after ${GIT_TIMEOUT_MS / 60_000} minutes` : String(detail.stderr || error).trim()}`,
+    );
   }
 }
 

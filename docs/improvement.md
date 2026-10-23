@@ -71,7 +71,10 @@ are fixed at creation: default three candidate attempts, two consecutive
 attempts without improvement (including inconclusive and execution-error attempts),
 and a one-hour wall-clock budget including editing. New attempts check
 the deadline; active evaluations are cancelled when it expires. Editing is
-external to AEK, so an idle editor is not terminated by the deadline.
+external to AEK, so an idle editor is not terminated by the deadline. An
+evaluation cancelled or refused by the deadline records the attempt as `stopped`
+with `budget_exhausted` and exits 2; it is a budget stop, not an execution error,
+and the candidate is retained without a score.
 
 Each attempt is registered before editing and consumes one attempt slot. Do not
 commit or switch branches in the owned workspace. AEK captures tracked changes,
@@ -124,7 +127,7 @@ against the latest best.
 | `rejected` | Measured acceptance failure; retain evidence and restore best. |
 | `inconclusive` | Missing evidence, including blocked or agent-error scenarios; retain diagnostics, restore best, and continue within the original budgets. |
 | `execution_error` | Candidate execution failed; retain diagnostics without an acceptance score and restore best. Another attempt is permitted only if source, evaluator, retained artifacts, and restoration remain valid. |
-| `stopped` | User interruption or explicit stop; retain the candidate and restore best when ownership is intact. |
+| `stopped` | User interruption, explicit stop, or time budget expiry; retain the candidate and restore best when ownership is intact. |
 
 An initial baseline with insufficient evidence stops the session because there is
 no fully measured reference. A candidate with insufficient evidence consumes an
@@ -178,12 +181,18 @@ Review all accepted changes with `git diff <initial> <best.checkpoint>`. If the
 source branch is still at the initial commit, explicitly applying the result with
 `git merge --ff-only <best.checkpoint>` includes all accepted steps. AEK never
 applies the result to the original checkout automatically. Keep the session until
-its evidence and rejected candidates are no longer needed; ordinary Git worktree
-and ref cleanup can then remove them.
+its evidence and rejected candidates are no longer needed. For a stopped session
+with no remaining session lock or live owned workers, `status` lists the exact
+`cleanup` commands: they remove the workspace worktree and
+the session's `refs/aek/improvements/<session-id>/` refs from the source repository.
+Otherwise, `cleanupBlockedReason` explains what must be resolved before cleanup;
+stop surviving workers and rerun `status` before deleting the workspace or session.
+AEK never runs them; delete the session directory yourself afterwards. Removing the
+refs discards rejected candidates and, unless already applied, the best checkpoint.
 
 All commands support `--json`, using the normal AEK result envelope with progress
 on stderr. Exit 0 means success (`evaluate`: accepted); exit 2 means rejected,
-inconclusive, or no new attempt permitted. Exit 1 means input/execution failure;
+inconclusive, time budget exhausted, or no new attempt permitted. Exit 1 means input/execution failure;
 130/143 mean interruption. `status` and `stop` return 0 for successful inspection
 or stopping even if the session recorded a failure. Error JSON includes
 `context.sessionDir` so automation can inspect retained diagnostics.
