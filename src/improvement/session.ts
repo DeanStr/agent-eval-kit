@@ -32,6 +32,7 @@ import {
   type Session,
   type StartOptions,
   type StopReason,
+  type ImprovementSessionContext,
 } from "./contracts.js";
 import { assertClean, assertNoSubmodules, checkpoint, git, restore, workingTree } from "./git.js";
 import { caseRegressionFailures } from "./cases.js";
@@ -45,6 +46,21 @@ class CandidateExecutionError extends Error {
 }
 
 class EvaluationCleanupError extends Error {}
+
+/** Carries the final persisted state without another workspace or artifact read. */
+export class ImprovementSessionError extends Error {
+  readonly session: ImprovementSessionContext;
+
+  constructor(error: unknown, state: Session) {
+    super(error instanceof Error ? error.message : String(error), { cause: error });
+    this.name = "ImprovementSessionError";
+    this.session = {
+      status: state.status,
+      stopReason: state.stopReason ?? null,
+      attemptStatus: state.attempts.at(-1)?.status ?? null,
+    };
+  }
+}
 
 const stateFile = (directory: string) => path.join(directory, "session.json");
 const workspace = (directory: string) => path.join(directory, "workspace");
@@ -108,13 +124,6 @@ function configuration(directory: string, state: Pick<Session, "config" | "suite
       "Improvement web evaluations require target.start and must not allow an external server; evaluations must exercise this candidate",
     );
   config.paths.runs = path.join(directory, "runs");
-  // Acceptance always runs the complete configured suite, including optional areas and all splits.
-  config.promotion = {
-    ...config.promotion,
-    split: "all",
-    includeOptional: true,
-    minimumCoverage: 100,
-  };
   const specs = loadSpecs(config.paths.specs);
   for (const spec of specs) {
     for (const item of spec.rubric) {
@@ -342,7 +351,16 @@ async function evaluate(
       );
     }
     // Check only after all owned workers have exited, including on failed runs.
-    assertUnchanged();
+    try {
+      assertUnchanged();
+    } catch (error) {
+      if (!executionFailure) throw error;
+      const violation = error instanceof Error ? error : new Error(String(error));
+      throw new AggregateError(
+        [violation, executionFailure],
+        `${violation.message}\nEvaluation also failed: ${executionFailure.message}`,
+      );
+    }
     signal.throwIfAborted();
     if (executionFailure) {
       if (!attempt?.evaluationDirectory) throw executionFailure;
@@ -441,7 +459,7 @@ export async function startImprovement(
         if (reason === "user_stopped") state.stopDetail = detail;
         else state.error = detail;
         save(directory, state);
-        throw error;
+        throw new ImprovementSessionError(error, state);
       }
     },
     { recoverStale: false },
@@ -618,7 +636,7 @@ export async function evaluateAttempt(
         }
       }
       completeAttempt(directory, state, attempt);
-      if (failure) throw failure;
+      if (failure) throw new ImprovementSessionError(failure, state);
       return state;
     },
     { recoverStale: false },

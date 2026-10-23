@@ -8,6 +8,7 @@ import {
   improvementStatus,
   startImprovement,
   stopImprovement,
+  ImprovementSessionError,
 } from "./session.js";
 
 export async function improvementCommand(
@@ -30,6 +31,14 @@ export async function improvementCommand(
     const value = string(name);
     return value === undefined ? undefined : Number(value);
   }
+  async function withSessionContext<T>(action: () => Promise<T>): Promise<T> {
+    try {
+      return await action();
+    } catch (error) {
+      if (error instanceof ImprovementSessionError) output.context.session = error.session;
+      throw error;
+    }
+  }
   if (subcommand === "install") {
     const installed = installImprovementSkill(string("directory") ?? ".agents/skills");
     output.log(`Installed aek-improve: ${installed}`);
@@ -40,20 +49,22 @@ export async function improvementCommand(
   output.context.sessionDir = directory;
   switch (subcommand) {
     case "start": {
-      const session = await startImprovement(
-        {
-          config: string("config") ?? "evalkit.yaml",
-          output: directory,
-          goal: required("goal"),
-          ...omitUndefined({
-            suite: string("suite"),
-            maxAttempts: number("max-attempts"),
-            maxStalls: number("max-stalls"),
-            budgetSeconds: number("budget-seconds"),
-            minimumGain: number("minimum-gain"),
-          }),
-        },
-        output.log,
+      const session = await withSessionContext(() =>
+        startImprovement(
+          {
+            config: string("config") ?? "evalkit.yaml",
+            output: directory,
+            goal: required("goal"),
+            ...omitUndefined({
+              suite: string("suite"),
+              maxAttempts: number("max-attempts"),
+              maxStalls: number("max-stalls"),
+              budgetSeconds: number("budget-seconds"),
+              minimumGain: number("minimum-gain"),
+            }),
+          },
+          output.log,
+        ),
       );
       if (session.status === "stopped") process.exitCode = 2;
       break;
@@ -64,7 +75,9 @@ export async function improvementCommand(
       break;
     }
     case "evaluate": {
-      const session = await evaluateAttempt(directory, string("guidance"), output.log);
+      const session = await withSessionContext(() =>
+        evaluateAttempt(directory, string("guidance"), output.log),
+      );
       if (session.attempts.at(-1)?.status !== "accepted") process.exitCode = 2;
       break;
     }

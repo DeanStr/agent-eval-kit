@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { RunReport } from "./types.js";
+import type { ImprovementSessionContext } from "./improvement/contracts.js";
 
 export const JSON_RESULT_COMMANDS = new Set([
   "run",
@@ -27,7 +28,12 @@ export const JSON_RESULT_COMMANDS = new Set([
 /** The CLI owns stdout; progress remains separate from its final JSON result. */
 export class CliOutput {
   private value: unknown;
-  context: { runDir?: string; campaignDir?: string; sessionDir?: string } = {};
+  context: {
+    runDir?: string;
+    campaignDir?: string;
+    sessionDir?: string;
+    session?: ImprovementSessionContext;
+  } = {};
 
   constructor(
     readonly command: string,

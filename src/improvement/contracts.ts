@@ -92,3 +92,9 @@ export const sessionSchema = z
   .strict();
 export type Session = z.infer<typeof sessionSchema>;
 export type StopReason = z.infer<typeof stopReasonSchema>;
+
+export interface ImprovementSessionContext {
+  status: Session["status"];
+  stopReason: StopReason | null;
+  attemptStatus: Attempt["status"] | null;
+}

@@ -187,5 +187,12 @@ inconclusive, or no new attempt permitted. Exit 1 means input/execution failure;
 130/143 mean interruption. `status` and `stop` return 0 for successful inspection
 or stopping even if the session recorded a failure. Error JSON includes
 `context.sessionDir` so automation can inspect retained diagnostics.
+Failures recorded by baseline or candidate evaluation also include
+`context.session` with the final saved `status`, `stopReason`, and `attemptStatus`.
+The latter two fields are `null` when no stop reason or attempt exists. A `ready`
+session permits another explicit attempt within its original budgets; a `stopped`
+session does not, including when an otherwise recoverable failure used the last
+attempt or stall slot. These execution failures still exit 1 and keep `result: null`.
+Preflight errors may omit the session summary because no final state was recorded.
 Further attempt requests return a stopped session with exit 2; sessions stopped
 by execution errors continue to return exit 1.

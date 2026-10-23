@@ -364,13 +364,18 @@ test("inconclusive candidates and checker errors retain diagnostics and permit a
   }
 });
 
-test("incremental improvements are accepted below the release bar without relaxing promotion", async (t) => {
+test("incremental improvements preserve the recorded promotion policy and full-suite selection", async (t) => {
   for (const failingGate of [false, true]) {
     await t.test(failingGate ? "pre-existing failed gate" : "minimum release score", async (t) => {
       const f = fixture(t);
       const configFile = path.join(f.source, "evalkit.yaml");
       const config = YAML.parse(fs.readFileSync(configFile, "utf8"));
-      config.promotion = { minimumScore: 90 };
+      config.promotion = {
+        minimumScore: 90,
+        minimumCoverage: 70,
+        split: "development",
+        includeOptional: false,
+      };
       fs.writeFileSync(configFile, YAML.stringify(config));
       fs.writeFileSync(
         path.join(f.source, "product.json"),
@@ -393,6 +398,23 @@ test("incremental improvements are accepted below the release bar without relaxi
         assert.equal(state.best?.accepted, true);
         const report = JSON.parse(
           fs.readFileSync(path.join(f.session, state.best!.run.directory, "report.json"), "utf8"),
+        );
+        const recordedConfig = YAML.parse(
+          fs.readFileSync(
+            path.join(f.session, state.best!.run.directory, "inputs/config.resolved.yaml"),
+            "utf8",
+          ),
+        );
+        assert.deepEqual(recordedConfig.promotion, config.promotion);
+        assert.deepEqual(
+          report.areas.map((area: { id: string }) => area.id),
+          ["core", "optional"],
+        );
+        assert.equal(report.overallCoveragePct, 100);
+        assert.ok(
+          report.areas
+            .find((area: { id: string }) => area.id === "core")
+            .scenarios.some((scenario: { scenarioId: string }) => scenario.scenarioId === "HELD"),
         );
         assert.ok(report.overallScorePct < 90);
         assert.equal(report.gates.passed, !failingGate);
@@ -447,10 +469,25 @@ test("frozen evaluator edits and evaluation-time source writes are errors with p
       }
       if (mutation === "during") f.edit({ mutate: true });
       if (mutation === "during-error") f.edit({ mutate: true, quality: "error" });
-      await assert.rejects(
-        evaluateAttempt(f.session),
-        /Frozen evaluation input changed|evaluation input inventory changed|Candidate source changed during/,
-      );
+      if (mutation === "during-error") {
+        const failure = cli(f.source, ["evaluate", "--session", f.session], 1);
+        assert.match(failure.error.message, /Candidate source changed during/);
+        assert.match(failure.error.message, /Fixture checker failed/);
+        assert.deepEqual(failure.context.session, {
+          status: "stopped",
+          stopReason: "execution_error",
+          attemptStatus: "execution_error",
+        });
+        const decision = JSON.parse(
+          fs.readFileSync(path.join(f.session, "attempts/1/decision.json"), "utf8"),
+        );
+        assert.match(decision.reasons.join(" "), /Fixture checker failed/);
+      } else {
+        await assert.rejects(
+          evaluateAttempt(f.session),
+          /Frozen evaluation input changed|evaluation input inventory changed|Candidate source changed during/,
+        );
+      }
       const state = f.saved();
       assert.equal(state.stopReason, "execution_error");
       assert.equal(state.best?.checkpoint, f.initial);
@@ -668,6 +705,72 @@ test("CLI JSON exposes baseline, attempt decisions, stop reasons, and actionable
   );
 });
 
+test("execution-error JSON distinguishes ready sessions from exhausted budgets", async (t) => {
+  for (const limit of ["ready", "attempt_limit", "no_improvement"] as const) {
+    await t.test(limit, async (t) => {
+      const f = fixture(t);
+      await f.start({
+        ...(limit === "attempt_limit" ? { maxAttempts: 1 } : {}),
+        ...(limit === "no_improvement" ? { maxStalls: 1 } : {}),
+      });
+      await beginAttempt(f.session, "Exercise a candidate execution failure");
+      f.edit({ quality: "error" });
+      const failure = cli(f.source, ["evaluate", "--session", f.session], 1);
+      assert.equal(failure.status, "error");
+      assert.equal(failure.result, null);
+      assert.match(failure.error.message, /Fixture checker failed/);
+      assert.deepEqual(failure.context.session, {
+        status: limit === "ready" ? "ready" : "stopped",
+        stopReason: limit === "ready" ? null : limit,
+        attemptStatus: "execution_error",
+      });
+      assert.equal(f.saved().status, failure.context.session.status);
+      assert.equal(failure.context.session.scoreGain, undefined);
+    });
+  }
+});
+
+test("baseline error JSON includes persisted state while preflight errors omit it", (t) => {
+  const f = fixture(t);
+  const invalid = cli(
+    f.source,
+    ["start", "--goal", "Invalid config", "--config", "missing.yaml", "--output", f.session],
+    1,
+  );
+  assert.match(invalid.error.message, /missing.yaml/);
+  assert.equal(invalid.context.session, undefined);
+  assert.equal(fs.existsSync(f.session), false);
+  fs.writeFileSync(
+    path.join(f.source, "product.json"),
+    JSON.stringify({ ...f.product, quality: "error" }),
+  );
+  f.commit();
+  const failure = cli(f.source, ["start", "--goal", "Broken baseline", "--output", f.session], 1);
+  assert.match(failure.error.message, /Fixture checker failed/);
+  assert.deepEqual(failure.context.session, {
+    status: "stopped",
+    stopReason: "execution_error",
+    attemptStatus: null,
+  });
+  assert.equal(f.saved().stopReason, "execution_error");
+});
+
+test("error JSON retains the saved session state when its baseline artifacts are damaged", async (t) => {
+  const f = fixture(t);
+  const baseline = await f.start();
+  await beginAttempt(f.session, "Exercise a terminal integrity failure");
+  fs.appendFileSync(path.join(f.session, baseline.best!.run.directory, "report.json"), "\n");
+  const failure = cli(f.source, ["evaluate", "--session", f.session], 1);
+  assert.match(failure.error.message, /Artifact integrity verification failed/);
+  assert.deepEqual(failure.context.session, {
+    status: "stopped",
+    stopReason: "execution_error",
+    attemptStatus: "execution_error",
+  });
+  assert.equal(f.saved().stopReason, "execution_error");
+  assert.throws(() => improvementStatus(f.session), /Artifact integrity verification failed/);
+});
+
 test("skill installation is packaged, self-contained, and refuses replacement", (t) => {
   const f = fixture(t);
   const directory = path.join(f.directory, "skills");
@@ -738,7 +841,13 @@ for (const phase of ["baseline", "attempt"] as const) {
         assert.ok(fs.existsSync(marker), stdout + stderr);
         child.kill(signal);
         assert.equal(await exited, signal === "SIGINT" ? 130 : 143, stdout + stderr);
-        assert.equal(JSON.parse(stdout).status, "interrupted");
+        const envelope = JSON.parse(stdout);
+        assert.equal(envelope.status, "interrupted");
+        assert.deepEqual(envelope.context.session, {
+          status: "stopped",
+          stopReason: "user_stopped",
+          attemptStatus: phase === "attempt" ? "stopped" : null,
+        });
         const state = f.saved();
         assert.equal(state.stopReason, "user_stopped");
         assert.equal(state.error, undefined);
