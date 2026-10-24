@@ -1,9 +1,30 @@
 # Command guide
 
-Use `aek --help` for the command overview and `aek <command> --help` for exact
-options, including subcommands such as `aek campaign compare --help`. This guide groups commands by task;
-see the [documentation index](README.md) for configuration and evidence formats.
-With a local package installation, use `npx aek` (npm) or `pnpm exec aek` (pnpm).
+Use `aek --help` for the command overview and `aek <command> --help` (or
+`aek help <command>`) for exact options, including subcommands such as
+`aek help campaign compare`. `aek --version` prints the installed version. This
+guide groups commands by task; see the [documentation index](README.md) for
+configuration and evidence formats. With a local package installation, use
+`npx aek` (npm) or `pnpm exec aek` (pnpm).
+
+A mistyped command, subcommand, flag, YAML key, or enumerated YAML value is
+rejected with the closest valid spelling, such as ``Did you mean `aek run`?``.
+Terminal output is coloured when it goes to a terminal; set `NO_COLOR=1` to
+disable colour or `FORCE_COLOR=1` to keep it in pipes. Long provider and judge
+calls print a `… still working` line every 30 seconds.
+
+## Install the coding-agent skills
+
+```sh
+aek skills install                 # both aek-author and aek-improve
+aek skills install --agent claude  # .claude/skills for Claude Code
+```
+
+`skills install` installs both skills together and refuses to overwrite either.
+`--agent claude` selects `.claude/skills`; `codex`, `cursor`, and `grok` select
+`.agents/skills`. Without `--agent` or `--directory`, it uses `.claude/skills`
+when the project has a `.claude/` directory and no `.agents/` directory, and
+`.agents/skills` otherwise. The output names the reason for its choice.
 
 ## Guided authoring
 
@@ -60,6 +81,15 @@ a runnable controlled-capture fixture and separate checks, baseline, and aspirat
 It writes starter files without overwriting existing files. Customize them using
 the generated `evals/ONBOARDING.md` before evaluating your project.
 
+`init` also adds `.agent-eval/` to the project's `.gitignore` (creating the file if
+needed), because that directory holds retained evidence and captured browser
+sessions. For web, repository, and artifact starters it probes signed-in provider
+CLIs without model calls, as `aek doctor` does, and writes them into `evalkit.yaml`:
+the first ready provider collects, and a different ready provider judges when one is
+available. `--agent` and `--judge` choose explicitly. The command starter uses
+offline mock providers and needs no scenario; the visual starter keeps its own
+calibrated providers.
+
 `validate` checks configuration, specs, and declared input files. `doctor` checks
 local tooling and saved provider login without model calls. `list` shows the
 suite's definitions. `run --dry-run` validates the selected execution without
@@ -67,9 +97,77 @@ starting a target or provider or creating a run directory; add `--json` for a
 machine-readable execution plan. See [configuration fields](configuration.md)
 for all YAML defaults and limits. These checks do not establish product quality.
 
-New project runs default to `evalkit.yaml` in the current directory. Paths in the
-configuration resolve from `project.root`, which resolves from the config file.
-Commands accepting `--config` also accept `--suite name` for configured named suites.
+Without `--config`, commands use the nearest `evalkit.yaml` in the current
+directory or a parent directory, stopping at the enclosing Git repository root,
+and print `Using <path>` when it came from a parent. Paths in the configuration
+resolve from `project.root`, which resolves from the config file. Commands
+accepting `--config` also accept `--suite name` for configured named suites.
+
+## Develop a command checker
+
+```sh
+aek check                 # every applicable standalone command checker
+aek check CORE-01         # one rubric item; area/ID also works
+```
+
+`aek check` executes command graders exactly as a run would (same command,
+working directory, timeout, and output contract) without creating a run, sealing
+inputs, or retaining output. It prints each verdict with its reasoning, or the
+checker error with the end of its stderr. Exit status is 0 when every checker
+passes, 2 when any reports another verdict, and 1 for a checker execution error.
+Declared inapplicable criteria are skipped by default; selecting one explicitly
+fails with its exclusion reason. Selectors must be exactly `ID` or `area/ID`;
+empty or extra path components fail before any checker executes.
+Graders that read scenario evidence (`scenarios:` listed) or run with `cwd: run`
+need a real run and are rejected with the command to use. `AEK_RUN_DIR` points
+to a temporary directory that is discarded, and `AEK_CHECK=1` is set. Use
+`aek run` for evidence, scores, and comparisons. See the
+[checker helpers](graders.md#checker-helpers) for emitting verdict JSON.
+
+## Refer to runs
+
+`--run`, `--baseline`, `--candidate`, `--resume`, `--evidence`, and
+`--changed-since` accept a run directory, a run ID from `paths.runs` (the directory
+name, such as `2026-10-24T04-06-57`), `latest`, or `previous`. Aliases resolve
+among the runs the command can use: complete runs with a report for `compare`,
+`finalize`, `rescore`, `adjudicate`, `export`, and promotion; complete collections
+for `judge --evidence`; and incomplete runs of the matching mode for `--resume`.
+`previous` is the second-newest such run. Run IDs and aliases use the nearest (or
+`--config`) configuration to find `paths.runs`.
+
+```sh
+aek compare --baseline previous --candidate latest --fail-on-regression
+aek finalize --run latest --interactive
+```
+
+After each scored run, the command prints the run directory and the next
+commands with real paths: `finalize` when manual reviews are pending, and
+`compare` against the previous complete run.
+
+## Review run history
+
+```sh
+aek runs list               # newest 20 runs, with score change and trend
+aek runs list --limit 50 --json
+aek runs prune --keep 10 --dry-run
+aek runs prune --older-than 30
+```
+
+`runs list` shows each run's status, score, score change (Δ), coverage, critical
+gates, pending manual reviews, and the first line of any failure. Δ compares a
+report with the previous listed report only when their evaluator fingerprints
+match; otherwise it shows `evaluator changed`. A sparkline summarizes the score
+trend of reports whose scores are not withheld.
+
+`runs prune` deletes run directories beneath `paths.runs`: `--keep n` keeps the
+newest n runs, and `--older-than days` deletes only runs started earlier than
+that. With both, a run must satisfy both to be deleted. It skips runs with a live
+owner, any existing run lock (including stale or unreadable locks), or a lock
+acquisition in progress. Resolve interrupted ownership before removing a stale
+lock; detached workers may outlive their parent process. Deletion reserves the
+run against concurrent resume and review commands. Promoted baselines are separate
+snapshots and are unaffected; comparisons stored inside a deleted run are deleted
+with it. Use `--dry-run` first.
 
 | Run flag | Meaning |
 | --- | --- |
@@ -91,21 +189,24 @@ arguments fail; boolean flags such as `--headed` take no value.
 
 ## Structured results
 
-`run`, `collect`, `judge`, `judge validate`, `campaign`, `campaign compare`, `compare`,
-`validate`, `list`, `doctor`, `verify`, `rescore`, `finalize`, `adjudicate`, and all `improve` subcommands accept
-`--json`. Actual execution writes one version-1 JSON envelope to stdout; progress
+`run`, `check`, `collect`, `judge`, `judge validate`, `campaign`, `campaign compare`, `compare`,
+`validate`, `list`, `doctor`, `verify`, `rescore`, `finalize`, `adjudicate`, `runs list`,
+`runs prune`, `skills install`, and all `improve` subcommands accept `--json`. Actual execution writes one version-1 JSON envelope to stdout; progress
 and diagnostics go to stderr. Exit statuses keep their ordinary meanings.
 
 ```sh
 aek run --json > result.json
-aek compare --baseline /path/to/good-run --candidate /path/to/new-run --json
+aek compare --baseline previous --candidate latest --json
 ```
 
 The envelope contains `version`, `command`, `status`, `exitCode`, and `result`.
 Status is `completed`, `acceptance_failed`, `error`, or `interrupted`.
 A scored result includes `runId`, `runDir`, `execution`, `scorePct`, `coveragePct`,
-`scoreWithheld`, `provisionalScorePct`, `gates`, `manualPending`, `acceptanceFailures`,
-and `artifacts.report` / `artifacts.html`. When coverage withholds the score,
+`scoreWithheld`, `provisionalScorePct`, `gates`, `manualPending`, `items`,
+`acceptanceFailures`, and `artifacts.report` / `artifacts.html`. `items` lists every
+judged or pending criterion with `areaId`, `itemId`, `verdict` (null while a manual
+review is pending), `confidence`, `source`, `gate` (`passed`, `failed`,
+`unavailable`, or null), `unproven`, `manualPending`, and `reasoning`. When coverage withholds the score,
 `scorePct` is null and only `provisionalScorePct` contains the score over judged
 evidence. A successful collection supplies its manifest path and no score.
 
@@ -171,32 +272,34 @@ Campaign plans describe the same execution repeated sequentially. The separate
 
 ## Execute, recover, and review
 
-Replace the directory placeholders below with the paths printed by your commands.
+Each `<run>` below accepts a directory, run ID, `latest`, or `previous`
+(see [refer to runs](#refer-to-runs)).
 
 | Command | Effect |
 | --- | --- |
 | `aek run` | Collect evidence, execute graders, and write reports. |
-| `aek run --resume <run-directory>` | Reuse completed work when the original inputs still match. |
+| `aek run --resume latest` | Reuse completed work from the newest incomplete run when the original inputs still match. |
 | `aek collect` | Execute collection and command checks, then seal evidence without a model judge or score. |
 | `aek collect --resume <collection-directory>` | Recover an unfinished collection. |
 | `aek judge --evidence <collection-directory>` | Create a new scored run from sealed evidence. |
 | `aek judge --resume <judging-directory>` | Recover an interrupted judging run. |
 | `aek judge validate --dataset cases.json --labels labels.json --configurations configurations.json --output new-directory` | Compare configurations with reviewed evidence labels; retain JSON and HTML reports. |
-| `aek verify --run <run-directory>` | Check retained artifact integrity. |
-| `aek rescore --run <run-directory>` | Apply permitted scoring changes to a completed run without another provider call. |
-| `aek finalize --run <run-directory> --reviewer YOUR_NAME` | Apply edits from `manual-results.json` and record review history. |
-| `aek adjudicate --run <run-directory> --input decisions.json --reviewer YOUR_NAME` | Resolve eligible automatic abstentions using explicit human evidence. |
+| `aek verify --run <run>` | Check retained artifact integrity. |
+| `aek rescore --run <run>` | Apply permitted scoring changes to a completed run without another provider call. |
+| `aek finalize --run <run> --interactive` | Prompt for each pending manual verdict and notes, then record review history. |
+| `aek finalize --run <run> --reviewer YOUR_NAME` | Apply edits from `manual-results.json` and record review history. |
+| `aek adjudicate --run <run> --input decisions.json --reviewer YOUR_NAME` | Resolve eligible automatic abstentions using explicit human evidence. |
 
 Use the resume command matching the original run mode. Changed target inputs
 require a new run; changed judging criteria over reusable evidence require a new
 `judge` run. `rescore` reuses existing verdicts and cannot evaluate a new criterion.
-See [recovery](../README.md#run-resume-rescore-finalize),
+See [run recovery and review](runs.md#resume-an-interrupted-run),
 [collect/judge compatibility](evidence-workflows.md), and
 [adjudication input format](adjudication.md).
 
 For browser sessions, use `aek auth --persona buyer --at /login`, complete the
 login, then press Enter. `--email` uses a declared email authentication flow.
-See [authentication](../README.md#authentication) and [email](email.md).
+See [authentication](authentication.md) and [email](email.md).
 
 ## Compare, promote, and share
 
@@ -207,26 +310,21 @@ See [authentication](../README.md#authentication) and [email](email.md).
 | `aek campaign --resume <campaign-directory>` | Continue unstarted repetitions using verified original options and results. |
 | `aek campaign compare --baseline <old-campaign> --candidate <new-campaign>` | Compare repeated-run results. |
 | `aek benchmark experiment --recipe <recipe.json> --output <new-directory>` | Interleave multiple benchmark candidates in explicit blocks under a shared resource lock. |
-| `aek baseline promote --run <run-directory> --name main --reviewer YOUR_NAME` | Save an immutable baseline under the configured promotion policy. |
+| `aek baseline promote --run <run> --name main --reviewer YOUR_NAME` | Save an immutable baseline under the configured promotion policy. |
 | `aek baseline list` | List promoted baselines. |
 | `aek compare --baseline-name main --candidate <new-run>` | Compare against a promoted baseline. |
-| `aek reference promote --run <run-directory> --name voice --reviewer YOUR_NAME` | Promote snapshotted text candidates for use as text references. |
+| `aek reference promote --run <run> --name voice --reviewer YOUR_NAME` | Promote snapshotted text candidates for use as text references. |
 | `aek reference list` | List promoted text references. |
-| `aek export --public --run <run-directory>` | Create an integrity-verified, privacy-linted minimal export. |
+| `aek export --public --run <run>` | Create an integrity-verified, privacy-linted minimal export. |
 | `aek privacy lint --path <file-or-directory>` | Check proposed output for likely private data. |
 
 `compare` also accepts `--max-score-drop` and `--max-coverage-drop` in percentage
 points. Incompatible evaluations produce an audit report with numeric deltas
 withheld and exit 2. `--allow-incompatible` records an exploratory override.
-
-`comparison.html` shows baseline/candidate reasoning, confidence, critical-gate
-state, cited evidence links, and relevant screenshot/text previews. Use its
-regression, lost-coverage, and critical-gate filters to narrow the review, or
-inspect unchanged decisions. Links resolve from the output directory; retain
-the source runs alongside the report. Promoted baselines omit private evidence,
-so previews are available only for retained artifacts.
-Human adjudications show the reviewer rationale and provenance alongside the
-original automatic explanation.
+`comparison.html` supports a filtered review of reasoning, critical gates, and
+retained evidence; retain the source runs alongside the report. See
+[comparing runs](comparisons.md#compare-runs), [campaigns](comparisons.md#repeated-run-campaigns),
+and [public export](public-export.md).
 
 `aek judge validate` has a separate [reviewed-label workflow](judge-validation.md):
 it writes `validation-results.json` and `validation-results.html`, requires a new

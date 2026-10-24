@@ -2,6 +2,8 @@
 
 AEK supports controlled browser capture, deterministic checks, blind image comparisons, and repeated rubric judgements over fixed evidence. These capabilities use the existing providers, coverage rules, run lock, integrity index, reports, and baseline promotion. The design was informed by the visual evals in `DeanStr/traffic`; game-specific setup and metrics remain project-owned.
 
+Use controlled browser adapters to capture reproducible PNGs and temporal frames, then grade deterministic checks and blind comparisons against reference images or image-bearing baselines. Pairwise judges distinguish observed equivalence from abstention, retain every vote, and resume without recollecting completed evidence. Ordinary rubric judges can also vote repeatedly over fixed evidence.
+
 Agent-driven evidence excludes child frames outside the configured origin policy,
 including opaque origins created by iframe sandboxing or the `sandbox` directive
 in a `Content-Security-Policy` response header, even when their URL names an
@@ -23,6 +25,13 @@ For two local files, use `aek image compare --candidate new.png --reference old.
 --criterion "Labels are readable"`. AEK generates the collection setup and runs
 blind repeated judging. See [direct image comparison](image-comparison.md) for a
 walkthrough, optional absolute-quality gates, and every command flag.
+
+The default policy accepts improvement or observed equivalence. Add
+`--policy preference` to require improvement, or `--absolute-criterion` for a
+separate quality gate. For many pairs, `aek image batch --manifest comparisons.json --output review-01`
+adds a combined HTML/JSON report, bounded concurrency, resume and strict reuse
+of completed identical comparisons, including failures. See
+[batch image comparisons](image-comparison.md#batch-comparisons).
 
 ## Start a controlled visual project
 

@@ -28,8 +28,14 @@ import {
   loadComparisonInput,
   writeComparisonArtifacts,
 } from "./compare.js";
-import { loadConfig, loadResolvedConfig, type ConfigOverrides } from "./config.js";
-import { doctor } from "./doctor.js";
+import {
+  findConfigFile,
+  loadConfig,
+  loadResolvedConfig,
+  resolveConfigFile,
+  type ConfigOverrides,
+} from "./config.js";
+import { doctor, readyProviders } from "./doctor.js";
 import { assertArtifactIntegrity } from "./integrity.js";
 import { isWithin, prospectiveRealPath, sha256, stableJson } from "./io.js";
 import {
@@ -56,7 +62,13 @@ import {
   materializeSpecs,
   selectSpecs,
 } from "./specs.js";
-import { initializeProject } from "./templates.js";
+import {
+  ensureGitignore,
+  initializeProject,
+  STARTER_KINDS,
+  starterProviders,
+  type StarterKind,
+} from "./templates.js";
 import { createPublicExport, defaultPublicExportOutput, privacyLint } from "./public-export.js";
 import {
   PROVIDERS,
@@ -66,6 +78,22 @@ import {
   type RunReport,
 } from "./types.js";
 import { KIT_VERSION } from "./version.js";
+import { didYouMean } from "./suggest.js";
+import { formatPct, formatPoints, plural } from "./format.js";
+import {
+  listRuns,
+  resolveRunReference,
+  runSatisfies,
+  type RunRequirement,
+} from "./run-references.js";
+import { comparisonLines } from "./comparison-summary.js";
+import { runCheck, selectCheckItems, type CheckResult } from "./check.js";
+import { describeRuns, formatRunTable, pruneRuns, sparkline } from "./runs.js";
+import { chooseSkillsDirectory, installSkills } from "./skills.js";
+import { oneLine } from "./terminal.js";
+import { promptManualVerdicts, recordedManualVerdicts } from "./manual-review.js";
+import { shellArg } from "./cli-recovery.js";
+import { criterionLines, displayPath, headline, nextSteps } from "./run-summary.js";
 import { authoringCommand } from "./authoring/cli.js";
 import { assertEvaluationPlatform } from "./platform.js";
 
@@ -76,11 +104,16 @@ interface Args {
 }
 
 function parseArgs(argv: string[]): Args {
-  const [command = "help", ...rest] = argv;
+  const [first = "help", ...rest] = argv;
+  const command = ["--version", "-v"].includes(first) ? "version" : first;
   const flags: Record<string, string | boolean> = {};
   const positionals: string[] = [];
   for (let index = 0; index < rest.length; index++) {
     const value = requireDefined(rest[index], "rest[index]");
+    if (value === "-h") {
+      flags.help = true;
+      continue;
+    }
     if (!value.startsWith("--")) {
       positionals.push(value);
       continue;
@@ -113,38 +146,45 @@ const booleanFlags = new Set([
   "debug",
   "include-optional",
   "public",
+  "interactive",
 ]);
 
+const knownCommands = [
+  "init",
+  "doctor",
+  "validate",
+  "list",
+  "run",
+  "check",
+  "runs",
+  "compare",
+  "finalize",
+  "rescore",
+  "adjudicate",
+  "verify",
+  "baseline",
+  "reference",
+  "export",
+  "privacy",
+  "collect",
+  "judge",
+  "campaign",
+  "benchmark",
+  "image",
+  "auth",
+  "skills",
+  "author",
+  "improve",
+];
+
 function allowedCliFlags(args: Args): string[] {
-  const knownCommands = new Set([
-    "image",
-    "author",
-    "improve",
-    "adjudicate",
-    "auth",
-    "baseline",
-    "benchmark",
-    "reference",
-    "campaign",
-    "compare",
-    "doctor",
-    "export",
-    "finalize",
-    "init",
-    "list",
-    "privacy",
-    "rescore",
-    "run",
-    "collect",
-    "judge",
-    "validate",
-    "verify",
-  ]);
-  if (!knownCommands.has(args.command))
-    throw new Error(`Unknown command ${args.command}\n\n${help}`);
+  if (!knownCommands.includes(args.command))
+    throw new Error(
+      `Unknown command ${args.command}.${didYouMean(args.command, knownCommands, (value) => `\`aek ${value}\``)} Run \`aek --help\` to list commands.`,
+    );
   if (args.command === "campaign" && args.positionals[0] && args.positionals[0] !== "compare") {
     throw new Error(
-      `Unknown campaign subcommand ${args.positionals[0]}; expected \`compare\` or no subcommand`,
+      `Unknown campaign subcommand ${args.positionals[0]}; expected \`compare\` or no subcommand.${didYouMean(args.positionals[0], ["compare"])}`,
     );
   }
   const configOverrides = [
@@ -183,6 +223,7 @@ function allowedCliFlags(args: Args): string[] {
           "max-stalls",
           "budget-seconds",
           "minimum-gain",
+          "repetitions",
         ],
         attempt: ["session", "hypothesis"],
         evaluate: ["session", "guidance"],
@@ -190,8 +231,6 @@ function allowedCliFlags(args: Args): string[] {
         stop: ["session", "reason"],
       };
       const subcommand = args.positionals[0] ?? "";
-      if (!Object.hasOwn(commands, subcommand) && !(args.flags.help === true && !subcommand))
-        throw new Error(`improve requires ${Object.keys(commands).join(", ")}`);
       allowed = Object.hasOwn(commands, subcommand) ? commands[subcommand]! : [];
       break;
     }
@@ -199,11 +238,6 @@ function allowedCliFlags(args: Args): string[] {
       allowed = ["recipe", "output"];
       break;
     case "image":
-      if (
-        !["compare", "batch"].includes(args.positionals[0] ?? "") &&
-        !(args.flags.help === true && !args.positionals.length)
-      )
-        throw new Error("image requires compare or batch");
       if (args.positionals[0] === "batch") {
         allowed = ["manifest", "output", "concurrency", "reuse", "resume", "dry-run", "json"];
         break;
@@ -231,12 +265,7 @@ function allowedCliFlags(args: Args): string[] {
       ];
       break;
     case "author":
-      if (!args.positionals[0] && args.flags.help === true) {
-        allowed = [];
-        break;
-      }
-      if (!["install", "init", "status", "validate"].includes(args.positionals[0] ?? ""))
-        throw new Error("author requires install, init, status, or validate");
+      if (!args.positionals[0]) break;
       allowed =
         args.positionals[0] === "install"
           ? ["directory"]
@@ -245,7 +274,19 @@ function allowedCliFlags(args: Args): string[] {
             : ["project", "json", "require-ready"];
       break;
     case "init":
-      allowed = ["kind"];
+      allowed = ["kind", "agent", "judge"];
+      break;
+    case "check":
+      allowed = ["config", "areas", "json"];
+      break;
+    case "runs":
+      allowed =
+        args.positionals[0] === "prune"
+          ? ["config", "keep", "older-than", "dry-run", "json"]
+          : ["config", "limit", "json"];
+      break;
+    case "skills":
+      allowed = ["agent", "directory", "json"];
       break;
     case "validate":
     case "list":
@@ -255,13 +296,13 @@ function allowedCliFlags(args: Args): string[] {
       allowed = ["config", "providers"];
       break;
     case "verify":
-      allowed = ["run"];
+      allowed = ["run", "config"];
       break;
     case "privacy":
       allowed = ["path"];
       break;
     case "export":
-      allowed = ["public", "run", "output"];
+      allowed = ["public", "run", "output", "config"];
       break;
     case "auth":
       allowed = ["config", "url", "headed", "persona", "at", "click", "email", "json"];
@@ -270,7 +311,14 @@ function allowedCliFlags(args: Args): string[] {
       allowed = ["run", "config", "fail-under-score", "fail-under-coverage"];
       break;
     case "finalize":
-      allowed = ["run", "config", "reviewer", "fail-under-score", "fail-under-coverage"];
+      allowed = [
+        "run",
+        "config",
+        "reviewer",
+        "interactive",
+        "fail-under-score",
+        "fail-under-coverage",
+      ];
       break;
     case "adjudicate":
       allowed = ["run", "config", "input", "reviewer", "fail-under-score", "fail-under-coverage"];
@@ -344,24 +392,40 @@ function allowedCliFlags(args: Args): string[] {
   return [...new Set(allowed)];
 }
 
+const subcommands: Record<string, string[]> = {
+  benchmark: ["experiment"],
+  image: ["compare", "batch"],
+  author: ["install", "init", "status", "validate"],
+  improve: ["install", "start", "attempt", "evaluate", "status", "stop"],
+  baseline: ["promote", "list"],
+  reference: ["promote", "list"],
+  privacy: ["lint"],
+  runs: ["list", "prune"],
+  skills: ["install"],
+};
+
+/** "run", "baseline promote", or "campaign compare": the name `aek <name> --help` accepts. */
+function commandName(args: Args): string {
+  return args.positionals[0] &&
+    (subcommands[args.command] ||
+      (args.command === "campaign" && args.positionals[0] === "compare") ||
+      (args.command === "judge" && args.positionals[0] === "validate"))
+    ? `${args.command} ${args.positionals[0]}`
+    : args.command;
+}
+
 function validateCliShape(args: Args): void {
-  const allowed = allowedCliFlags(args);
-  const subcommands: Record<string, string[]> = {
-    benchmark: ["experiment"],
-    image: ["compare", "batch"],
-    author: ["install", "init", "status", "validate"],
-    improve: ["install", "start", "attempt", "evaluate", "status", "stop"],
-    baseline: ["promote", "list"],
-    reference: ["promote", "list"],
-    privacy: ["lint"],
-  };
   const choices = subcommands[args.command];
+  const given = args.positionals[0];
   if (
     choices &&
-    !choices.includes(args.positionals[0] ?? "") &&
+    !choices.includes(given ?? "") &&
     !(args.flags.help === true && args.positionals.length === 0)
   )
-    throw new Error(`${args.command} requires ${choices.join(" or ")}`);
+    throw new Error(
+      `${args.command} requires ${choices.join(" or ")}${given === undefined ? "." : ` (got ${given}).${didYouMean(given, choices)}`} See \`aek ${args.command} --help\`.`,
+    );
+  const allowed = allowedCliFlags(args);
   if (args.flags.resume && args.flags["dry-run"])
     throw new Error("--resume cannot be combined with --dry-run");
   if (
@@ -375,7 +439,9 @@ function validateCliShape(args: Args): void {
   const unknown = Object.keys(args.flags).filter((flag) => !allowed.includes(flag));
   if (unknown.length)
     throw new Error(
-      `Unknown flag${unknown.length === 1 ? "" : "s"}: ${unknown.map((flag) => `--${flag}`).join(", ")}`,
+      `Unknown flag${unknown.length === 1 ? "" : "s"}: ${unknown.map((flag) => `--${flag}`).join(", ")}.${unknown
+        .map((flag) => didYouMean(flag, allowed, (value) => `--${value}`))
+        .join("")} See \`aek ${commandName(args)} --help\` for options.`,
     );
   for (const [flag, value] of Object.entries(args.flags)) {
     if (booleanFlags.has(flag) && value !== true)
@@ -389,20 +455,24 @@ function validateCliShape(args: Args): void {
   ])
     if (args.flags[flag] !== undefined) percentageFlag(args, flag);
   const maximumPositionals =
-    args.command === "init" ||
-    [
-      "image",
-      "author",
-      "improve",
-      "baseline",
-      "benchmark",
-      "reference",
-      "campaign",
-      "privacy",
-      "judge",
-    ].includes(args.command)
-      ? 1
-      : 0;
+    args.command === "check"
+      ? Number.POSITIVE_INFINITY
+      : args.command === "init" ||
+          [
+            "image",
+            "author",
+            "improve",
+            "baseline",
+            "benchmark",
+            "reference",
+            "campaign",
+            "privacy",
+            "judge",
+            "runs",
+            "skills",
+          ].includes(args.command)
+        ? 1
+        : 0;
   if (args.positionals.length > maximumPositionals) {
     throw new Error(`Unexpected positional argument: ${args.positionals[maximumPositionals]}`);
   }
@@ -435,110 +505,86 @@ function assertComparisonOutputLocation(output: string, inputFiles: string[]): v
 
 const help = `aek — Agent Eval Kit v${KIT_VERSION}
 
-Usage: aek <command> [flags]
+Usage: aek <command> [options]
+       aek help <command>          Options for a command (same as aek <command> --help)
+       aek --version
 
-  image batch --manifest file.json [--output directory] [--resume directory]
-  image compare --candidate file --reference file --criterion text
-      [--policy preference|non_regression] [--absolute-criterion text]
-      [--judge codex|claude|grok|cursor|mock] [--judge-model id] [--judge-effort value]
-      [--minimum-votes n] [--maximum-votes n] [--agreement fraction]
-      [--minimum-confidence fraction] [--timeout-seconds n]
-      [--width pixels] [--height pixels] [--output new-directory]
-      [--dry-run [--json]]          Compare two local images without a project config
-  author install [--directory .agents/skills]
-                                   Install the project evaluation authoring skill
-  author init [--project directory] [--mode project|feature] [--description text]
-                                   Create a persistent requirements and decision map
-  author status [--project directory] [--json] [--require-ready]
-  author validate [--project directory] [--json] [--require-ready]
-                                   Validate the map, check rubric links and recorded trials
-  improve install [--directory .agents/skills]
-                                   Install the bounded project improvement skill
-  improve start --goal text --output directory [--config evalkit.yaml] [--suite name]
-  improve attempt --session directory --hypothesis text
-  improve evaluate --session directory [--guidance file]
-  improve status --session directory
-  improve stop --session directory --reason text
-                                   Retain candidates and restore the best checkpoint
-  init [directory] [--kind web|repository|command|artifact|visual]
-                                   Create a starter kit and onboarding guide
-  validate [--config file]         Validate configuration, specs, and fixture paths
-  list [--config file]             List areas, scenarios, graders, weights, and tags
-  doctor [--config file] [--providers a,b]
-                                    Check required CLIs, login, and browser support
-  run [--config file]              Execute scenarios, graders, and reports
-      [--url https://target] [--max-turns n (provider turns / Codex MCP calls)]
-      [--areas a,b] [--scenarios x,y] [--include-optional]
-      [--split development|evaluation|all] [--suite name]
-      [--changed-since prior-run | --text-cases area/dataset/case,...]
-      [--agent codex|claude|grok|cursor] [--judge codex|claude|grok|cursor]
-      [--agent-model id] [--judge-model id] [--headed] [--dry-run [--json]]
-      [--resume run-directory] [--fail-under-score pct]
-      [--fail-under-coverage pct]
-  campaign [--repetitions n]       Run the same evaluation repeatedly, sequentially
-      [--config file] [--suite name] [--areas a,b] [--scenarios x,y]
-      [--include-optional] [--split development|evaluation|all]
-      [--url url] [--max-turns n] [--agent provider] [--judge provider]
-      [--agent-model id] [--judge-model id] [--headed]
-      [--fail-under-score pct] [--fail-under-coverage pct]
-      [--dry-run [--json]] [--output directory]
-  campaign --resume directory      Continue unstarted repetitions with original options
-  campaign compare --baseline campaign --candidate campaign
-      [--output directory] [--fail-on-regression] [--allow-incompatible]
-  benchmark experiment --recipe recipe.json --output new-directory
-                                   Compare candidates in explicit blocks under a shared resource lock
-  reference promote --run directory --name name --reviewer name [--config file] [--suite name]
-  reference list [--config file] [--suite name]
-  verify --run directory           Verify checksums for retained run artifacts
-  export --public --run directory  Create a minimal, privacy-linted shareable package
-      [--output directory]
-  privacy lint --path target       Scan a file or directory for likely private data
-  auth --persona name              Capture a browser login session
-       --email                     Use the persona's declared email-login flow
-      [--at /login] [--click "Demo login"] [--json]
-  collect                         Seal evidence and executable checks without a judge
-      [--config file] [--suite name] [--areas a,b] [--scenarios x,y]
-      [--include-optional] [--split development|evaluation|all]
-      [--url url] [--max-turns n] [--agent provider] [--agent-model id]
-      [--headed] [--dry-run [--json]] [--resume collection-directory]
-  judge --evidence directory       Judge a sealed collection in a new run
-        [--config file] [--judge provider] [--judge-model id]
-        [--resume judging-run] [--fail-under-score pct] [--fail-under-coverage pct]
-  judge validate --dataset cases.json --labels labels.json
-        --configurations configurations.json --output new-directory
-                                  Compare judges against reviewed evidence; write JSON and HTML
-  rescore --run directory          Reapply current scoring/specs without an agent call
-  finalize --run directory         Merge manual results and append review provenance
-      [--reviewer name]
-  adjudicate --run directory --input decisions.json --reviewer name
-                                  Resolve automatic abstentions with audited human evidence
-  baseline promote --run dir --name name --reviewer name [--include-images]
-      [--mode release|milestone] [--reason text]
-  baseline list [--config file]    Manage append-only promoted baseline snapshots
-  compare --baseline run --candidate run
-                                    Write JSON and HTML baseline comparison
-      [--baseline-name name] [--config file]
-      [--output directory] [--fail-on-regression]
-      [--max-score-drop points] [--max-coverage-drop points]
-      [--allow-incompatible]
+Getting started
+  init [directory]                 Create a starter kit and onboarding guide
+  doctor                           Check provider CLIs, logins, and browser support
+  validate                         Validate configuration, specs, and referenced files
+  list                             List areas, scenarios, rubric items, weights, and tags
 
-Commands accepting --config also accept --suite <name>.
-Use --json with run, collect, judge, campaign, compare, validate, list, doctor,
-verify, rescore, finalize, adjudicate, or improve for structured results. Progress
-goes to stderr. Execution previews keep their separate plan format. Use --debug for stacks.
-The --fail-under-* gates also work with rescore and finalize. Rubric items with
-gate: true are always enforced. A failed CI gate uses exit code 2 while still
-preserving all generated artifacts. Compare requires compatible receipts unless
---allow-incompatible is explicit.
+Run and review
+  run                              Execute scenarios, checkers, and judges; write reports
+  check [item ...]                 Run command checkers now, without creating a run
+  runs list | prune                Show run history and score trend; delete old runs
+  compare                          Compare a candidate run with a baseline run
+  finalize                         Record manual verdicts (--interactive prompts for each)
+  rescore                          Reapply current weights and gates without model calls
+  adjudicate                       Resolve automatic abstentions with audited human evidence
+  verify                           Verify checksums for a retained run
 
-Provider adapters remove API-key environment variables before invocation, so
-Codex, Claude Code, Grok Build, and Cursor use their saved subscription login.
+Baselines and sharing
+  baseline promote | list          Manage append-only promoted baseline snapshots
+  reference promote | list         Promote reviewed text references
+  export --public                  Create a minimal, privacy-linted shareable package
+  privacy lint                     Scan files for likely private data
+
+Advanced evaluation
+  collect                          Seal evidence and executable checks without a judge
+  judge                            Judge a sealed collection in a new run
+  judge validate                   Compare judges against separately reviewed labels
+  campaign                         Repeat an evaluation; campaign compare pairs results
+  benchmark experiment             Compare candidates in counterbalanced blocks
+  image compare | batch            Compare local images without a project config
+  auth                             Capture a browser login session for a persona
+
+Coding-agent workflows
+  skills install                   Install the authoring and improvement skills
+  author init | status | validate  Keep a requirements map for guided authoring
+  improve start | attempt | evaluate | status | stop
+                                   Bounded hypothesis, edit, and evaluate loop
+
+Runs: --run, --baseline, --candidate, --resume, --evidence, and --changed-since accept
+a directory, a run ID from paths.runs, latest, or previous.
+Config: the nearest evalkit.yaml in this directory or a parent (up to the Git root);
+--config <file> selects another. Commands accepting --config also accept --suite <name>.
+Output: --json prints one structured result on stdout; progress goes to stderr.
+Set NO_COLOR=1 to disable colour. Use --debug for stack traces.
+Exit: 0 completed; 1 input/execution error; 2 acceptance failure (written reports are
+kept); 130/143 interrupted.
+
+Provider adapters remove API-key environment variables, so Codex, Claude Code,
+Grok Build, and Cursor use their saved subscription login.
 `;
 
 function stringFlag(args: Args, name: string): string | undefined {
   const value = args.flags[name];
   if (value === true) throw new Error(`--${name} requires a value`);
   return typeof value === "string" ? value : undefined;
+}
+
+/** A run flag as a directory, resolving run IDs and latest/previous beneath paths.runs. */
+function runFlag(args: Args, flag: string, requirement: RunRequirement): string | undefined {
+  const value = stringFlag(args, flag);
+  if (value === undefined) return undefined;
+  return resolveRunReference(value, {
+    flag,
+    requirement,
+    runsDir: () => configFor(args).config.paths.runs,
+  });
+}
+
+function requiredRunFlag(
+  args: Args,
+  flag: string,
+  requirement: RunRequirement,
+  missing: string,
+): string {
+  const value = runFlag(args, flag, requirement);
+  if (value === undefined) throw new Error(missing);
+  return value;
 }
 
 function csv(value?: string): string[] | undefined {
@@ -555,6 +601,27 @@ function positiveIntegerFlag(args: Args, name: string): number | undefined {
   if (!raw.trim() || !Number.isInteger(value) || value < 1)
     throw new Error(`--${name} must be a positive integer`);
   return value;
+}
+
+function nonNegativeIntegerFlag(args: Args, name: string): number | undefined {
+  const raw = stringFlag(args, name);
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (!raw.trim() || !Number.isInteger(value) || value < 0)
+    throw new Error(`--${name} must be a non-negative integer`);
+  return value;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${value.toFixed(1)} ${units[unit]}`;
 }
 
 function percentageFlag(args: Args, name: string): number | undefined {
@@ -584,13 +651,30 @@ function splitFlag(args: Args): EvalSplit | "all" {
   return value as EvalSplit | "all";
 }
 
+let announcedConfig: string | undefined;
+
+/** The explicit --config file, else the nearest evalkit.yaml, noting once when it came from a parent. */
+function projectConfigFile(args: Args): string {
+  const explicit = stringFlag(args, "config");
+  const file = resolveConfigFile(explicit);
+  if (explicit === undefined && path.dirname(file) !== process.cwd() && announcedConfig !== file) {
+    announcedConfig = file;
+    cliOutput.log(`Using ${path.relative(process.cwd(), file)}`, "muted");
+  }
+  return file;
+}
+
 function configFor(
   args: Args,
-  fallbackFile = "evalkit.yaml",
+  fallbackFile?: string,
   inheritedOverrides: ConfigOverrides = {},
   resolved = false,
 ): { file: string; config: EvalConfig; overrides: ConfigOverrides } {
-  const file = path.resolve(stringFlag(args, "config") ?? fallbackFile);
+  const explicit = stringFlag(args, "config");
+  const file =
+    explicit !== undefined || fallbackFile === undefined
+      ? projectConfigFile(args)
+      : path.resolve(fallbackFile);
   const overrides: ConfigOverrides = { ...inheritedOverrides };
   const suite = stringFlag(args, "suite");
   if (suite !== undefined) overrides.suite = suite;
@@ -610,14 +694,41 @@ function configFor(
   return { file, config: (resolved ? loadResolvedConfig : loadConfig)(file, overrides), overrides };
 }
 
-function init(directory: string, kind: string = "web"): void {
-  const files = initializeProject(directory, kind);
-  cliOutput.log(`Created ${files.map((file) => path.relative(process.cwd(), file)).join(", ")}`);
+function init(args: Args): void {
+  const directory = args.positionals[0] ?? ".";
+  const kind = stringFlag(args, "kind") ?? "web";
+  const explicit = omitUndefined({
+    agent: providerFlag(args, "agent"),
+    judge: providerFlag(args, "judge"),
+  });
+  const offline = kind === "command" || kind === "visual";
+  const providers =
+    STARTER_KINDS.includes(kind as StarterKind) &&
+    (kind !== "visual" || Object.keys(explicit).length)
+      ? starterProviders(
+          kind as StarterKind,
+          offline || (explicit.agent && explicit.judge) ? [] : readyProviders(),
+          explicit,
+        )
+      : undefined;
+  if (providers && offline) delete providers.detected;
+  const files = initializeProject(directory, kind, providers);
+  const root = path.resolve(directory);
+  cliOutput.log(`Created in ${displayPath(root)}:`);
+  for (const file of files) cliOutput.log(`  ${path.relative(root, file)}`);
+  const ignore = ensureGitignore(root);
+  if (ignore !== "unchanged")
+    cliOutput.log(`  .gitignore (${ignore === "created" ? "created" : "added"} .agent-eval/)`);
+  if (providers && kind !== "command")
+    cliOutput.log(
+      `Providers: agent ${providers.agent}, judge ${providers.judge}${providers.detected === undefined ? "" : providers.detected.length ? ` (detected: ${providers.detected.join(", ")})` : " (none signed in; edit evalkit.yaml and run aek doctor)"}`,
+      providers.detected?.length === 0 ? "warn" : undefined,
+    );
   const tasks: Record<string, string> = {
     web: "Set the target URL, exact workflow steps, expected values, and test accounts/data.",
     repository: "Name the public interface, documented contract, and source paths to inspect.",
     command:
-      "Implement evals/check.mjs and replace the example command criterion. The generated checker deliberately fails until implemented.",
+      "Implement evals/check.mjs and replace the example command criterion; `aek check CORE-01` runs it without creating a run. The generated checker deliberately fails until implemented.",
     artifact:
       "Supply the exported PNG, configure its source path, and define the required content and viewing size.",
     visual:
@@ -625,7 +736,7 @@ function init(directory: string, kind: string = "web"): void {
   };
   cliOutput.log(`Setup remaining: ${tasks[kind]}`);
   cliOutput.log(
-    `Next: follow ${path.join(directory, "evals", "ONBOARDING.md")} to customize, pilot, and calibrate this kit before promoting a baseline.`,
+    `Next: follow ${displayPath(path.join(root, "evals", "ONBOARDING.md"))} to customize, pilot, and calibrate this kit before promoting a baseline.`,
   );
   cliOutput.log(
     "Validation checks input contracts and referenced files; it does not establish that the checker is implemented or the evaluation detects defects.",
@@ -640,9 +751,27 @@ function enforceRunThresholds(args: Args, report: RunReport): string[] {
       minimumCoverage: percentageFlag(args, "fail-under-coverage"),
     }),
   );
-  for (const failure of failures) console.error(`CI threshold failed: ${failure}`);
+  for (const failure of failures) cliOutput.warn(`Acceptance failed: ${failure}`);
   if (failures.length) process.exitCode = 2;
   return failures;
+}
+
+/** The newest other complete run with a report, as the natural comparison baseline. */
+function previousReportRun(runsDir: string, runDir: string): string | undefined {
+  const runs = listRuns(runsDir).filter((entry) => runSatisfies(entry, "report"));
+  const index = runs.findIndex((entry) => path.resolve(entry.directory) === path.resolve(runDir));
+  return (index === -1 ? runs.at(-1) : runs[index - 1])?.directory;
+}
+
+function printHeadline(report: RunReport): void {
+  const result = headline(report);
+  cliOutput.log(`Result: ${result.text}`, result.tone);
+}
+
+function printRunCompletion(runDir: string, report: RunReport, runsDir: string): void {
+  cliOutput.log(`Run: ${displayPath(runDir)}`);
+  const steps = nextSteps(runDir, report, previousReportRun(runsDir, runDir));
+  if (steps.length) cliOutput.log(`Next:\n${steps.map((step) => `  ${step}`).join("\n")}`, "info");
 }
 
 function loadRunConfig(args: Args, runDir: string) {
@@ -782,11 +911,23 @@ function assertEvidenceConfigCompatible(
 }
 
 async function main(): Promise<void> {
-  const args = cliArgs;
-  if (["help", "--help", "-h"].includes(args.command)) {
+  if (cliArgs.command === "version") {
+    console.log(KIT_VERSION);
+    return;
+  }
+  if (["help", "--help", "-h"].includes(cliArgs.command) && !cliArgs.positionals.length) {
     console.log(help);
     return;
   }
+  // `aek help run` and `aek help baseline promote` are aliases for --help.
+  const args: Args =
+    cliArgs.command === "help"
+      ? {
+          command: requireDefined(cliArgs.positionals[0], "help topic"),
+          positionals: cliArgs.positionals.slice(1),
+          flags: { help: true },
+        }
+      : cliArgs;
   validateCliShape(args);
   if (args.flags.help) {
     console.log(
@@ -856,17 +997,129 @@ async function main(): Promise<void> {
   )
     assertEvaluationPlatform();
   if (args.command === "init") {
-    init(args.positionals[0] ?? ".", stringFlag(args, "kind"));
+    init(args);
+    return;
+  }
+
+  if (args.command === "check") {
+    const { config } = configFor(args);
+    const specs = selectSpecs(loadSpecs(config.paths.specs), csv(stringFlag(args, "areas")), true);
+    const selected = selectCheckItems(specs, args.positionals);
+    const results: CheckResult[] = [];
+    for (const { spec, item } of selected) {
+      const result = await runCheck(config, spec, item);
+      results.push(result);
+      const name = `${spec.id}/${item.id}`;
+      const seconds = `${(result.durationMs / 1000).toFixed(1)}s`;
+      if (result.error) {
+        cliOutput.log(`! ${name}  checker error after ${seconds}: ${result.error}`, "fail");
+        if (result.stderr)
+          cliOutput.log(
+            result.stderr
+              .split("\n")
+              .slice(-15)
+              .map((line) => `    ${line}`)
+              .join("\n"),
+            "muted",
+          );
+      } else {
+        const pass = result.verdict === "pass";
+        cliOutput.log(
+          `${pass ? "✓" : "✗"} ${name}  ${result.verdict} (${seconds})  ${oneLine(result.reasoning ?? "")}`,
+          pass ? "pass" : result.verdict === "partial" ? "warn" : "fail",
+        );
+      }
+    }
+    const errors = results.filter((result) => result.error).length;
+    const passed = results.filter((result) => result.verdict === "pass").length;
+    cliOutput.log(
+      `${plural(results.length, "checker")}: ${passed} passed, ${results.length - passed - errors} did not pass, ${plural(errors, "execution error")}. Nothing was retained; use aek run for evidence and scores.`,
+      errors ? "fail" : passed === results.length ? "pass" : "warn",
+    );
+    process.exitCode = errors ? 1 : passed === results.length ? 0 : 2;
+    cliOutput.result({ checks: results });
+    return;
+  }
+
+  if (args.command === "runs") {
+    const { config } = configFor(args);
+    const runsDir = config.paths.runs;
+    if (args.positionals[0] === "prune") {
+      const result = pruneRuns(
+        runsDir,
+        omitUndefined({
+          keep: nonNegativeIntegerFlag(args, "keep"),
+          olderThanDays: nonNegativeIntegerFlag(args, "older-than"),
+          dryRun: Boolean(args.flags["dry-run"]),
+        }),
+      );
+      for (const run of result.deleted)
+        cliOutput.log(
+          `${result.dryRun ? "would delete" : "deleted"} ${run.runId} (${formatBytes(run.bytes)})`,
+          result.dryRun ? "warn" : undefined,
+        );
+      for (const runId of result.skippedActive)
+        cliOutput.log(`skipped active run ${runId}`, "warn");
+      for (const runId of result.skippedLocked)
+        cliOutput.log(
+          `skipped locked run ${runId}; resolve active or interrupted ownership before pruning`,
+          "warn",
+        );
+      cliOutput.log(
+        `${result.dryRun ? "Would delete" : "Deleted"} ${plural(result.deleted.length, "run")} (${formatBytes(result.bytes)}); kept ${result.kept} in ${displayPath(runsDir)}.`,
+      );
+      cliOutput.result(result);
+      return;
+    }
+    const limit = positiveIntegerFlag(args, "limit") ?? 20;
+    const runs = describeRuns(runsDir);
+    const shown = runs.slice(-limit);
+    if (!shown.length) cliOutput.log(`No runs in ${displayPath(runsDir)}. Start one with aek run.`);
+    else {
+      const [header, ...rows] = formatRunTable(shown);
+      cliOutput.log(requireDefined(header, "runs table header"), "bold");
+      rows.forEach((row, index) => {
+        const run = shown[index]!;
+        cliOutput.log(
+          row,
+          run.status === "failed" || run.status === "unreadable"
+            ? "fail"
+            : run.status === "running"
+              ? "info"
+              : run.gatesPassed === false
+                ? "warn"
+                : undefined,
+        );
+      });
+      const scored = shown.filter((run) => run.scorePct !== null && !run.scoreWithheld);
+      if (scored.length > 1)
+        cliOutput.log(
+          `Score trend: ${sparkline(scored.map((run) => run.scorePct))}  ${scored.map((run) => formatPct(run.scorePct)).join(" → ")}`,
+          "muted",
+        );
+      if (runs.length > shown.length)
+        cliOutput.log(`${runs.length - shown.length} older runs hidden; use --limit.`, "muted");
+    }
+    cliOutput.result({ runsDir, runs: shown, total: runs.length });
+    return;
+  }
+
+  if (args.command === "skills") {
+    const choice = chooseSkillsDirectory(
+      omitUndefined({ agent: stringFlag(args, "agent"), directory: stringFlag(args, "directory") }),
+    );
+    const installed = installSkills(choice.directory);
+    cliOutput.log(`Installed aek-author: ${displayPath(installed.author)}`, "pass");
+    cliOutput.log(`Installed aek-improve: ${displayPath(installed.improve)}`, "pass");
+    cliOutput.log(
+      `Directory chosen by ${choice.reason}. Ask your coding agent to use $aek-author to build an evaluation, or $aek-improve to improve against one.`,
+    );
+    cliOutput.result({ directory: choice.directory, reason: choice.reason, ...installed });
     return;
   }
 
   if (args.command === "verify") {
-    const runDir = path.resolve(
-      stringFlag(args, "run") ??
-        (() => {
-          throw new Error("verify requires --run <directory>");
-        })(),
-    );
+    const runDir = requiredRunFlag(args, "run", "complete", "verify requires --run <run>");
     const index = assertArtifactIntegrity(runDir, { require: true })!;
     cliOutput.log(`Verified ${index.entries.length} artifacts; root ${index.rootSha256}`);
     cliOutput.result({
@@ -900,12 +1153,7 @@ async function main(): Promise<void> {
       throw new Error(
         "export currently requires --public to make the sanitization boundary explicit",
       );
-    const runDir = path.resolve(
-      stringFlag(args, "run") ??
-        (() => {
-          throw new Error("export --public requires --run <directory>");
-        })(),
-    );
+    const runDir = requiredRunFlag(args, "run", "report", "export --public requires --run <run>");
     const output = stringFlag(args, "output") ?? defaultPublicExportOutput(runDir);
     const exported = createPublicExport({ runDir, output });
     cliOutput.log(`Public export: ${exported.directory}`);
@@ -942,7 +1190,7 @@ async function main(): Promise<void> {
       failOnRegression: Boolean(args.flags["fail-on-regression"]),
       requireCompatible: !allowIncompatible,
     });
-    for (const failure of failures) console.error(`CI campaign comparison failed: ${failure}`);
+    for (const failure of failures) cliOutput.warn(`Acceptance failed: ${failure}`);
     if (failures.length) process.exitCode = 2;
     cliOutput.result({ comparison, artifacts, acceptanceFailures: failures });
     return;
@@ -956,7 +1204,7 @@ async function main(): Promise<void> {
       return;
     }
     if (args.positionals[0] !== "promote") throw new Error("reference requires promote or list");
-    const runDir = stringFlag(args, "run"),
+    const runDir = runFlag(args, "run", "report"),
       name = stringFlag(args, "name"),
       reviewer = stringFlag(args, "reviewer");
     if (!runDir || !name || !reviewer)
@@ -971,11 +1219,11 @@ async function main(): Promise<void> {
   if (args.command === "baseline") {
     const action = args.positionals[0];
     if (action === "promote") {
-      const runDir = path.resolve(
-        stringFlag(args, "run") ??
-          (() => {
-            throw new Error("baseline promote requires --run <directory>");
-          })(),
+      const runDir = requiredRunFlag(
+        args,
+        "run",
+        "report",
+        "baseline promote requires --run <run>",
       );
       const name =
         stringFlag(args, "name") ??
@@ -1023,9 +1271,9 @@ async function main(): Promise<void> {
   }
 
   if (args.command === "compare") {
-    const baselineInput = stringFlag(args, "baseline");
+    const baselineInput = runFlag(args, "baseline", "report");
     const baselineName = stringFlag(args, "baseline-name");
-    const candidateInput = stringFlag(args, "candidate");
+    const candidateInput = runFlag(args, "candidate", "report");
     if (!candidateInput || Boolean(baselineInput) === Boolean(baselineName)) {
       throw new Error(
         "compare requires --candidate and exactly one of --baseline or --baseline-name",
@@ -1055,9 +1303,10 @@ async function main(): Promise<void> {
       candidateFile: candidate.file,
     });
     cliOutput.log(
-      `Compared ${baseline.report.runId} → ${candidate.report.runId}: score ${comparison.overall.scorePct.delta === null ? "n/a" : `${comparison.overall.scorePct.delta >= 0 ? "+" : ""}${comparison.overall.scorePct.delta}`} points; coverage ${comparison.overall.coveragePct.delta === null ? "n/a" : `${comparison.overall.coveragePct.delta >= 0 ? "+" : ""}${comparison.overall.coveragePct.delta}`} points`,
+      `Compared ${baseline.report.runId} → ${candidate.report.runId}: score ${formatPct(comparison.overall.scorePct.baseline)} → ${formatPct(comparison.overall.scorePct.candidate)} (${formatPoints(comparison.overall.scorePct.delta)}); coverage ${formatPct(comparison.overall.coveragePct.baseline)} → ${formatPct(comparison.overall.coveragePct.candidate)} (${formatPoints(comparison.overall.coveragePct.delta)})`,
     );
-    cliOutput.log(`Artifacts: ${artifacts.json}, ${artifacts.html}`);
+    for (const line of comparisonLines(comparison)) cliOutput.log(line.text, line.tone);
+    cliOutput.log(`Report: ${displayPath(artifacts.html)}`);
     const failures = comparisonFailures(
       comparison,
       omitUndefined({
@@ -1067,7 +1316,7 @@ async function main(): Promise<void> {
         requireCompatible: !allowIncompatible,
       }),
     );
-    for (const failure of failures) console.error(`CI comparison failed: ${failure}`);
+    for (const failure of failures) cliOutput.warn(`Acceptance failed: ${failure}`);
     if (failures.length) process.exitCode = 2;
     cliOutput.result({ comparison, artifacts, acceptanceFailures: failures });
     return;
@@ -1084,15 +1333,14 @@ async function main(): Promise<void> {
         throw new Error(`Unknown provider ${value}`);
       return value as ProviderId;
     });
-    const configFile = path.resolve(stringFlag(args, "config") ?? "evalkit.yaml");
     let configuredProviders: ProviderId[] | undefined;
     let requireBrowser = false;
     if (
       stringFlag(args, "config") !== undefined ||
       stringFlag(args, "suite") !== undefined ||
-      fs.existsSync(configFile)
+      findConfigFile() !== undefined
     ) {
-      const { config } = configFor(args, configFile);
+      const { config } = configFor(args);
       const specs = loadSpecs(config.paths.specs);
       assertScenarioTargetCompatibility(specs, config.target);
       configuredProviders = [...new Set([config.agent.provider, config.judge.provider])];
@@ -1122,12 +1370,7 @@ async function main(): Promise<void> {
   }
 
   if (["rescore", "finalize", "adjudicate"].includes(args.command)) {
-    const runDir = path.resolve(
-      stringFlag(args, "run") ??
-        (() => {
-          throw new Error(`${args.command} requires --run`);
-        })(),
-    );
+    const runDir = requiredRunFlag(args, "run", "report", `${args.command} requires --run <run>`);
     cliOutput.context = { runDir };
     await withRunLock(runDir, async () => {
       const state = loadRunState(runDir);
@@ -1176,11 +1419,30 @@ async function main(): Promise<void> {
             inputFile,
             reviewer,
           });
-          cliOutput.log(
-            `Adjudicated: ${report.overallScorePct ?? "n/a"}% / ${report.overallCoveragePct}% coverage; ${report.manualPending} pending manual`,
-          );
+          cliOutput.log(`Adjudicated ${displayPath(runDir)}`);
+          printHeadline(report);
           cliOutput.result(runResult(runDir, report, enforceRunThresholds(args, report)));
           return;
+        }
+        let reviewer = stringFlag(args, "reviewer");
+        const pendingIds = prior.areas.flatMap((area) =>
+          area.pendingManual.map((id) => `${area.id}/${id}`),
+        );
+        if (args.flags.interactive) {
+          const answered = await promptManualVerdicts({
+            runDir,
+            report: prior,
+            specs,
+            ...omitUndefined({ reviewer }),
+          });
+          if (!answered.recorded.length)
+            throw new Error("No manual verdicts were entered; the run is unchanged");
+          // Each new answer already has its reviewer; preserve earlier decisions' attribution.
+          reviewer = undefined;
+        } else if (pendingIds.length && !recordedManualVerdicts(runDir).length) {
+          throw new Error(
+            `No manual verdicts are recorded in ${displayPath(path.join(runDir, "manual-results.json"))}; pending: ${pendingIds.join(", ")}. Set each "verdict" to pass, partial, fail, or not_found, or run \`aek finalize --run ${shellArg(displayPath(runDir))} --interactive\`.`,
+          );
         }
         const report = finalizeReport(
           omitUndefined({
@@ -1188,12 +1450,15 @@ async function main(): Promise<void> {
             report: prior,
             specs,
             config,
-            reviewer: stringFlag(args, "reviewer"),
+            reviewer,
           }),
         );
-        cliOutput.log(
-          `Finalized: ${report.overallScorePct ?? "n/a"}% / ${report.overallCoveragePct}% coverage; ${report.manualPending} pending`,
+        cliOutput.log(`Finalized ${displayPath(runDir)}`);
+        printHeadline(report);
+        const stillPending = report.areas.flatMap((area) =>
+          area.pendingManual.map((id) => `${area.id}/${id}`),
         );
+        if (stillPending.length) cliOutput.log(`Still pending: ${stillPending.join(", ")}`, "warn");
         cliOutput.result(runResult(runDir, report, enforceRunThresholds(args, report)));
         return;
       }
@@ -1234,9 +1499,14 @@ async function main(): Promise<void> {
         specs,
         state.mode === "judge" ? { config, specs: receiptSpecs } : undefined,
       );
-      cliOutput.log(
-        `Rescored: ${report.overallScorePct ?? "n/a"}% / ${report.overallCoveragePct}% coverage`,
-      );
+      cliOutput.log(`Rescored ${displayPath(runDir)}`);
+      for (const area of report.areas)
+        for (const line of criterionLines(
+          area,
+          specs.find((spec) => spec.id === area.id)?.rubric.map((item) => item.id) ?? [],
+        ))
+          cliOutput.log(`  ${line.text}`, line.tone);
+      printHeadline(report);
       cliOutput.result(runResult(runDir, report, enforceRunThresholds(args, report)));
     });
     return;
@@ -1271,10 +1541,10 @@ async function main(): Promise<void> {
       });
       return;
     }
-    const resumeDir = stringFlag(args, "resume");
-    const saved = resumeDir ? loadRunState(path.resolve(resumeDir)) : undefined;
+    const resumeDir = runFlag(args, "resume", "resumable-judging");
+    const saved = resumeDir ? loadRunState(resumeDir) : undefined;
     if (saved && saved.mode !== "judge") throw new Error("judge --resume requires a judging run");
-    const evidenceDir = stringFlag(args, "evidence") ?? saved?.evidenceSource;
+    const evidenceDir = runFlag(args, "evidence", "collection") ?? saved?.evidenceSource;
     if (!evidenceDir)
       throw new Error("judge requires --evidence <collection> or --resume <judging-run>");
     const sourceDir = fs.realpathSync(evidenceDir);
@@ -1315,7 +1585,8 @@ async function main(): Promise<void> {
       ...omitUndefined({ resumeDir }),
       onProgress: (message) => cliOutput.log(message),
     });
-    cliOutput.log(`Artifacts: ${result.runDir}`);
+    printHeadline(result.report);
+    printRunCompletion(result.runDir, result.report, config.paths.runs);
     cliOutput.result(
       runResult(result.runDir, result.report, enforceRunThresholds(args, result.report)),
     );
@@ -1323,15 +1594,15 @@ async function main(): Promise<void> {
   }
 
   const resumeFlag = ["run", "collect"].includes(args.command)
-    ? stringFlag(args, "resume")
+    ? runFlag(args, "resume", args.command === "collect" ? "resumable-collection" : "resumable-run")
     : undefined;
-  const resumeState = resumeFlag ? loadRunState(path.resolve(resumeFlag)) : undefined;
+  const resumeState = resumeFlag ? loadRunState(resumeFlag) : undefined;
   const campaignResume = args.command === "campaign" ? stringFlag(args, "resume") : undefined;
   const campaignState = campaignResume ? loadCampaignState(campaignResume) : undefined;
   const savedSelection = resumeState ?? campaignState;
   const { file, config, overrides } = configFor(
     args,
-    savedSelection?.configFile ?? "evalkit.yaml",
+    savedSelection?.configFile,
     savedSelection?.configOverrides ? omitUndefined(savedSelection.configOverrides) : undefined,
   );
   const allSpecs = loadSpecs(config.paths.specs);
@@ -1353,7 +1624,11 @@ async function main(): Promise<void> {
         "Input contracts and referenced files; does not establish implementation readiness or evaluation quality.",
     });
     cliOutput.log(
-      `Valid: ${file}; ${allSpecs.length} areas, ${templates} scenario templates, ${executions} executable cases, ${allSpecs.reduce((n, spec) => n + spec.rubric.length, 0)} rubric items.`,
+      `Valid: ${displayPath(file)}; ${plural(allSpecs.length, "area")}, ${plural(templates, "scenario template")}, ${plural(executions, "executable case")}, ${plural(
+        allSpecs.reduce((n, spec) => n + spec.rubric.length, 0),
+        "rubric item",
+      )}.`,
+      "pass",
     );
     return;
   }
@@ -1478,7 +1753,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const changedSince = stringFlag(args, "changed-since");
+  const changedSince = runFlag(args, "changed-since", "report");
   if (changedSince && (args.flags["text-cases"] !== undefined || resumeState))
     throw new Error(
       "--changed-since cannot be combined with --text-cases or --resume; resume reuses the recorded selection",
@@ -1506,7 +1781,7 @@ async function main(): Promise<void> {
       ...(scenarioIds === undefined ? {} : { scenarioIds: scenarioIds }),
       split: selectedSplit,
       configOverrides: overrides,
-      resumeDir: stringFlag(args, "resume"),
+      resumeDir: resumeFlag,
       dryRun: Boolean(args.flags["dry-run"]),
       dryRunJson: Boolean(args.flags.json),
     }),
@@ -1514,7 +1789,7 @@ async function main(): Promise<void> {
     collectOnly: args.command === "collect",
   });
   if (result.report) {
-    cliOutput.log(`Artifacts: ${result.runDir}`);
+    printRunCompletion(result.runDir, result.report, config.paths.runs);
     cliOutput.result(
       runResult(result.runDir, result.report, enforceRunThresholds(args, result.report)),
     );
@@ -1541,6 +1816,8 @@ const commandKey =
     "baseline",
     "reference",
     "privacy",
+    "runs",
+    "skills",
   ].includes(cliArgs.command) && cliArgs.positionals[0]
     ? `${cliArgs.command} ${cliArgs.positionals[0]}`
     : cliArgs.command;
@@ -1550,9 +1827,17 @@ const cliOutput = new CliOutput(
   cliArgs.flags.debug === true,
   JSON_RESULT_COMMANDS.has(commandKey) && !cliArgs.flags["dry-run"] && !cliArgs.flags.help,
 );
-const execute = ["image", "run", "campaign", "benchmark", "collect", "judge", "improve"].includes(
-  process.argv[2] ?? "",
-)
+const execute = [
+  "image",
+  "run",
+  "check",
+  "campaign",
+  "benchmark",
+  "collect",
+  "judge",
+  "improve",
+  "finalize",
+].includes(process.argv[2] ?? "")
   ? () => withCliSignals(main)
   : main;
 execute()

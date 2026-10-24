@@ -107,6 +107,9 @@ const scenarioSchema = z
   })
   .strict();
 
+/** The tag given to rubric items that declare none; a report with only this tag has no tag slices. */
+export const DEFAULT_RUBRIC_TAG = "general";
+
 const rubricSchema = z
   .object({
     // Command graders derive artifact filenames from rubric IDs too.
@@ -119,7 +122,7 @@ const rubricSchema = z
       .optional(),
     checkpoints: z.record(artifactIdSchema, z.array(artifactIdSchema).min(1)).optional(),
     weight: z.number().positive(),
-    tags: z.array(z.string().min(1)).default(["general"]),
+    tags: z.array(z.string().min(1)).default([DEFAULT_RUBRIC_TAG]),
     scenarios: z.array(z.string().min(1)).default([]),
     grader: graderSchema.default({ type: "llm" }),
     passCriteria: z.string().min(1),
@@ -300,7 +303,7 @@ export function loadSpecFile(file: string): EvalSpec {
     return omitUndefinedDeep({ ...specSchema.parse(raw), sourceFile: file });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw yamlValidationError(file, source, error);
+      throw yamlValidationError(file, source, error, specificationJsonSchema());
     }
     throw error;
   }

@@ -665,7 +665,7 @@ test("suite selection works for detached judging and named-baseline commands", a
     collection.runDir,
   ]);
   assert.equal(judged.status, 2, judged.stdout + judged.stderr);
-  const runDir = judged.stdout.match(/Artifacts: (.+)/)![1]!;
+  const runDir = judged.stdout.match(/^Run: (.+)$/m)![1]!;
   const promoted = datasetCli(f.configFile, [
     "baseline",
     "promote",

@@ -5,6 +5,26 @@ Choose an execution environment according to who controls those inputs. AEK's
 evidence contracts determine which results can be accepted; the surrounding
 runtime must control which effects are possible.
 
+## Evidence and safety model
+
+- Browser top-level navigation is exact-origin by default. Sibling subdomains require an explicit wildcard.
+- Each scenario gets a fresh provider context and isolated artifact directory.
+- Real scenario and judge providers execute from disposable working directories outside the target's instruction-file scope. Provider arguments that could import external instructions, sessions, agents, or rules are rejected; Claude also receives an isolated configuration home containing only copied subscription credentials. Browser actions use the allowlisted Playwright MCP; workspace inspection uses a path-contained, read-only MCP with list/read/literal-search tools. The workspace view hides the eval config, specs, fixture manifest, named fixture files, prior runs, and VCS metadata. Executable project checks belong in explicitly configured command graders.
+- Repository scenario prompts contain scenario instructions and success signals, but not rubric criteria or pass thresholds. Attempts by Codex, Claude, or Cursor to use provider-native shell/file/web tools across the MCP evidence boundary invalidate the scenario.
+- Judges cannot revisit the target and receive only the evidence bundle plus capped, round-robin screenshot attachments.
+- Judges receive canonical IDs for scenario records, observations, screenshots, and transcript steps. Unknown or out-of-scope citations, non-`cannot_judge` verdicts without citations, and defects without reached evidence fail the judge contract with retained diagnostics. Explicit abstentions may omit citations.
+- Screenshot citations in non-abstaining item/case verdicts and defects require actual image access: a selected direct attachment for Codex, or a successful evidence MCP view for other judges. Unselected images and failed views cannot support visual claims. Text-only judgments and explicit abstentions do not require image views.
+- Judges must return exactly the requested rubric and case identities. Missing, unexpected, or duplicate results abort the run; only an explicit `cannot_judge` counts as an abstention.
+- Raw provider output is retained. Provider timeouts, nonzero exits, evidence-boundary violations, malformed structured answers or events, missing scenario finalization, and corrupt transcripts abort the run with diagnostics instead of being mislabeled as model uncertainty. A valid judge abstention still becomes unavailable coverage.
+- Command strings in configuration are trusted project code. Review them before running an eval kit from someone else.
+
+See [shared judging contracts](judging-contracts.md) for the implementation of
+these judge rules. This is evaluation infrastructure, not a hardened hostile-code
+sandbox. Tool-policy monitoring can invalidate a run after an action has occurred;
+it cannot undo that action. Run untrusted projects in externally isolated,
+disposable environments. The sections below describe the boundaries of local,
+CI, and hosted execution, including credentials, mounts, and network access.
+
 ## Trusted local projects
 
 Run projects and evaluation configurations you trust under your normal development
@@ -60,7 +80,7 @@ accepted result. Retained fingerprints and compatible comparisons help identify
 changes; CI decides which definitions and baselines are authorized.
 
 Raw logs and evidence may contain private application data. Restrict artifact
-access and retention; use [public export](../README.md#public-export-and-privacy-lint)
+access and retention; use [public export](public-export.md)
 when deliberately sharing results.
 
 ## Tool-policy monitoring

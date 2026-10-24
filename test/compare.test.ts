@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import vm from "node:vm";
 import { scoreArea } from "../src/scoring.js";
+import { comparisonLines } from "../src/comparison-summary.js";
 import type { EvalConfig, EvalSpec, ScenarioEvidence } from "../src/types.js";
 import {
   compareReports,
@@ -14,6 +15,7 @@ import {
   loadResumableRunReport,
   writeComparisonArtifacts,
   comparisonHtml,
+  comparisonVerdict,
 } from "../src/compare.js";
 import type {
   AreaResult,
@@ -119,6 +121,37 @@ const report = (
   manualPending: 0,
   receipt: receipt(),
   gates: { passed: true, blocking: [] },
+});
+
+test("terminal comparison headlines account for finalized manual verdicts and changed items", () => {
+  const baseline = report("pending", [item("QUANTITY", "pass")], 100, 80);
+  baseline.areas[0]!.pendingManual = ["RECEIPT"];
+  baseline.manualPending = 1;
+  const finalized = (verdict: Verdict, score: number) =>
+    report(
+      "finalized",
+      [item("QUANTITY", "pass"), { ...item("RECEIPT", verdict), source: "manual" }],
+      score,
+      100,
+    );
+  const failed = compareReports(baseline, finalized("fail", 80));
+  assert.equal(failed.summary.added, 1);
+  assert.deepEqual(comparisonLines(failed)[0], {
+    text: "Regressed: score fell 20 points",
+    tone: "fail",
+  });
+  assert.match(comparisonLines(failed)[1]!.text, /core\/RECEIPT.*— → fail/);
+  assert.deepEqual(comparisonLines(compareReports(baseline, finalized("pass", 100)))[0], {
+    text: "Improved: coverage rose 20 points",
+    tone: "pass",
+  });
+  assert.deepEqual(
+    comparisonLines(compareReports(finalized("fail", 80), finalized("not_found", 80)))[0],
+    {
+      text: "Changed without regression: RECEIPT verdict changed",
+      tone: "muted",
+    },
+  );
 });
 
 test("hybrid comparisons use actual weighted contributions and partial coverage", () => {
@@ -264,7 +297,11 @@ test("comparison artifacts can be loaded from run directories and written as JSO
   const comparison = compareReports(report("base", [], 90, 90), loadComparisonInput(runDir).report);
   const artifacts = writeComparisonArtifacts(path.join(root, "out"), comparison);
   assert.equal(JSON.parse(fs.readFileSync(artifacts.json, "utf8")).candidate.runId, "candidate");
-  assert.match(fs.readFileSync(artifacts.html, "utf8"), /evaluation comparison/);
+  const html = fs.readFileSync(artifacts.html, "utf8");
+  assert.match(html, /<title>Demo · Run comparison<\/title>/);
+  assert.match(html, /<h1>Demo<\/h1><p class="subtitle">Run comparison<\/p>/);
+  assert.match(html, /Improved: score rose 10 points; coverage rose 10 points/);
+  assert.doesNotMatch(html, /evaluation comparison/);
 });
 
 test("comparison decisions retain reasoning, gate state and only relevant evidence with portable links", (t) => {
@@ -328,6 +365,50 @@ test("comparison decisions retain reasoning, gate state and only relevant eviden
   assert.equal(
     JSON.parse(fs.readFileSync(artifacts.json, "utf8")).items[0].candidate.gate.status,
     "failed",
+  );
+});
+
+test("comparison pages lead with a verdict derived from item, gate, and compatibility changes", () => {
+  const gate = (status: "passed" | "failed", verdict: Verdict) => ({
+    itemId: "QUANTITY",
+    status,
+    verdict,
+    reason:
+      status === "passed" ? "Critical criterion passed." : "Critical criterion received fail.",
+  });
+  const passing = report("base", [item("QUANTITY", "pass"), item("EMPTY", "pass")], 100, 100);
+  passing.areas[0]!.gates = [gate("passed", "pass")];
+  const failing = report("candidate", [item("QUANTITY", "fail"), item("EMPTY", "pass")], 50, 100);
+  failing.areas[0]!.gates = [gate("failed", "fail")];
+  for (const value of [passing, failing]) value.byTag = { general: value.byTag.workflow! };
+  const regressed = compareReports(passing, failing);
+  assert.deepEqual(comparisonVerdict(regressed), {
+    tone: "bad",
+    text: "Regressed: QUANTITY now fails; 1 critical gate newly failing",
+  });
+  const html = comparisonHtml(regressed);
+  assert.ok(
+    html.indexOf("Regressed: QUANTITY now fails") < html.indexOf('class="headline"'),
+    "the verdict precedes the numbers",
+  );
+  assert.match(html, /<p class="verdict bad">/);
+  assert.doesNotMatch(html, /<h2>Tags<\/h2>/, "only declared tags are diagnostic slices");
+  assert.deepEqual(comparisonVerdict(compareReports(failing, passing)), {
+    tone: "good",
+    text: "Improved: QUANTITY now passes; 1 critical gate newly passing",
+  });
+  assert.deepEqual(comparisonVerdict(compareReports(passing, passing)), {
+    tone: "neutral",
+    text: "No change",
+  });
+  const incompatible = { ...failing, receipt: receipt("other", "changed-method") };
+  assert.equal(
+    comparisonVerdict(compareReports(passing, incompatible)).text,
+    "Incompatible evaluator inputs: results are not comparable, so numeric deltas are withheld.",
+  );
+  assert.match(
+    comparisonVerdict(compareReports(passing, incompatible, { allowIncompatible: true })).text,
+    /^Incompatible evaluator inputs \(compared by override\)\. Regressed: QUANTITY now fails/,
   );
 });
 

@@ -18,7 +18,9 @@ import { judgeArea, runCommandGrader } from "./graders.js";
 import { writeArtifactIndex } from "./integrity.js";
 import { createTimestampedDirectory, sha256, stableJson, writeJson } from "./io.js";
 import { startLifecycle, readSetupRecord } from "./lifecycle.js";
-import { RunLogger } from "./log.js";
+import { RunLogger, type ProgressSink } from "./log.js";
+import { criterionLines, headline } from "./run-summary.js";
+import { formatPct, plural } from "./format.js";
 import { writeReportArtifacts } from "./report.js";
 import { RunReceipts } from "./run/receipt.js";
 import { executeScenario } from "./scenario.js";
@@ -57,7 +59,7 @@ export interface RunOptions {
   textCaseIds?: string[];
   previewRepetitions?: number;
   onRunCreated?: (runDir: string) => void;
-  onProgress?: (message: string) => void;
+  onProgress?: ProgressSink;
 }
 
 function createRunDir(root: string): string {
@@ -587,8 +589,14 @@ export async function runEvaluation(
           caseResults: judged.cases,
         });
         areaResults.push(area);
+        for (const line of criterionLines(
+          area,
+          spec.rubric.map((item) => item.id),
+        ))
+          logger.line(`  ${line.text}`, line.tone);
         logger.line(
-          `  score ${area.scorePct ?? "n/a"}% / ${area.coveragePct}% coverage; ${area.pendingManual.length} manual`,
+          `  ${spec.id}: ${formatPct(area.scorePct)} score · ${formatPct(area.coveragePct)} coverage${area.pendingManual.length ? ` · ${plural(area.pendingManual.length, "manual review")} pending` : ""}`,
+          "bold",
         );
         persist();
       }
@@ -624,18 +632,15 @@ export async function runEvaluation(
       const report = persist();
       state.status = "complete";
       writeJson(stateFile, state);
-      logger.line(
-        report.scoreWithheld
-          ? `Score withheld: ${report.overallCoveragePct}% coverage; provisional ${report.overallScorePct ?? "n/a"}%`
-          : `Overall ${report.overallScorePct ?? "n/a"}% / ${report.overallCoveragePct}% coverage`,
-      );
-      logger.line(`Report ${path.join(runDir, "report.html")}`);
+      const result = headline(report);
+      logger.line(`Result: ${result.text}`, result.tone);
+      logger.line(`Report: ${path.join(runDir, "report.html")}`);
       return { runDir, report };
     } catch (error) {
       state.status = "failed";
       state.lastError = error instanceof Error ? error.message : String(error);
       writeJson(stateFile, state);
-      logger.line(`FATAL ${state.lastError}`);
+      logger.line(`FATAL ${state.lastError}`, "fail");
       logger.line(
         `With unchanged inputs, retry with: aek ${options.collectOnly ? "collect" : "run"} --resume ${shellQuote(runDir)}. After changing config, checker/collector code, fixtures, or the target, repeat the original command without --resume to start a new run.`,
       );

@@ -29,8 +29,9 @@ With a local npm install, use `npx aek`; with a local pnpm install, use
 
 | Symptom | What to check |
 | --- | --- |
-| `aek` is not found | Use the local package runner above, or build and globally link the source checkout as described in the [quick start](../README.md#quick-start). |
-| No config file | Run in the directory containing `evalkit.yaml`, pass `--config`, or create a starter with `aek init`. |
+| `aek` is not found | Use the local package runner above, or build and globally link the source checkout as described in [installation](../README.md#from-a-source-checkout). |
+| No `evalkit.yaml` in this or a parent directory | Run inside the project (AEK searches parent directories up to the Git root), pass `--config`, or create a starter with `aek init`. |
+| Config file not found | The explicit `--config` path does not exist; check the path relative to the current directory. |
 | Initialization refuses an existing file | Preserve the existing kit and edit it, or initialize in a new empty directory. Initialization does not overwrite files. |
 | Missing environment variable | Set the named variable in the environment or `.env` beside the config. Existing environment values take precedence. |
 | Missing input or invalid `methodFiles` | Check paths from `project.root`. Declare the checker and all evaluator dependencies in `methodFiles`; fixture file entries resolve from the fixture document. |
@@ -63,7 +64,7 @@ to determine what was actually reached.
 
 Application data persists independently of browser sessions. If repetitions see
 different state, provide an idempotent reset in `target.setup` or isolate test
-accounts/records. See [onboarding](onboarding.md) and [target lifecycle](../README.md#local-target-lifecycle).
+accounts/records. See [onboarding](onboarding.md) and [target lifecycle](configuration.md#target-lifecycle).
 
 Saved-session loss detection recognizes explicit login routes and authentication
 expiry query signals. Resource-creation routes such as `/admin/sessions/new` are
@@ -87,13 +88,13 @@ For a scenario failure, inspect `<scenario-id>/provider-stderr.log`,
 ordinary judge failure, inspect `areas/<area-id>/_judge/`; for command checks,
 inspect `areas/<area-id>/graders/`. `run.log` identifies the failing phase.
 These files can contain private evaluation data; use a
-[public export](../README.md#public-export-and-privacy-lint) when sharing results.
+[public export](public-export.md) when sharing results.
 
 Command graders must explicitly select `output: exit-code` or `output: json`.
 JSON mode requires a successful process exit and one valid result object on
 stdout; put diagnostic logging on stderr. Invalid JSON, unexpected exit codes,
 signals, and timeouts are execution errors. See the
-[grader contract](../README.md#grader-types) for supported fields and exit codes.
+[grader contract](graders.md#command) for supported fields and exit codes.
 Malformed provider results or unsupported evidence citations also fail execution
 and retain diagnostics; they are not model abstentions.
 

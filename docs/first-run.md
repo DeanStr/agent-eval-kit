@@ -44,6 +44,9 @@ The mock scenario contributes no measured claims. Both automatic checks execute 
 ## Read the report
 
 You should see **100% score, 80% coverage, and a passed critical gate**. The command exits 0.
+The terminal lists each criterion as it is graded (`✓ QUANTITY pass · gate  Expected
+1000 cents; received 1000 cents.`), ends with a `Result:` line, and prints the next
+commands to run with this run's path filled in.
 
 | Report entry | Result | Meaning |
 | --- | --- | --- |
@@ -71,11 +74,8 @@ This abbreviated `report.json` excerpt corresponds to the working example:
 }
 ```
 
-Record the directory containing that report. Replace the placeholder with the run ID printed by the command:
-
-```bash
-baseline="$demo/.agent-eval/runs/<first-run-id>"
-```
+You do not need to record the run directory: commands that take a run also accept
+its ID or `latest` / `previous`, resolved within the configuration's runs directory.
 
 ## Introduce a regression
 
@@ -103,15 +103,18 @@ This implementation ignores quantity. The new report should show:
 
 Exit 2 is expected here: the harness collected evidence and found a critical product defect. It writes the reports before exiting. Execution errors, such as invalid grader JSON, use exit 1 instead.
 
-Record the second run ID and compare:
+Compare the two runs:
 
 ```bash
-candidate="$demo/.agent-eval/runs/<second-run-id>"
-npx --no-install aek compare --baseline "$baseline" --candidate "$candidate" --fail-on-regression
+npx --no-install aek compare --config "$demo/evalkit.yaml" \
+  --baseline previous --candidate latest --fail-on-regression
 ```
 
-The comparison also exits 2. Open the printed `comparison.html`: `QUANTITY` regressed, the score dropped 75 percentage points, and coverage stayed unchanged. The evaluator fingerprints remain compatible because you changed the target implementation rather than the evaluation definition. Start a new run when changing the target; resume is for continuing the same inputs.
+The comparison also exits 2. Its output names the change, `✗ cart/QUANTITY pass → fail`,
+and the printed `comparison.html` shows that the score dropped 75 percentage points
+while coverage stayed unchanged. `aek runs list --config "$demo/evalkit.yaml"` shows
+both runs with their score change. The evaluator fingerprints remain compatible because you changed the target implementation rather than the evaluation definition. Start a new run when changing the target; resume is for continuing the same inputs.
 
 ## Evaluate your project next
 
-Use [onboarding your project](onboarding.md) to choose a target-specific starter and repeat this good-versus-broken calibration with a requirement from your own project. The generated `evals/ONBOARDING.md` includes preparation steps and a completion checklist. Replace command graders with checks relevant to your project, choose real providers for LLM-graded scenarios, and retain manual review only where a person must supply evidence. See [grader types](../README.md#grader-types), [CI thresholds](../README.md#ci-thresholds), and [manual finalization](../README.md#run-resume-rescore-finalize) for the next steps.
+Use [onboarding your project](onboarding.md) to choose a target-specific starter and repeat this good-versus-broken calibration with a requirement from your own project. The generated `evals/ONBOARDING.md` includes preparation steps and a completion checklist. Replace command graders with checks relevant to your project, choose real providers for LLM-graded scenarios, and retain manual review only where a person must supply evidence. See [grader types](graders.md), [CI thresholds](runs.md#ci-thresholds), and [manual finalization](runs.md#finalize-manual-checks) for the next steps.

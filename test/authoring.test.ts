@@ -184,6 +184,10 @@ test("authoring skill installs with its resources and refuses overwrites", (t) =
     "templates/review-note.md",
     "references/docs/authoring.md",
     "references/docs/existing-tests.md",
+    // generation.md directs the agent to these field-contract references.
+    "references/docs/configuration.md",
+    "references/docs/specs.md",
+    "references/docs/graders.md",
     "references/README.md",
     "references/examples/authoring/evalkit.yaml",
     "references/examples/authoring/cart.test.mjs",

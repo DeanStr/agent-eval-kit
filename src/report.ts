@@ -1,4 +1,4 @@
-import { evidenceHtml, evidencePreviews } from "./report-presentation.js";
+import { evidenceHtml, evidencePreviews, reportDocument } from "./report-presentation.js";
 import { omitUndefined, requireDefined } from "./invariants.js";
 import { scoringConfigPath, scoringDefinitionFiles } from "./run/inputs.js";
 import crypto from "node:crypto";
@@ -8,7 +8,19 @@ import { assertArtifactIntegrity, verifyArtifactIndex, writeArtifactIndex } from
 import { isWithin, readJson, sha256, stableJson, writeJson } from "./io.js";
 import { buildReport, hybridAggregateVerdict, scoreArea } from "./scoring.js";
 import { automaticAbstained, prepareAdjudications } from "./adjudication.js";
-import type { EvalConfig, EvalSpec, JudgedItem, RunReport, Verdict } from "./types.js";
+import { shellQuote } from "./cli-recovery.js";
+import { formatDuration, formatNumber, formatPct, formatTimestamp, plural } from "./format.js";
+import { DEFAULT_RUBRIC_TAG } from "./specs.js";
+import type {
+  AreaResult,
+  EvalConfig,
+  EvalSpec,
+  JudgedItem,
+  JudgedVotes,
+  RubricItem,
+  RunReport,
+  Verdict,
+} from "./types.js";
 
 const escapeHtml = (value: string) =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -45,14 +57,19 @@ interface ReportUpdateTransaction {
   schemaVersion: 1;
   originalIndexRootSha256?: string;
   files: Array<{ path: string; sha256: string }>;
+  /** Conditional report files the updated report no longer needs. */
+  removed: string[];
 }
 
 const REPORT_UPDATE_TRANSACTION_DIRECTORY = ".aek-report-update.tmp-active";
+const ADJUDICATION_CHECKLIST = "adjudication-checklist.md";
+/** Report files that exist only when relevant; a report update removes them when not staged. */
+const CONDITIONAL_REPORT_FILES = [ADJUDICATION_CHECKLIST];
 const REPORT_UPDATE_FILES = new Set([
   "manual-checklist.md",
   "manual-results.json",
   "manual-revisions.ndjson",
-  "adjudication-checklist.md",
+  ADJUDICATION_CHECKLIST,
   "adjudications.ndjson",
   "receipt.json",
   "report.html",
@@ -63,7 +80,7 @@ const reportUpdatePath = (file: string) =>
   /^adjudication-evidence\/[a-f0-9]{64}$/.test(file) ||
   file === scoringConfigPath ||
   /^scoring-definitions\/specs\/[A-Za-z0-9][A-Za-z0-9._-]*\.yaml$/.test(file);
-const MANUAL_PLACEHOLDER = "pass | partial | fail | not_found";
+export const MANUAL_PLACEHOLDER = "pass | partial | fail | not_found";
 
 export function writeManualFiles(
   runDir: string,
@@ -76,13 +93,26 @@ export function writeManualFiles(
     ? readJson<Record<string, ManualResultEntry>>(existingFile)
     : {};
   const template: Record<string, ManualResultEntry> = Object.create(null);
+  const runDirectory = path.resolve(displayedRunDir);
   const lines = [
     "# Manual verification checklist",
     "",
     `Project: ${report.project}`,
-    `Run: ${displayedRunDir}`,
+    `Run: ${runDirectory}`,
     "",
-    "Record each result in `manual-results.json`, then run `aek finalize --run <run-dir>`.",
+    "Answer a prompt for each item:",
+    "",
+    "```sh",
+    `aek finalize --run ${shellQuote(runDirectory)} --interactive`,
+    "```",
+    "",
+    "Or record each result in `manual-results.json`, then run:",
+    "",
+    "```sh",
+    `aek finalize --run ${shellQuote(runDirectory)}`,
+    "```",
+    "",
+    "Add `--reviewer <name>` to record a reviewer other than your login name.",
     "Allowed verdicts: `pass`, `partial`, `fail`, `not_found`.",
     "",
   ];
@@ -122,40 +152,64 @@ export function writeManualFiles(
   writeJson(existingFile, results);
 }
 
-function writeAdjudicationChecklist(runDir: string, report: RunReport, specs: EvalSpec[]): void {
+/** Automatic abstentions eligible for human adjudication, including already adjudicated ones. */
+function adjudicationCandidates(
+  report: RunReport,
+  specs: EvalSpec[],
+): Array<{ area: AreaResult; item: JudgedItem; rubric: RubricItem }> {
+  return report.areas.flatMap((area) => {
+    const spec = specs.find((candidate) => candidate.id === area.id);
+    if (!spec) throw new Error(`Cannot list adjudication candidates: no spec for ${area.id}`);
+    return area.items.flatMap((item) => {
+      const rubric = spec.rubric.find((candidate) => candidate.id === item.id);
+      if (!rubric)
+        throw new Error(`Cannot list adjudication candidates: no rubric for ${area.id}/${item.id}`);
+      return automaticAbstained(item, rubric) || item.adjudication ? [{ area, item, rubric }] : [];
+    });
+  });
+}
+
+/** Written only when something is eligible; a stale checklist from an earlier state is removed. */
+function writeAdjudicationChecklist(
+  runDir: string,
+  report: RunReport,
+  specs: EvalSpec[],
+  displayedRunDir = runDir,
+): void {
+  const file = path.join(runDir, ADJUDICATION_CHECKLIST);
+  const candidates = adjudicationCandidates(report, specs);
+  if (!candidates.length) {
+    fs.rmSync(file, { force: true });
+    return;
+  }
   const lines = [
     "# Human adjudication of automatic abstentions",
     "",
     "Review the entire automatic criterion. Hybrid manual shares still use `aek finalize`.",
     "Create a decision JSON outside the run directory, then run:",
-    "`aek adjudicate --run <run-dir> --input <decisions.json> --reviewer <name>`",
+    "",
+    "```sh",
+    `aek adjudicate --run ${shellQuote(path.resolve(displayedRunDir))} --input <decisions.json> --reviewer <name>`,
+    "```",
     "",
     "Each decision requires areaId, itemId, previousRevision, verdict, rationale, and evidence.",
     "Use previousRevision: null for a first decision, or the current revision hash for a correction.",
     "See docs/adjudication.md for the input format and evidence requirements.",
     "",
   ];
-  for (const area of report.areas) {
-    const spec = specs.find((candidate) => candidate.id === area.id);
-    if (!spec) throw new Error(`Cannot write adjudication checklist: no spec for ${area.id}`);
-    for (const item of area.items) {
-      const rubric = spec.rubric.find((candidate) => candidate.id === item.id);
-      if (!rubric)
-        throw new Error(`Cannot write adjudication checklist: no rubric for ${area.id}/${item.id}`);
-      if (!automaticAbstained(item, rubric) && !item.adjudication) continue;
-      lines.push(
-        `## ${area.id}/${item.id}`,
-        "",
-        rubric.criterion,
-        `Pass criteria: ${rubric.passCriteria}`,
-        `Original automatic result: cannot_judge — ${(item.adjudication?.original ?? item).reasoning}`,
-        `Current human decision: ${item.adjudication?.verdict ?? "none"}`,
-        `previousRevision: ${item.adjudication?.revisionHash ?? "null"}`,
-        "",
-      );
-    }
+  for (const { area, item, rubric } of candidates) {
+    lines.push(
+      `## ${area.id}/${item.id}`,
+      "",
+      rubric.criterion,
+      `Pass criteria: ${rubric.passCriteria}`,
+      `Original automatic result: cannot_judge — ${(item.adjudication?.original ?? item).reasoning}`,
+      `Current human decision: ${item.adjudication?.verdict ?? "none"}`,
+      `previousRevision: ${item.adjudication?.revisionHash ?? "null"}`,
+      "",
+    );
   }
-  fs.writeFileSync(path.join(runDir, "adjudication-checklist.md"), `${lines.join("\n")}\n`);
+  fs.writeFileSync(file, `${lines.join("\n")}\n`);
 }
 
 function adjudicationHtml(item: JudgedItem): string {
@@ -164,25 +218,43 @@ function adjudicationHtml(item: JudgedItem): string {
   return `<details open><summary><strong>Human adjudication: ${escapeHtml(record.verdict)}</strong></summary><p>${escapeHtml(record.reviewer)} · ${escapeHtml(record.reviewedAt)}</p><p>${escapeHtml(record.rationale)}</p><p>Original automatic result: <strong>cannot_judge</strong> (${escapeHtml(record.original.confidence)} confidence) — ${escapeHtml(record.original.reasoning)}</p><ul>${record.evidence.map((entry) => `<li>${entry.kind === "human" ? "New human evidence" : "Original collected artifact"}: <a download="${escapeHtml(entry.filename ?? path.posix.basename(entry.path))}" href="${entry.path.split("/").map(encodeURIComponent).join("/")}">${escapeHtml(entry.description)}</a>${entry.observedAt ? ` · observed ${escapeHtml(entry.observedAt)}` : ""}<br><code>${entry.sha256}</code></li>`).join("")}</ul><small>Revision: <code>${record.revisionHash}</code> · <a href="adjudications.ndjson" download>Full audit history</a></small><p>Adjudication changes rubric scoring. Scenario outcomes, defects, and automatic case/stratum results retain their original observations.</p></details>`;
 }
 
+const weight = (value: number) => formatNumber(value, 2);
+const weightBreakdown = (value: { earned: number; judgeable: number; total: number }) =>
+  `${weight(value.earned)} / ${weight(value.judgeable)} / ${weight(value.total)}`;
+const gateClass = { passed: "good", failed: "bad", unavailable: "muted" } as const;
+
+/** Per-vote details stay collapsed; the tally is visible without expanding. */
+function votesHtml(votes: JudgedVotes | undefined): string {
+  if (!votes) return "";
+  const tally = Object.entries(votes.counts)
+    .map(([outcome, count]) => `${escapeHtml(outcome)} ${count}`)
+    .join(" · ");
+  const summary = `${plural(votes.attempted, "vote")}: ${tally} (${votes.judgeable} judgeable)`;
+  if (!votes.ballots) return `<p>${summary}</p>`;
+  return `<details class="votes"><summary>${summary}</summary><ol class="ballots">${votes.ballots.map((ballot) => `<li><strong style="color:${verdictColor[ballot.verdict]}">${escapeHtml(ballot.verdict)}</strong> · ${escapeHtml(ballot.confidence)} confidence${ballot.outcome === "abstain" ? " · counted as abstain" : ""}<br>${escapeHtml(ballot.reasoning)}</li>`).join("")}</ol></details>`;
+}
+
 function tableRows(report: RunReport): string {
   return report.areas
     .map(
       (area) => `<tr>
         <td><a href="#area-${escapeHtml(area.id)}">${escapeHtml(area.title)}</a>${area.optional ? " <em>(optional)</em>" : ""}</td>
-        <td>${area.optional ? "—" : area.weight}</td><td>${area.scorePct ?? "—"}${area.scorePct === null ? "" : "%"}</td>
-        <td class="${area.total > 0 && area.coveragePct < 60 ? "low" : ""}">${area.total === 0 && area.exclusions?.length ? "not applicable" : `${area.coveragePct}%`}</td>
-        <td>${area.earned} / ${area.judgeable} of ${area.total}</td><td>${area.pendingManual.length}</td>
+        <td>${area.optional ? "—" : area.weight}</td><td>${formatPct(area.scorePct)}</td>
+        <td class="${area.total > 0 && area.coveragePct < 60 ? "low" : ""}">${area.total === 0 && area.exclusions?.length ? "not applicable" : formatPct(area.coveragePct)}</td>
+        <td>${weightBreakdown(area)}</td><td>${area.pendingManual.length}</td>
       </tr>`,
     )
     .join("");
 }
 
+/** Tags are diagnostic only when some rubric item declared one beyond the implicit default. */
 function tagRows(report: RunReport): string {
+  if (Object.keys(report.byTag).every((tag) => tag === DEFAULT_RUBRIC_TAG)) return "";
   return Object.entries(report.byTag)
     .sort((a, b) => (a[1].scorePct ?? -1) - (b[1].scorePct ?? -1))
     .map(
       ([tag, value]) =>
-        `<tr><td><code>${escapeHtml(tag)}</code></td><td>${value.scorePct ?? "—"}${value.scorePct === null ? "" : "%"}</td><td>${value.coveragePct}%</td><td>${value.earned} / ${value.judgeable} of ${value.total}</td></tr>`,
+        `<tr><td><code>${escapeHtml(tag)}</code></td><td>${formatPct(value.scorePct)}</td><td>${formatPct(value.coveragePct)}</td><td>${weightBreakdown(value)}</td></tr>`,
     )
     .join("");
 }
@@ -192,7 +264,7 @@ function stratumRows(report: RunReport): string {
     .sort((left, right) => left[0].localeCompare(right[0]))
     .map(
       ([stratum, value]) =>
-        `<tr><td><code>${escapeHtml(stratum)}</code></td><td>${value.scorePct ?? "—"}${value.scorePct === null ? "" : "%"}</td><td>${value.coveragePct}%</td><td>${value.cases}</td></tr>`,
+        `<tr><td><code>${escapeHtml(stratum)}</code></td><td>${formatPct(value.scorePct)}</td><td>${formatPct(value.coveragePct)}</td><td>${value.cases}</td></tr>`,
     )
     .join("");
 }
@@ -233,7 +305,7 @@ function areaSections(report: RunReport, specs: EvalSpec[], runDir: string): str
             const pending = area.pendingManual.includes(item.id);
             const unproven = area.unproven.includes(item.id);
             const verdict = unproven ? "cannot_judge" : item.verdict;
-            return `<tr data-result="${verdict}" data-pending="${pending}"><td><strong>${escapeHtml(rubric.criterion)}</strong><br><code>${escapeHtml(item.id)}</code>${rubric.gate ? " · Critical gate" : ""}<details><summary>Pass criteria</summary>${escapeHtml(rubric.passCriteria)}</details></td><td style="color:${verdictColor[verdict]};font-weight:650">${escapeHtml(verdict)}${pending ? "<br>Pending manual share" : ""}</td><td>${escapeHtml(unproven ? "—" : item.confidence)}</td><td>${unproven ? `<p class="warn">Automatic verdict discarded (${escapeHtml(item.components?.automatic ?? item.verdict)}): no backing scenario was reached. This reduces coverage.${item.components?.manual ? ` Manual verdict retained: ${escapeHtml(item.components.manual)}.` : ""}</p>` : ""}<p>${escapeHtml(item.reasoning)}</p>${item.votes ? `<p>${item.votes.judgeable}/${item.votes.attempted} judgeable votes: ${escapeHtml(JSON.stringify(item.votes.counts))}</p>` : ""}${(
+            return `<tr data-result="${verdict}" data-pending="${pending}"><td class="criterion"><strong>${escapeHtml(rubric.criterion)}</strong><br><code>${escapeHtml(item.id)}</code>${rubric.gate ? " · Critical gate" : ""}<details><summary>Pass criteria</summary>${escapeHtml(rubric.passCriteria)}</details></td><td style="color:${verdictColor[verdict]};font-weight:650">${escapeHtml(verdict)}${pending ? "<br>Pending manual share" : ""}</td><td>${escapeHtml(unproven ? "—" : item.confidence)}</td><td>${unproven ? `<p class="warn">Automatic verdict discarded (${escapeHtml(item.components?.automatic ?? item.verdict)}): no backing scenario was reached. This reduces coverage.${item.components?.manual ? ` Manual verdict retained: ${escapeHtml(item.components.manual)}.` : ""}</p>` : ""}<p>${escapeHtml(item.reasoning)}</p>${votesHtml(item.votes)}${(
               item.comparisons ?? []
             )
               .filter(
@@ -256,7 +328,7 @@ function areaSections(report: RunReport, specs: EvalSpec[], runDir: string): str
               spec.rubric.find((item) => item.id === id),
               `Pending criterion ${id}`,
             );
-            return `<tr data-result="pending" data-pending="true"><td><strong>${escapeHtml(rubric.criterion)}</strong><br><code>${escapeHtml(id)}</code><details><summary>Pass criteria</summary>${escapeHtml(rubric.passCriteria)}</details></td><td>Pending manual review</td><td>—</td><td>${escapeHtml(rubric.manualInstructions ?? rubric.passCriteria)}<p><a href="manual-checklist.md">Review checklist</a> · <a href="manual-results.json">Decision file</a></p></td></tr>`;
+            return `<tr data-result="pending" data-pending="true"><td class="criterion"><strong>${escapeHtml(rubric.criterion)}</strong><br><code>${escapeHtml(id)}</code><details><summary>Pass criteria</summary>${escapeHtml(rubric.passCriteria)}</details></td><td>Pending manual review</td><td>—</td><td>${escapeHtml(rubric.manualInstructions ?? rubric.passCriteria)}<p><a href="manual-checklist.md">Review checklist</a> · <a href="manual-results.json">Decision file</a></p></td></tr>`;
           })
           .join("");
       const scenarios = area.scenarios
@@ -273,7 +345,7 @@ function areaSections(report: RunReport, specs: EvalSpec[], runDir: string): str
       const caseRows = area.caseResults
         .map(
           (item) =>
-            `<tr><td>${escapeHtml(item.rubricId)}</td><td>${escapeHtml(item.caseId)}</td><td>${escapeHtml(item.split ?? "all")}</td><td>${escapeHtml(item.strata.join(", ") || "—")}</td><td style="color:${verdictColor[item.verdict]};font-weight:650">${escapeHtml(item.verdict)}</td><td>${escapeHtml(item.reasoning)}</td></tr>`,
+            `<tr><td>${escapeHtml(item.rubricId)}</td><td>${escapeHtml(item.caseId)}</td><td>${escapeHtml(item.split ?? "all")}</td><td>${escapeHtml(item.strata.join(", ") || "—")}</td><td style="color:${verdictColor[item.verdict]};font-weight:650">${escapeHtml(item.verdict)}</td><td>${escapeHtml(item.reasoning)}${votesHtml(item.votes)}</td></tr>`,
         )
         .join("");
       const casesHtml = caseRows
@@ -290,9 +362,9 @@ function areaSections(report: RunReport, specs: EvalSpec[], runDir: string): str
         ? `<p><strong>Pending manual verification:</strong> ${area.pendingManual.map(escapeHtml).join(", ")}</p>`
         : "";
       const gatesHtml = area.gates.length
-        ? `<p class="${area.gates.some((gate) => gate.status !== "passed") ? "low" : ""}"><strong>Critical gates:</strong> ${area.gates.map((gate) => `${escapeHtml(gate.itemId)} — ${escapeHtml(gate.status)}`).join(", ")}</p>`
+        ? `<p><strong>Critical gates:</strong> ${area.gates.map((gate) => `<span class="${gateClass[gate.status]}" title="${escapeHtml(gate.reason)}">${escapeHtml(gate.itemId)} — ${escapeHtml(gate.status)}</span>`).join(", ")}</p>`
         : "";
-      return `<section id="area-${escapeHtml(area.id)}"><h2>${escapeHtml(area.title)} — ${area.scorePct ?? "n/a"}${area.scorePct === null ? "" : "%"} <small>(${area.total === 0 && area.exclusions?.length ? "excluded from this suite" : `${area.coveragePct}% coverage`})</small></h2><p>${escapeHtml(area.notes)}</p>${area.exclusions?.length ? `<h3>Declared exclusions (${area.exclusions.reduce((sum, item) => sum + item.weight, 0)} item weight)</h3><ul>${area.exclusions.map((item) => `<li>${escapeHtml(item.id)} · weight ${item.weight}: ${escapeHtml(item.reason)}</li>`).join("")}</ul><p>Excluded weight is outside score and coverage; it is not missing evidence.</p>` : ""}${gatesHtml}${incompleteHtml}${area.unproven.length ? `<p class="warn">Automatic verdicts discarded because no backing scenario was reached: ${area.unproven.map(escapeHtml).join(", ")}</p>` : ""}${pendingHtml}<table><thead><tr><th>Item</th><th>Verdict</th><th>Confidence</th><th>Reasoning and evidence</th></tr></thead><tbody>${itemRows}</tbody></table>${casesHtml}${defects}<h3>Scenario evidence</h3>${scenarios}</section>`;
+      return `<section id="area-${escapeHtml(area.id)}"><h2>${escapeHtml(area.title)} — ${formatPct(area.scorePct)} <small>(${area.total === 0 && area.exclusions?.length ? "excluded from this suite" : `${formatPct(area.coveragePct)} coverage`})</small></h2><p>${escapeHtml(area.notes)}</p>${area.exclusions?.length ? `<h3>Declared exclusions (${weight(area.exclusions.reduce((sum, item) => sum + item.weight, 0))} item weight)</h3><ul>${area.exclusions.map((item) => `<li>${escapeHtml(item.id)} · weight ${item.weight}: ${escapeHtml(item.reason)}</li>`).join("")}</ul><p>Excluded weight is outside score and coverage; it is not missing evidence.</p>` : ""}${gatesHtml}${incompleteHtml}${area.unproven.length ? `<p class="warn">Automatic verdicts discarded because no backing scenario was reached: ${area.unproven.map(escapeHtml).join(", ")}</p>` : ""}${pendingHtml}<table><thead><tr><th>Item</th><th>Verdict</th><th>Confidence</th><th>Reasoning and evidence</th></tr></thead><tbody>${itemRows}</tbody></table>${casesHtml}${defects}<h3>Scenario evidence</h3>${scenarios}</section>`;
     })
     .join("");
 }
@@ -305,6 +377,28 @@ function providerTable(report: RunReport): string {
   return `<table><thead><tr><th>Role</th><th>Provider</th><th>Requested model</th><th>Requested reasoning effort</th><th>CLI version</th></tr></thead><tbody>${rows.join("")}</tbody></table><p><small>Model and effort are requested settings, not confirmation of the provider's resolved model snapshot. Provider invocation commands are retained in the run artifacts. <a href="receipt.json">View receipt</a>.</small></p>`;
 }
 
+const reportStyles =
+  ".headline{font-size:2rem}.headline span{font-size:1rem;color:#57606a;margin-left:.8rem;display:inline-block}.error .headline,.warn .headline{font-size:1.4rem;margin:.2rem 0}th{white-space:nowrap}.criterion{min-width:14rem}.low{color:#cf222e;font-weight:650}.shots{display:flex;flex-wrap:wrap;gap:12px}figure{margin:0}figcaption,small{color:#57606a;font-size:12px}section{border-top:1px solid #d0d7de;margin-top:2rem;padding-top:1rem}.evidence pre{max-height:20rem}select{font:inherit;padding:.3rem}";
+
+function runTiming(report: RunReport): string {
+  const elapsed = Date.parse(report.finishedAt) - Date.parse(report.startedAt);
+  return `Started <time datetime="${escapeHtml(report.startedAt)}" title="${escapeHtml(report.startedAt)}">${escapeHtml(formatTimestamp(report.startedAt))}</time>${Number.isFinite(elapsed) && elapsed >= 0 ? ` · took ${formatDuration(elapsed)}` : ""}`;
+}
+
+function gateFailureHtml(report: RunReport, specs: EvalSpec[]): string {
+  const blocking = report.gates.blocking;
+  if (!blocking.length) return "";
+  const failed = blocking.some((gate) => gate.status === "failed");
+  return `<div class="${failed ? "error" : "warn"}"><p class="headline">${failed ? "Critical gate failure" : "Critical gates unavailable"}</p><ul>${blocking
+    .map((gate) => {
+      const criterion = specs
+        .find((spec) => spec.id === gate.areaId)
+        ?.rubric.find((rubric) => rubric.id === gate.itemId)?.criterion;
+      return `<li><a href="#area-${escapeHtml(gate.areaId)}"><code>${escapeHtml(gate.areaId)}/${escapeHtml(gate.itemId)}</code></a>${criterion ? ` ${escapeHtml(criterion)}` : ""} — <strong>${escapeHtml(gate.status)}</strong>: ${escapeHtml(gate.reason)}</li>`;
+    })
+    .join("")}</ul></div>`;
+}
+
 export function writeHtml(
   runDir: string,
   report: RunReport,
@@ -312,20 +406,34 @@ export function writeHtml(
   artifactRunDir = runDir,
 ): void {
   const headline = report.scoreWithheld
-    ? `<p class="headline low">Score withheld — ${report.overallCoveragePct}% coverage</p><p class="warn">The provisional score over judged evidence is ${report.overallScorePct ?? "n/a"}%. It is not comparable until coverage reaches the configured threshold.</p>`
-    : `<p class="headline">Score ${report.overallScorePct ?? "n/a"}% <span>${report.overallCoveragePct}% coverage</span></p>`;
-  const gateHeadline = !report.gates.passed
-    ? `<p class="headline low">Critical gate failure</p><p class="warn">${report.gates.blocking.map((gate) => `${escapeHtml(gate.areaId)}/${escapeHtml(gate.itemId)} — ${escapeHtml(gate.status)}${gate.verdict ? ` (${escapeHtml(gate.verdict)})` : ""}`).join("<br>")}</p>`
+    ? `<p class="headline low">Score withheld — ${formatPct(report.overallCoveragePct)} coverage</p><p class="warn">The provisional score over judged evidence is ${formatPct(report.overallScorePct)}. It is not comparable until coverage reaches the configured threshold.</p>`
+    : `<p class="headline">Score ${formatPct(report.overallScorePct)} <span>${formatPct(report.overallCoveragePct)} coverage</span></p>`;
+  const gates =
+    gateFailureHtml(report, specs) ||
+    `<p><strong>Critical gates:</strong> ${report.areas.some((area) => area.gates.length) ? "passed" : "none configured"}.</p>`;
+  const manual = report.manualPending
+    ? `<p>${plural(report.manualPending, "item awaits", "items await")} manual verification. <a href="manual-checklist.md">Open checklist</a> · <a href="manual-results.json">Record decisions</a></p>`
     : "";
+  const insufficient = report.areas.some(
+    (area) => area.unproven.length || area.items.some((item) => item.verdict === "cannot_judge"),
+  )
+    ? `<p class="warn">Some criteria lack sufficient evidence. Inspect their reasoning and scenario outcomes below.${adjudicationCandidates(report, specs).length ? ` <a href="${ADJUDICATION_CHECKLIST}">Review eligible automatic abstentions</a>.` : ""}</p>`
+    : "";
+  const tags = tagRows(report);
   const strata = stratumRows(report);
-  let html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(report.project)} evaluation</title><style>
-body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;color:#1f2328;max-width:1120px;margin:2rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #d0d7de;padding:.45rem .65rem;text-align:left;vertical-align:top}th{background:#f6f8fa;white-space:nowrap}.headline{font-size:2rem;font-weight:750}.headline span{font-size:1rem;color:#57606a;margin-left:.8rem}.low{color:#cf222e;font-weight:650}.warn{background:#fff8c5;border:1px solid #d4a72c;border-radius:6px;padding:.7rem 1rem}.shots{display:flex;flex-wrap:wrap;gap:12px}figure{margin:0}figcaption,small{color:#57606a;font-size:12px}section{border-top:1px solid #d0d7de;margin-top:2rem;padding-top:1rem}details{margin:.55rem 0}summary{cursor:pointer}code{font-size:.9em;overflow-wrap:anywhere}.table-scroll{overflow-x:auto}body{overflow-wrap:anywhere}.evidence{padding-left:1.2rem}.evidence img{max-width:100%;max-height:320px}.evidence pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:20rem;overflow:auto;background:#f6f8fa;padding:.6rem}.headline span{display:inline-block}select{font:inherit;padding:.3rem} [hidden]{display:none!important}</style></head><body>
-<h1>${escapeHtml(report.project)} evaluation</h1><p>Run ${escapeHtml(report.runId)} · ${escapeHtml(report.startedAt)} → ${escapeHtml(report.finishedAt)}</p>${report.receipt.collection ? `<p>Evidence from collection ${escapeHtml(report.receipt.collection.runId)}. <a href="receipt.json">View provenance</a>.</p>` : ""}${headline}${gateHeadline || `<p><strong>Critical gates:</strong> ${report.areas.some((area) => area.gates.length) ? "passed" : "none configured"}.</p>`}<p>Score measures judged evidence; coverage measures how much of the rubric was judged.</p><p>${report.manualPending} item(s) await manual verification.${report.manualPending ? ' <a href="manual-checklist.md">Open checklist</a> · <a href="manual-results.json">Record decisions</a>' : ""}</p>
-${report.areas.some((area) => area.unproven.length || area.items.some((item) => item.verdict === "cannot_judge")) ? '<p class="warn">Some criteria lack sufficient evidence. Inspect their reasoning and scenario outcomes below. <a href="adjudication-checklist.md">Review eligible automatic abstentions</a>.</p>' : ""}
-<h2>Areas</h2><table><thead><tr><th>Area</th><th>Weight</th><th>Score</th><th>Coverage</th><th>Points</th><th>Manual</th></tr></thead><tbody>${tableRows(report)}</tbody></table>
+  const diagnostics =
+    tags || strata
+      ? `<details><summary>Diagnostic breakdown: ${tags && strata ? "tags and strata" : tags ? "tags" : "strata"}</summary>${tags ? `<h2>Tags</h2><p>Rubric items may carry multiple tags; each row is an independent diagnostic slice.</p><table><thead><tr><th>Tag</th><th>Score</th><th>Coverage</th><th>Earned / judged / total weight</th></tr></thead><tbody>${tags}</tbody></table>` : ""}${strata ? `<h2>Strata</h2><p>Case-level automatic diagnostic slices; they do not replace the weighted headline score.</p><table><thead><tr><th>Stratum</th><th>Score</th><th>Coverage</th><th>Cases</th></tr></thead><tbody>${strata}</tbody></table>` : ""}</details>`
+      : "";
+  const body = `<h1>${escapeHtml(report.project)}</h1><p class="subtitle">Evaluation report</p><p class="meta">Run <code>${escapeHtml(report.runId)}</code> · ${runTiming(report)}</p>${report.receipt.collection ? `<p>Evidence from collection ${escapeHtml(report.receipt.collection.runId)}. <a href="receipt.json">View provenance</a>.</p>` : ""}${headline}${gates}<p>Score measures judged evidence; coverage measures how much of the rubric was judged.</p>${manual}
+${insufficient}
+<h2>Areas</h2><table><thead><tr><th>Area</th><th>Weight</th><th>Score</th><th>Coverage</th><th>Earned / judged / total weight</th><th>Pending manual</th></tr></thead><tbody>${tableRows(report)}</tbody></table>
 <h2>Review criteria</h2><label>Show <select id="review-filter"><option value="all">All criteria</option><option value="action">Needs attention</option><option value="failed">Failed criteria</option><option value="missing">Missing evidence</option><option value="pending">Pending manual review</option></select></label><p id="review-count" aria-live="polite"></p>${areaSections(report, specs, artifactRunDir)}
-<details><summary>Diagnostic breakdown: tags and strata</summary><h2>Tags</h2><p>Rubric items may carry multiple tags; each row is an independent diagnostic slice.</p><table><thead><tr><th>Tag</th><th>Score</th><th>Coverage</th><th>Points</th></tr></thead><tbody>${tagRows(report)}</tbody></table>${strata ? `<h2>Strata</h2><p>Case-level automatic diagnostic slices; they do not replace the weighted headline score.</p><table><thead><tr><th>Stratum</th><th>Score</th><th>Coverage</th><th>Cases</th></tr></thead><tbody>${strata}</tbody></table>` : ""}</details><details><summary>Providers and provenance</summary>${providerTable(report)}</details>
-<script>
+${diagnostics}<details><summary>Providers and provenance</summary>${providerTable(report)}</details>`;
+  const html = reportDocument(
+    `${report.project} · Evaluation report`,
+    body,
+    `
 const filter = document.getElementById('review-filter');
 function filterCriteria() {
   let visible = 0;
@@ -342,8 +450,9 @@ function filterCriteria() {
 }
 filter.addEventListener('change', filterCriteria);
 filterCriteria();
-</script></body></html>`;
-  html = html
+`,
+    reportStyles,
+  )
     .replaceAll("<table>", '<div class="table-scroll"><table>')
     .replaceAll("</table>", "</table></div>");
   fs.writeFileSync(path.join(runDir, "report.html"), html);
@@ -524,7 +633,16 @@ export function recoverInterruptedReportUpdate(runDir: string): boolean {
       `Interrupted report update transaction is invalid: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.files)) {
+  if (
+    manifest.schemaVersion !== 1 ||
+    !Array.isArray(manifest.files) ||
+    !Array.isArray(manifest.removed) ||
+    manifest.removed.some(
+      (file) =>
+        !CONDITIONAL_REPORT_FILES.includes(file) ||
+        manifest.files.some((entry) => entry?.path === file),
+    )
+  ) {
     throw new Error("Interrupted report update transaction has an invalid manifest");
   }
   const seen = new Set<string>();
@@ -570,14 +688,15 @@ export function recoverInterruptedReportUpdate(runDir: string): boolean {
     }
     const currentIndex = readJson<{ rootSha256?: string }>(indexFile);
     if (currentIndex.rootSha256 !== manifest.originalIndexRootSha256) {
-      const installed = manifest.files.every((entry) => {
-        const destination = path.join(resolved, entry.path);
-        return (
-          fs.existsSync(destination) &&
-          fs.lstatSync(destination).isFile() &&
-          sha256(fs.readFileSync(destination)) === entry.sha256
-        );
-      });
+      const installed =
+        manifest.files.every((entry) => {
+          const destination = path.join(resolved, entry.path);
+          return (
+            fs.existsSync(destination) &&
+            fs.lstatSync(destination).isFile() &&
+            sha256(fs.readFileSync(destination)) === entry.sha256
+          );
+        }) && manifest.removed.every((file) => !fs.existsSync(path.join(resolved, file)));
       const completed = verifyArtifactIndex(resolved, { require: true });
       if (installed && completed.ok) {
         fs.rmSync(transactionDir, { recursive: true, force: true });
@@ -587,7 +706,7 @@ export function recoverInterruptedReportUpdate(runDir: string): boolean {
         "Interrupted report update cannot be recovered because its original artifact index changed",
       );
     }
-    const changedPaths = manifest.files.map((entry) => entry.path);
+    const changedPaths = [...manifest.files.map((entry) => entry.path), ...manifest.removed];
     const verification = verifyArtifactIndex(resolved, {
       require: true,
       allowChangedPaths: changedPaths,
@@ -604,6 +723,7 @@ export function recoverInterruptedReportUpdate(runDir: string): boolean {
   for (const entry of manifest.files) {
     replaceFromTransaction(path.join(transactionDir, entry.path), path.join(resolved, entry.path));
   }
+  for (const file of manifest.removed) fs.rmSync(path.join(resolved, file), { force: true });
   writeArtifactIndex(resolved);
   fs.rmSync(transactionDir, { recursive: true, force: true });
   return true;
@@ -631,7 +751,7 @@ function publishReportUpdateTransaction(options: {
     writeJson(path.join(staging, "receipt.json"), options.report.receipt);
     writeHtml(staging, options.report, options.specs, runDir);
     writeManualFiles(staging, options.report, options.specs, runDir);
-    writeAdjudicationChecklist(staging, options.report, options.specs);
+    writeAdjudicationChecklist(staging, options.report, options.specs, runDir);
     if (options.revisionText !== undefined) {
       fs.writeFileSync(path.join(staging, "manual-revisions.ndjson"), options.revisionText);
     }
@@ -665,6 +785,7 @@ function publishReportUpdateTransaction(options: {
         ? {}
         : { originalIndexRootSha256: originalIndexRootSha256 }),
       files,
+      removed: CONDITIONAL_REPORT_FILES.filter((name) => !fs.existsSync(path.join(staging, name))),
     } satisfies ReportUpdateTransaction);
     fs.renameSync(staging, transactionDir);
     recoverInterruptedReportUpdate(runDir);

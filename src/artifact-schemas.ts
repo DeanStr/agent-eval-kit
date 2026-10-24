@@ -12,6 +12,7 @@ const count = z.number().int().nonnegative();
 const percent = z.number().min(0).max(100);
 const fraction = z.number().min(0).max(1);
 const verdict = z.enum(["pass", "partial", "fail", "not_found", "cannot_judge"]);
+const confidence = z.enum(["high", "medium", "low"]);
 const provider = z.enum(["mock", "codex", "claude", "grok", "cursor"]);
 const split = z.enum(["development", "evaluation"]);
 const targetKind = z.enum(["web", "repository", "command"]);
@@ -65,7 +66,7 @@ const casePointsMessage =
   "Case points must be pass=1, fail/not_found=0, cannot_judge=null, or configured partial credit in [0,1]";
 const judgement = {
   verdict,
-  confidence: z.enum(["high", "medium", "low"]),
+  confidence,
   reasoning: text,
   evidenceRefs: strings,
 };
@@ -84,6 +85,31 @@ export const collectedCommandResultsSchema = z
     "Duplicate collected command IDs",
   );
 
+export const judgedVotesSchema = z
+  .object({
+    attempted: count,
+    judgeable: count,
+    counts: record(count),
+    decision: text,
+    ballots: z
+      .array(z.object({ verdict, confidence, outcome: id, reasoning: text }).strict())
+      .optional(),
+  })
+  .superRefine((votes, context) => {
+    if (!votes.ballots) return;
+    const counts: Record<string, number> = {};
+    for (const ballot of votes.ballots) counts[ballot.outcome] = (counts[ballot.outcome] ?? 0) + 1;
+    if (
+      votes.ballots.length !== votes.attempted ||
+      Object.keys(counts).length !== Object.keys(votes.counts).length ||
+      Object.entries(counts).some(([outcome, value]) => votes.counts[outcome] !== value)
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["ballots"],
+        message: "Recorded ballots must match the attempted vote count and outcome counts",
+      });
+  });
 const originalItem = z.object({
   ...judgement,
   id,
@@ -102,9 +128,7 @@ const originalItem = z.object({
   components: z.object({ automatic: verdict.optional(), manual: verdict.optional() }).optional(),
   score: scoreSliceSchema,
   comparisons: strings.optional(),
-  votes: z
-    .object({ attempted: count, judgeable: count, counts: record(count), decision: text })
-    .optional(),
+  votes: judgedVotesSchema.optional(),
 });
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const reviewText = z.string().trim().min(1);
@@ -302,6 +326,7 @@ const judgedCase = z
     split: split.optional(),
     source: z.enum(["llm", "pairwise", "text-pairwise", "text-rubric"]),
     points: fraction.nullable(),
+    votes: judgedVotesSchema.optional(),
   })
   .refine(validCasePoints, casePointsMessage);
 export const runReportSchema = z.object({

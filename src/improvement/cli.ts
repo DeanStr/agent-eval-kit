@@ -61,6 +61,7 @@ export async function improvementCommand(
               maxStalls: number("max-stalls"),
               budgetSeconds: number("budget-seconds"),
               minimumGain: number("minimum-gain"),
+              repetitions: number("repetitions"),
             }),
           },
           output.log,
@@ -92,7 +93,7 @@ export async function improvementCommand(
   const result = improvementStatus(directory);
   output.result(result);
   output.log(
-    `Session: ${result.status}${result.stopReason ? ` (${result.stopReason})` : ""}\nWorkspace: ${result.workspace}`,
+    `Session: ${result.status}${result.stopReason ? ` (${result.stopReason})` : ""}\nWorkspace: ${result.workspace}\nAcceptance: ${result.repetitions === 1 ? "single run per evaluation" : `${result.repetitions}-repetition campaign per evaluation`}`,
   );
   if (result.best)
     output.log(

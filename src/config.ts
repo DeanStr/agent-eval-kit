@@ -308,8 +308,35 @@ function expandDeep(value: unknown, source: string): unknown {
   return value;
 }
 
+export const CONFIG_FILENAME = "evalkit.yaml";
+
+/**
+ * Find the nearest evalkit.yaml from a directory upward, stopping at the
+ * enclosing Git repository root so an unrelated parent project is never used.
+ */
+export function findConfigFile(start = process.cwd()): string | undefined {
+  let directory = path.resolve(start);
+  for (;;) {
+    const candidate = path.join(directory, CONFIG_FILENAME);
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(directory);
+    if (parent === directory || fs.existsSync(path.join(directory, ".git"))) return undefined;
+    directory = parent;
+  }
+}
+
+/** The explicit --config file, or the discovered one; fails with the next step when absent. */
+export function resolveConfigFile(explicit: string | undefined, start = process.cwd()): string {
+  if (explicit !== undefined) return path.resolve(start, explicit);
+  const found = findConfigFile(start);
+  if (found) return found;
+  throw new Error(
+    `No ${CONFIG_FILENAME} in ${path.resolve(start)} or its parent directories. Run \`aek init\` to create one, or pass --config <file>.`,
+  );
+}
+
 export function loadConfig(
-  configFile = "evalkit.yaml",
+  configFile = CONFIG_FILENAME,
   overrides: ConfigOverrides = {},
 ): EvalConfig {
   return readConfig(configFile, overrides, false);
@@ -326,7 +353,7 @@ export function loadResolvedConfig(
 function readConfig(configFile: string, overrides: ConfigOverrides, resolved: boolean): EvalConfig {
   const absoluteConfig = path.resolve(configFile);
   if (!fs.existsSync(absoluteConfig)) {
-    throw new Error(`No config file at ${absoluteConfig}. Run \`aek init\` first.`);
+    throw new Error(`Config file not found: ${absoluteConfig}`);
   }
   if (!resolved)
     try {
@@ -381,7 +408,7 @@ function readConfig(configFile: string, overrides: ConfigOverrides, resolved: bo
     parsed = rawConfigSchema.parse(parsedYaml);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw yamlValidationError(absoluteConfig, source, error);
+      throw yamlValidationError(absoluteConfig, source, error, configurationJsonSchema());
     }
     throw error;
   }

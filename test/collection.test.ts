@@ -1472,8 +1472,8 @@ test("sealed split selections ignore inactive external dependencies and reject m
     );
     assert.equal(judged.status, 0, judged.stdout + judged.stderr);
     const runDir = requireDefined(
-      /Artifacts: (.+)/.exec(judged.stdout)![1],
-      "test fixture: /Artifacts: (.+)/.exec(judged.stdout)![1]",
+      /^Run: (.+)$/m.exec(judged.stdout)![1],
+      "test fixture: /^Run: (.+)$/m.exec(judged.stdout)![1]",
     );
     for (const command of ["finalize", "rescore", "finalize"]) {
       const result = cli(command, "--run", runDir);

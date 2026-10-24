@@ -289,7 +289,7 @@ export function scoreArea(options: {
             itemId: rubric.id,
             status: "failed" as const,
             verdict: item.verdict,
-            reason: `Critical criterion received ${item.verdict}.`,
+            reason: `Critical criterion received ${item.verdict}; critical gates require a full pass.`,
           };
     });
   return {

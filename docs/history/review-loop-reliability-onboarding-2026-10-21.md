@@ -13,7 +13,7 @@ The retained experiment is
 `.agent-eval/experiments/reliability-pilot-20261021`. Its
 `comparison/validation-results.html` contains all decisions, evidence and
 diagnostics; `review.html` presents the evidence without expectations or judge
-predictions. The [recorded summary](../examples/judge-validation/results-pilot-2026-10-21.json)
+predictions. The [recorded summary](../../examples/judge-validation/results-pilot-2026-10-21.json)
 pins dataset, label and comparison hashes and every collection root.
 
 Three families each contain a working target, equivalent valid presentation, a
@@ -109,7 +109,7 @@ contained unrelated edits, so the pilot copied only the current
 `public-programme-filter-state.ts` module and its existing Vitest test into
 `.agent-eval/experiments/programcue-onboarding-20261021/project`. It installed a
 fresh AEK tarball in a sibling consumer and reused the existing Vitest dependency.
-The [recorded summary](../examples/judge-validation/results-pilot-2026-10-21.json)
+The [recorded summary](../../examples/judge-validation/results-pilot-2026-10-21.json)
 pins the selected source hashes and original Git revision.
 
 The requirement comes from the existing test: clear unavailable saved public
@@ -140,7 +140,7 @@ The follow-up is retained in
 `.agent-eval/experiments/programcue-browser-pilot-20261021`. Its `review.html`
 places the three anonymous draft-visibility screenshots together and links the
 full reports and comparisons. The
-[recorded summary](../examples/judge-validation/results-pilot-2026-10-21.json)
+[recorded summary](../../examples/judge-validation/results-pilot-2026-10-21.json)
 pins all three artifact roots, the source snapshot, mutation, comparison outputs
 and final source audit.
 

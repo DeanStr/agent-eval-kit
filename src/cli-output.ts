@@ -1,9 +1,14 @@
 import path from "node:path";
+import { colorEnabled, paint, type Tone } from "./terminal.js";
 import type { RunReport } from "./types.js";
 import type { ImprovementSessionContext } from "./improvement/contracts.js";
 
 export const JSON_RESULT_COMMANDS = new Set([
   "run",
+  "check",
+  "runs list",
+  "runs prune",
+  "skills install",
   "collect",
   "campaign",
   "campaign compare",
@@ -42,9 +47,19 @@ export class CliOutput {
     private readonly expectsResult: boolean,
   ) {}
 
-  log = (message: string): void => {
-    if (this.json) console.error(message);
-    else console.log(message);
+  /** Recent progress, so an error already shown in full (a FATAL line) is not repeated. */
+  private readonly recent: string[] = [];
+
+  log = (message: string, tone?: Tone): void => {
+    this.recent.push(message);
+    if (this.recent.length > 20) this.recent.shift();
+    if (this.json) console.error(paint(message, tone, colorEnabled(process.stderr)));
+    else console.log(paint(message, tone, colorEnabled(process.stdout)));
+  };
+
+  /** Diagnostics that belong on stderr even without --json, such as acceptance failures. */
+  warn = (message: string, tone: Tone = "fail"): void => {
+    console.error(paint(message, tone, colorEnabled(process.stderr)));
   };
 
   result(value: unknown): void {
@@ -59,11 +74,17 @@ export class CliOutput {
     // Signal handling already explains the interruption on stderr.
     if (error !== undefined && (!interrupted || this.debug))
       console.error(
-        error instanceof Error
-          ? this.debug
-            ? (error.stack ?? error.message)
-            : `Error: ${error.message}`
-          : String(error),
+        paint(
+          error instanceof Error
+            ? this.debug
+              ? (error.stack ?? error.message)
+              : this.recent.some((message) => message.includes(error.message))
+                ? `Error: ${error.message.split("\n", 1)[0]} (full details above${this.context.runDir ? ` and in ${path.join(this.context.runDir, "run.log")}` : ""})`
+                : `Error: ${error.message}`
+            : String(error),
+          "fail",
+          colorEnabled(process.stderr),
+        ),
       );
     if (!this.json || (error === undefined && this.value === undefined)) return;
     console.log(
@@ -89,6 +110,9 @@ export class CliOutput {
 }
 
 export function runResult(runDir: string, report: RunReport, acceptanceFailures: string[]) {
+  const gates = new Map(
+    report.areas.flatMap((area) => area.gates.map((gate) => [`${area.id}/${gate.itemId}`, gate])),
+  );
   return {
     runId: report.runId,
     runDir,
@@ -100,6 +124,33 @@ export function runResult(runDir: string, report: RunReport, acceptanceFailures:
     scoreWithheld: report.scoreWithheld,
     gates: report.gates,
     manualPending: report.manualPending,
+    // Every judged or pending criterion, so callers need not parse report.json.
+    items: report.areas.flatMap((area) => [
+      ...area.items.map((item) => ({
+        areaId: area.id,
+        itemId: item.id,
+        verdict: item.verdict,
+        confidence: item.confidence,
+        source: item.source,
+        gate: gates.get(`${area.id}/${item.id}`)?.status ?? null,
+        unproven: area.unproven.includes(item.id),
+        manualPending: area.pendingManual.includes(item.id),
+        reasoning: item.reasoning,
+      })),
+      ...area.pendingManual
+        .filter((id) => !area.items.some((item) => item.id === id))
+        .map((id) => ({
+          areaId: area.id,
+          itemId: id,
+          verdict: null,
+          confidence: null,
+          source: "manual",
+          gate: gates.get(`${area.id}/${id}`)?.status ?? null,
+          unproven: false,
+          manualPending: true,
+          reasoning: null,
+        })),
+    ]),
     acceptanceFailures,
     artifacts: {
       report: path.join(runDir, "report.json"),

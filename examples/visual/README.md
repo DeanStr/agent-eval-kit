@@ -14,7 +14,7 @@ node node_modules/agent-eval-kit/examples/visual/calibrate.mjs ./visual-calibrat
 
 Choose `--provider codex|claude|grok|cursor|mock` (default: `codex`). Real judging
 uses the selected provider's installed, authenticated CLI; see
-[provider setup](../../README.md#provider-behavior). `--model` accepts that provider's model
+[provider setup](../../docs/providers.md). `--model` accepts that provider's model
 ID or alias. Optionally pass `--effort` for Codex, Claude, or Grok; Cursor does not
 support it and the helper rejects it before creating evidence.
 

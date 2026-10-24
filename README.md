@@ -13,43 +13,29 @@ agent or orchestration makes changes and selects candidates.
 
 `aek` is a configurable, evidence-first evaluation harness for any software project. It runs test scenarios with the coding-agent subscription you already pay for—OpenAI Codex, Claude Code, Grok Build, or Cursor—then uses a fresh agent context plus deterministic checks to score a weighted rubric.
 
-No provider SDK and no API key are required. 
+No provider SDK and no API key are required.
 
 This is an early pre-release project. Backward compatibility is not a requirement: configuration, artifact formats, and APIs may change without migration support. Regenerate affected runs and baselines after such changes.
 
-Start with the offline demonstration, then use the same evaluation loop on your project:
+## What it evaluates
 
-1. [Install the built package](#built-package-distribution).
-2. Run `node node_modules/agent-eval-kit/examples/authoring/run.mjs ./aek-demo`.
-   It retains working, deliberately broken, and restored runs plus their comparison.
-   Use the [first-run walkthrough](docs/first-run.md) to explore each step yourself.
-3. [Install the authoring skill](docs/authoring.md) and ask your coding agent to
-   build your project's first calibrated evaluation. For manual setup, follow
-   [onboarding](docs/onboarding.md).
+- Deployed or locally managed web apps, repositories, and command-line projects.
+- Browser scenarios and read-only repository inspection, scored by deterministic
+  command checks, independent LLM judges, manual or weighted hybrid review, and
+  critical pass/fail gates.
+- Controlled visual capture, blind image comparisons, and direct text comparison
+  and rubric grading.
+- Resumable, integrity-checked runs with reproducibility receipts, separate
+  collect-then-judge bundles, offline rescore, and auditable manual finalization.
+- Case matrices, development/evaluation splits, repeated-run campaigns, and
+  compatibility-checked comparisons against promoted baselines.
+- Interchangeable agent and judge providers, plus minimal public exports with a
+  privacy lint.
+- Coding-agent skills for guided suite authoring and
+  [bounded project improvement](docs/improvement.md).
 
-The [documentation index](docs/README.md) covers additional workflows,
-[CLI automation](docs/cli.md#structured-results), and [troubleshooting](docs/troubleshooting.md).
-See [evaluation types and boundaries](docs/evaluation-types.md) when expanding your suite.
-
-It supports:
-
-- deployed web apps and local web apps (managed setup/start/readiness);
-- repositories and command-line projects;
-- black-box browser scenarios through a shared Playwright MCP server and path-contained repository inspection through a read-only workspace MCP server;
-- deterministic command graders, independent LLM judges, manual graders, true weighted hybrid graders, and critical pass/fail gates;
-- controlled visual capture, independent motion/repeatability tolerances, image-health and scoped distinctness checks, opt-in image-statistic baseline gates, blind pairwise image graders, and resumable repeated judging;
-- direct text comparisons and rubric grading, reusable datasets/templates, grouped case results, named suites, promoted text references, and changed-case selection with verified quotations;
-- command collectors for exported artifacts with snapshotted sources, validated image manifests, and extraction provenance; named capture checkpoints for irregular temporal sampling;
-- immutable collect-then-judge bundles, explicit release/milestone promotion policies;
-- incremental artifacts, fingerprint-checked resume, reproducibility receipts, tamper-evident output indexes, offline rescore, auditable manual finalization, coverage thresholds, and diagnostic tags;
-- downloaded and command-produced file evidence, typed file/scalar workflow bindings, evidence-backed checkpoints, and explicit applicability exclusions;
-- parameterized case matrices, diagnostic strata, and fingerprinted development/evaluation splits;
-- repeated-run campaigns with rubric/case/stratum stability, whole-run bootstrap intervals, and paired case-level campaign comparisons;
-- reusable [prompt/skill experiments](examples/skill-comparison/README.md) and [project-owned benchmarks](examples/benchmark/README.md), retaining every attempt and measurement changes alongside correctness gates;
-- explicit counterbalanced multi-candidate benchmark experiments through `aek benchmark experiment`, with shared resource exclusion and per-block differences;
-- compatibility-checked comparisons and append-only promoted baseline snapshots;
-- minimal public exports with an automatic privacy lint that never echoes matched secret values;
-- interchangeable agent and judge providers, so you can use Codex to test and Claude, Grok, or Cursor to judge.
+See the [full capability list](docs/capabilities.md) and
+[evaluation types and boundaries](docs/evaluation-types.md).
 
 ## Why this design
 
@@ -72,43 +58,8 @@ evalkit.yaml + specs + fixtures
                          └── report.json + report.html + manual checklist
 ```
 
-## Built package distribution
-
-`pnpm package:release` builds a versioned production tarball and SHA-256 checksum
-under `.agent-eval/release/`. Consumers can install the tarball directly:
-
-```sh
-npm install --save-dev /path/to/agent-eval-kit-0.7.0.tgz
-npx aek --help
-npx aek init --kind command
-```
-
-Run these commands in your project's root. Follow the generated
-`evals/ONBOARDING.md` and implement the checker before running the command starter.
-Choose `--kind web`, `repository`, `artifact`, or `visual` for other targets. For browser
-scenarios, install the matching browser from the consuming project:
-
-```sh
-npx --no-install playwright install chromium
-```
-
-Use `npx aek` for a local npm installation, `pnpm exec aek` for a local pnpm
-installation, or `aek` for a globally linked installation wherever the guides show
-`aek`. Commands beginning with `pnpm aek` assume you are working from this source
-checkout. Start with the [offline first-run walkthrough](docs/first-run.md): its
-cart fixture ships in the package and demonstrates score, coverage, critical
-gates, and regression comparison without provider access.
-
-No repository clone, TypeScript build, or development dependencies are needed in
-the consuming project. The package includes first-run, text-datasets, and authoring
-examples plus the authoring and improvement skills. Provider CLIs and browser dependencies still
-apply to the selected evaluation mode. For a published GitHub release, download its `.tgz` and
-matching `.sha256`, verify with `sha256sum -c`, then install the tarball.
-
-The release workflow tests the exact archive and publishes these artifacts as a
-GitHub pre-release when a matching `v*` tag is pushed. The tag, `package.json`,
-and `src/version.ts` versions must agree.
-Adding the workflow does not publish a release or establish npm registry availability.
+See the [evidence and safety model](docs/deployment.md#evidence-and-safety-model)
+for the boundaries AEK enforces.
 
 ## Requirements
 
@@ -139,747 +90,110 @@ When `evalkit.yaml` is present, `doctor` requires only its configured providers
 and requires Chromium only if a browser scenario is defined. Outside a configured
 project it probes all providers, succeeds when at least one is ready, and reports
 Chromium as optional. Use `--config file` or `--providers codex,claude` to check an
-explicit setup.
+explicit setup. See [provider behavior](docs/providers.md) for adapter contracts
+and Cursor setup.
 
-The adapter contracts follow the official automation surfaces: [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode), [Claude Code CLI reference](https://code.claude.com/docs/en/cli-usage), and [Grok Build headless scripting](https://docs.x.ai/build/cli/headless-scripting).
+## Install
 
-## Quick start
+### Built package distribution
 
-New to AEK? Start with [your first evaluation](docs/first-run.md): run a small offline example, learn to read score, coverage, and gates, then introduce and compare a deliberate defect.
+`pnpm package:release` builds a versioned production tarball and SHA-256 checksum
+under `.agent-eval/release/`. Consumers can install the tarball directly in their
+project's root:
 
-From this repository:
+```sh
+npm install --save-dev /path/to/agent-eval-kit-0.7.0.tgz
+npx aek --help
+```
+
+For browser scenarios, install the matching browser from the consuming project:
+
+```sh
+npx --no-install playwright install chromium
+```
+
+No repository clone, TypeScript build, or development dependencies are needed in
+the consuming project. The package includes first-run, text-datasets, and authoring
+examples plus the authoring and improvement skills. Provider CLIs and browser dependencies still
+apply to the selected evaluation mode. For a published GitHub release, download its `.tgz` and
+matching `.sha256`, verify with `sha256sum -c`, then install the tarball.
+See [release packaging](docs/development.md#release-packaging) for how releases are built.
+
+Use `npx aek` for a local npm installation, `pnpm exec aek` for a local pnpm
+installation, or `aek` for a globally linked installation wherever the guides show
+`aek`.
+
+### From a source checkout
 
 ```bash
 pnpm install
 pnpm install:browser
 pnpm build
 pnpm link --global
-
-cd /path/to/your/project
-aek init --kind web
 ```
 
-Choose `--kind web`, `repository`, `command`, `artifact`, or `visual` (default: `web`).
-The [controlled visual starter](docs/visual-evaluation.md#start-a-controlled-visual-project)
-includes a runnable WebGL/Canvas2D fixture, working/frozen/blank calibration,
-and separate approved-baseline and aspirational comparison suites.
-Initialization writes an editable starter, not a discovered evaluation of your project.
-Follow the generated `evals/ONBOARDING.md` to define one measurable requirement,
-prepare test state, and calibrate it on known-good and deliberately broken behavior.
-See [onboarding your project](docs/onboarding.md) for the complete workflow.
-
-Edit `evalkit.yaml`, `evals/specs/core.yaml`, and `evals/fixtures.yaml`, then:
-
-```bash
-aek validate
-aek list
-aek run --dry-run
-aek run
-```
-
-For a one-off target or a cheaper bounded pilot, override the configured web URL and scenario interaction budget. Claude and Grok enforce this as provider turns; Codex, whose CLI has no turn-limit flag, enforces it as a hard MCP tool-call limit:
-
-```bash
-aek run --url https://preview.example.test --max-turns 20
-```
-
-Use different subscriptions for collection and judgement:
-
-```bash
-aek run --agent codex --judge claude
-aek run --agent claude --judge grok
-```
-
-Run only a slice:
-
-```bash
-aek run --areas checkout,account --scenarios CART-S1,CART-S2
-aek run --split development
-aek run --split evaluation
-```
-
-Artifacts go to `.agent-eval/runs/<timestamp>/`. Open `report.html` for the evidence-backed report and keep `report.json` as the stable machine-readable result.
-
-`aek init` includes an onboarding guide and, for command/artifact starters, a checker or collector script. It stages the complete starter kit and publishes it without overwriting existing files. It preflights every destination and rolls back files it published if initialization fails, so a conflict cannot leave a half-created kit.
-
-For expensive captures or judge calibration, collect once and create separate judged runs:
-
-```bash
-aek collect --split all
-aek judge --evidence .agent-eval/runs/<collection-id> --judge claude
-```
-
-See [collecting and judging separately](docs/evidence-workflows.md) for evidence
-compatibility, rubric changes, recovery, and baseline promotion policies.
-
-Compare judge configurations against separate reviewed evidence labels with the
-installed CLI:
-
-```sh
-aek judge validate --dataset cases.json --labels labels.json \
-  --configurations configurations.json --output new-validation-directory
-```
-
-This writes JSON metrics and an HTML review of expectations, decisions,
-explanations, and evidence. See [judge validation](docs/judge-validation.md) for
-the input contracts, exit semantics, and a packaged offline example.
-
-## Bounded project improvement
-
-For an existing deterministic suite, use [bounded project improvement](docs/improvement.md):
-`aek improve install` adds `$aek-improve`, which guides hypothesis-driven edits
-through full-suite acceptance and preserves the best checkpoint in its own Git
-worktree. Rejected candidates retain their evidence and are restored automatically.
-Incremental improvements may remain below the release bar. Acceptance uses single
-runs with strict regression checks; it does not provide noise tolerance for LLM judges.
-
-## Guided project authoring
-
-Install the authoring skill into your project's agent skill directory:
-
-```sh
-npx aek author install
-```
-
-Then ask your coding agent: “Use $aek-author to survey this whole project, ask me
-about missing product expectations, and build an evaluation suite.” The skill
-supports project discovery, focused interview rounds, saved decisions, existing-kit
-updates, and good/defect calibration. `aek author status` reports progress from the
-persistent `.aek-authoring/plan.json` map, separately from evaluation scores and
-rubric evidence coverage. See [project authoring](docs/authoring.md).
-
-## Configuration
-
-`evalkit.yaml` is deliberately project-owned:
-
-```yaml
-version: 1
-project:
-  name: Acme Store
-  root: .
-
-target:
-  kind: web                    # web | repository | command
-  url: http://127.0.0.1:3000
-  allowedOrigins:
-    - http://127.0.0.1:3000
-    # Wildcards are opt-in: https://*.acme.test
-  setup:
-    command: pnpm install --frozen-lockfile
-    timeoutSeconds: 600
-  start:
-    command: pnpm dev
-    env: { NODE_ENV: test }
-  ready:
-    url: http://127.0.0.1:3000/health
-    timeoutSeconds: 120
-    intervalMs: 500
-
-agent:
-  provider: codex
-  model: gpt-5.6-sol           # optional; omit to use the CLI default
-  effort: high
-  maxTurns: 60 # Claude/Grok provider turns; Codex MCP interactions
-  timeoutSeconds: 1800
-  extraArgs: []
-
-judge:
-  provider: claude
-  model: opus                  # optional provider-specific id or alias
-  effort: high
-  timeoutSeconds: 900
-
-paths:
-  specs: evals/specs
-  fixtures: evals/fixtures.yaml
-  runs: .agent-eval/runs
-  auth: .agent-eval/auth
-  baselines: evals/baselines     # compact promoted snapshots; safe to review and commit
-
-browser:
-  headless: true
-  viewport: { width: 1280, height: 800 }
-  actionTimeoutMs: 10000
-
-scoring:
-  partialCredit: 0.5
-  minimumCoverage: 60
-
-variables:
-  tenantName: Evaluation tenant
-instructions: Test equivalent functionality regardless of product terminology.
-```
-
-Paths are resolved from `project.root`; `project.root` is resolved from the config file. A `.env` beside `evalkit.yaml` is loaded without overriding existing environment variables. Strings can reference environment variables as `${NAME}`; missing variables fail validation immediately.
-
-Do not put passwords or tokens in `variables`: prompts and evidence are intentionally retained for reproducibility. Use captured browser sessions for authenticated web flows.
-
-### Local target lifecycle
-
-`target.setup` runs once per new run (including every campaign repetition) and must exit successfully. It receives `AEK_PROJECT_ROOT` and `AEK_RUN_DIR`; `lifecycle/setup.json` records the command, timing, and result. A resumed run skips setup only when that successful record is sealed. Failed or interrupted preparation is retried. `target.start` remains alive for the run and is terminated as a process group before final artifacts are sealed, including stubborn descendants and failure paths. `target.ready` polls an HTTP URL (any status below 500 is ready) or a shell command, whether or not AEK started the target. The run receipt is refreshed after setup, readiness, and each command grader, so generated or mutated target files record the state that was actually evaluated.
-
-For a deployed web app, omit `setup` and `start`; `ready` is optional but useful for failing early when the deployment is unavailable.
-
-Interrupting `run` or `campaign` with Ctrl+C (`SIGINT`) or `SIGTERM` stops active provider, grader, setup, readiness, and managed target processes before returning exit status 130 or 143. The interrupted run is marked failed and its lock is released. Campaigns retain the interrupted repetition and do not start further repetitions. Timeout cleanup waits for the entire process group, including descendants that outlive the original command.
-
-`aek run --dry-run --json` validates inputs and prints a version-2 execution plan,
-including collectors, graders, dependency order, required services, and conditional
-judge-call ranges. `collect` and `campaign` support the same preview flags. No target
-or provider starts and no output directory is created. See [execution previews](docs/cli.md#execution-previews).
-
-See the [configuration reference](docs/configuration.md) for every config field,
-default, limit, and override rule.
-
-## Specs
-
-Every YAML file under `paths.specs` is one weighted area. Required area weights must total exactly 100; optional areas are excluded from the headline score.
-
-```yaml
-id: checkout
-title: Checkout
-weight: 35
-description: A buyer can complete a safe, persistent checkout.
-
-scenarios:
-  - id: CART-S1
-    name: Add, update, and persist a cart
-    kind: browser              # browser | workspace; defaults from target.kind
-    persona: buyer
-    dependsOn: []
-    requiresAuth: false
-    instructions: |
-      1. Add the fixture product to the cart.
-      2. Change quantity to two and reload.
-      3. Capture the persisted total.
-    successSignals:
-      - Quantity and total remain correct after reload
-
-rubric:
-  - id: CART-01
-    criterion: Cart quantity and total persist across reload
-    weight: 3
-    gate: true                    # optional: this item must fully pass
-    tags: [crud, persistence, money]
-    scenarios: [CART-S1]
-    grader: { type: llm }
-    passCriteria: Quantity is two after reload and total equals two unit prices.
-    evidence: Before/after screenshots with product, quantity, and total.
-```
-
-IDs are globally unique and must remain distinct under case folding so the same kit is safe on case-insensitive filesystems. Scenario IDs also cannot use names reserved by the top-level run artifact layout, such as `inputs`, `areas`, or `report.json`. Rubric `scenarios` must refer to scenarios in the same area. Scenario dependencies gate dependent execution across the selected suite; prerequisites execute first, with file order breaking ties. Browser scenarios in the same dependency chain share isolated temporary storage state. An existing captured persona state takes precedence; merely naming an uncaptured persona never creates trusted authentication state, and its chain remains run-local.
-
-### Case matrices, strata, and splits
-
-Use `cases` to execute one scenario against controlled variations without copying its instructions:
-
-```yaml
-scenarios:
-  - id: CANCEL-S1
-    name: Cancel a subscription
-    kind: browser
-    instructions: Cancel the subscription described by the case variables and verify the final state.
-    cases:
-      - id: monthly-active
-        split: development
-        variables: { plan: monthly, accountState: active }
-        strata: { plan: monthly, account_state: active }
-      - id: annual-past-due
-        split: evaluation
-        variables: { plan: annual, accountState: past_due }
-        strata: [plan=annual, account_state=past_due]
-```
-
-Case variables override same-named project variables for that execution. Object strata normalize to stable `dimension=value` labels; the list form is accepted when labels are already normalized. Reports show automatic score and coverage slices for each stratum and retain the case ID and split, but never copy case variables into the public-export format.
-
-Run a split with `aek run --split development` or `aek run --split evaluation`. The CLI defaults to `development`, protecting reserved evaluation cases from routine tuning; `--split all` is an explicit diagnostic option. Scenarios or cases without an explicit split are shared and run in either selection, so existing suites remain compatible. An LLM or hybrid rubric referencing a matrix scenario is evaluated across the selected cases, with a separate automatic diagnostic verdict for every stable rubric/case pair. Its aggregate full `pass` requires every applicable case to pass. A proposed full pass with any unavailable case becomes `cannot_judge`; mixed fully observed outcomes become `partial`. Command and manual-only rubrics remain rubric-level checks.
-
-If a split leaves an area with no applicable rubric items, that area is omitted from the execution and receipt rather than reported as zero coverage. A selection with no applicable rubric items fails before a run directory is created or a provider starts.
-
-For suite-wide dependencies, typed output/input bindings, and isolated saved-persona switching, see [scenario workflows and personas](docs/workflows.md).
-
-When dependent scenarios both use a matrix, reuse the same case IDs, strata, and split in each scenario; their per-step variables may differ. AEK maps `VERIFY--annual` to `CREATE--annual` and validates missing or inconsistent dependency cases before a provider starts. The chosen split is recorded in the run receipt; changing the split or any spec bytes changes the evaluator fingerprint, so evaluation baselines fail closed rather than silently drifting.
-
-Set `gate: true` only on genuinely release-blocking criteria. A critical item must receive a full `pass`; `partial`, `fail`, and `not_found` fail the run, while missing/manual/blocked evidence makes the gate unavailable and also fails closed. Critical gates apply independently of weighted aggregate score and are enforced even when no `--fail-under-*` flags are supplied.
-
-### Grader types
-
-`llm` asks the configured independent judge to assess the collected evidence.
-
-```yaml
-grader: { type: llm }
-```
-
-`command` is deterministic and runs after the area's scenarios. Every command grader must declare `output: exit-code` or `output: json`; formats are never guessed. In exit-code mode, codes map to `0=pass`, `1=fail`, `2=partial`, `3=cannot_judge`, `4=not_found`, and plain output becomes the reasoning. Other exit codes, signals, and timeouts fail the run. JSON mode requires exit code 0 and an exact, schema-valid JSON object on stdout; malformed output or nonzero exits fail the run instead of falling back to exit-code grading:
-
-```json
-{
-  "verdict": "pass",
-  "confidence": "high",
-  "reasoning": "All 143 tests passed.",
-  "evidenceRefs": ["graders/TEST-01.stdout.txt"]
-}
-```
-
-```yaml
-grader:
-  type: command
-  output: exit-code          # use json for the structured object above
-  command: node evals/check.mjs
-  methodFiles: [evals/check.mjs, evals/expected.json]
-  cwd: project                # project | run | path relative to project
-  timeoutSeconds: 300
-```
-
-`methodFiles` is required. List every checker script, checker dependency, configuration file, and expected-result file that defines the grading method, excluding the product implementation being evaluated. Paths resolve from `project.root`; explicitly declared absolute paths are also supported for shared external checkers. Use `[]` only when the complete check is inline in `command` and has no external evaluator inputs. AEK does not infer dependencies from shell commands or imports.
-
-These files are hashed into the evaluator fingerprint, snapshotted under `inputs/grader-methods/`, hidden from workspace collection, and verified before and after each command grader. Changing a declared checker makes comparisons incompatible and prevents resume; offline rescore keeps the original checker provenance. Missing files fail validation before execution.
-
-Command graders receive `AEK_PROJECT_ROOT`, `AEK_RUN_DIR`, and `AEK_RUBRIC_ID`.
-
-**Reusing existing tests.** Connect relevant unit, integration, or end-to-end tests
-through a command grader instead of duplicating their assertions. AEK executes the
-configured command; it does not discover tests or automatically turn each test into
-a rubric item. Select tests that establish the item's requirement, or use a whole
-suite as one aggregate regression check. A passing unit test alone cannot establish
-an unexercised end-to-end workflow.
-
-Use `output: exit-code` directly only when the command honors AEK's verdict mapping.
-Some runners use exit 1 for both failed assertions and setup errors, or exit 2 for
-invalid invocation; AEK would interpret these as `fail` and `partial`. It cannot
-distinguish those causes from the exit code alone.
-
-When necessary, use a small project-owned adapter with `output: json` to run the
-existing tests and translate their structured results. Read only results produced
-by that invocation, using a fresh output path or removing the adapter's previous
-result file before launch. Validate the runner's completion status, selected tests,
-and report before assigning a verdict. Missing/malformed results, invalid selection
-with no matching tests, setup failures, signals, and timeouts are execution errors,
-even if the runner also reported passing or failing assertions. Do not swallow a
-runner error just because a result file exists.
-
-For a valid execution, observed product assertion failures produce `fail`; a `pass`
-requires the expected tests to have executed and passed. Required skipped tests
-cannot establish a pass: use `cannot_judge` when valid missing evidence prevents a
-verdict, and explain what was skipped and why. Skips caused by broken setup remain
-execution errors. Never turn an empty failure list into a pass without verifying
-execution.
-
-The adapter must exit 0 and emit exactly one AEK verdict object for a valid result,
-even when tests failed. Execution errors must exit nonzero. Send runner logs to
-stderr or retain them under `AEK_RUN_DIR` and reference them in `evidenceRefs`;
-do not mix them into JSON stdout. Declare the adapter, selected test files, runner
-configuration, and other grading dependencies in `methodFiles`, excluding product
-code. Verify the connection with passing tests, a failed assertion, and a runner
-error, plus skipped/no-match cases where supported. If the adapter reads report
-files, verify that an old passing report cannot mask a failed new invocation.
-This reuses the test logic while preserving the distinction between product failure
-and an invalid evaluation.
-For runnable code, YAML configuration, and failure trials, see the
-[worked Node.js test adapter](docs/existing-tests.md).
-
-`manual` contributes no score or coverage until finalized:
-
-```yaml
-grader: { type: manual }
-manualInstructions: Confirm the email arrived once and all links work.
-```
-
-`hybrid` splits the item's actual weight between automatic and manual evidence. This is not a provisional verdict that later gets overwritten; both components retain their configured share.
-
-```yaml
-grader:
-  type: hybrid
-  autoShare: 0.6
-manualInstructions: Verify the payment appears in the sandbox processor.
-```
-
-### Fixtures and uploads
-
-Arbitrary fixture data is passed to scenarios. Browser agents may upload only named paths in the top-level `files` map, preventing them from choosing files elsewhere on disk.
-
-```yaml
-data:
-  product: Test Widget
-  uniqueEmail: aek-buyer@example.test
-files:
-  avatar: ./files/avatar.png
-  importCsv: ./files/import.csv
-```
-
-`aek validate` resolves these paths relative to the fixture document and verifies that every entry exists and is a regular file. Missing uploads therefore fail before any provider is started or subscription quota is used.
-
-For downloaded files, general command evidence, scenario checkpoints, and declared
-applicability, see [file evidence and evaluation scope](docs/file-evidence.md).
-
-## Text evaluation
-
-Compare writing directly against selected reference passages using `text-pairwise`.
-The judge makes a holistic editorial choice; reference text can express the
-desired taste without a detailed style checklist. An optional `styleTarget`
-compares two alternatives against a fixed target voice. Text files are snapshotted,
-votes resume, and the report includes exact passage citations.
-
-```sh
-pnpm aek run --config examples/text/evalkit.yaml --judge codex
-```
-
-See the [text example](examples/text/README.md) for direct reference comparisons,
-style-guided revisions, and separate voice and editorial-quality evaluations.
-See the [dataset example](examples/text-datasets/README.md) for shared voice, quality, and policy suites. See [text evaluation](docs/text-evaluation.md) for the full configuration. Direct text grading requires no collection scenario.
-
-## Visual evaluation and repeated judges
-
-Compare two existing images without writing a config or collector:
-
-```bash
-aek image compare --candidate new.png --reference approved.png \
-  --criterion "Labels are readable and the main action is easy to find."
-```
-
-For many pairs, `aek image batch --manifest comparisons.json --output review-01`
-adds a combined HTML/JSON report, bounded concurrency, resume and strict reuse
-of completed identical comparisons, including failures. See
-[batch image comparisons](docs/image-comparison.md#batch-comparisons).
-
-The default policy accepts improvement or observed equivalence. Add
-`--policy preference` to require improvement, or `--absolute-criterion` for a
-separate quality gate. See the [two-file image guide](docs/image-comparison.md)
-for previewing, providers, reports, and recovery.
-
-Use controlled browser adapters to capture reproducible PNGs and temporal frames, then grade deterministic checks and blind comparisons against reference images or image-bearing baselines. Pairwise judges distinguish observed equivalence from abstention, retain every vote, and resume without recollecting completed evidence. Ordinary rubric judges can also vote repeatedly over fixed evidence.
-
-See [visual evaluation](docs/visual-evaluation.md) for configuration, adapter contracts, voting policies, diagnostics, baseline images, and limitations. The [dashboard example](examples/visual/evalkit.yaml) runs with a real judge via:
-
-```bash
-pnpm aek run --config examples/visual/evalkit.yaml --judge codex
-```
-
-The [exported-chart example](examples/artifact/evalkit.yaml) collects a delivered
-artifact without a browser and combines an absolute readability gate with a
-pairwise non-regression rubric:
-
-```bash
-pnpm aek run --config examples/artifact/evalkit.yaml --judge codex
-```
-
-Omit `--judge codex` for an offline pipeline check. Its mock judge abstains;
-the absolute gate remains unavailable and the CLI exits unsuccessfully.
-
-## Authentication
-
-For magic links, OAuth, or seeded personas, capture Playwright storage state once:
-
-```bash
-aek auth --persona buyer --at /login
-```
-
-Complete sign-in in the opened browser and press Enter. For a one-click demo role picker:
-
-```bash
-aek auth --persona admin --at /demo --click "Sign in as admin"
-```
-
-The state is stored beneath an origin-keyed directory in `.agent-eval/auth/` with
-private directory and file permissions. Treat it as a password and keep
-`.agent-eval/` out of source control. A scenario with `requiresAuth: true` stops
-as `blocked` if its persona state is missing; it does not explore the logged-out
-app and report false absences.
-
-The kit deliberately does not accept plaintext application passwords in `evalkit.yaml`: provider prompts, exact argv, and raw events are retained for reproducibility. Put non-secret signup identities in fixtures and use captured browser state for existing accounts.
-
-For AgentMail-backed magic links and emailed verification codes, declare an
-`emailAuth` flow and run `aek auth --persona buyer --email`. Scenarios can also
-exercise the login journey with `authenticateEmail: true`. The packaged mailbox
-helper supports command collectors that verify notification delivery and content.
-`provider: mailpit` supports local capture in `emailAuth`; `createMailpitMailbox`
-also exposes the same recipient-scoped observation helpers for command collectors.
-See [email evidence and authentication](docs/email.md) for configuration, examples,
-credential handling and supported flow boundaries.
-
-## Run, resume, rescore, finalize
-
-Each completed scenario writes `evidence.json` atomically. Every completed area rebuilds the report, so a late provider or browser failure does not lose earlier work.
-
-```bash
-tail -f .agent-eval/runs/<timestamp>/run.log
-aek run --resume .agent-eval/runs/<timestamp>
-```
-
-Resume reuses non-error scenario evidence and completed area judgements. It requires the current run-state format and its input fingerprint, and refuses changed resolved configuration, provider/evaluator method, selected areas or scenarios, exact spec bytes, fixture manifest or named fixture bytes, and a changed clean Git revision. An exclusive per-run lock rejects concurrent resume or execution before recovery can alter artifacts. Start a new run for changed or unverifiable evaluation inputs.
-
-Every report embeds a versioned receipt and writes the same data to `receipt.json`. It records SHA-256 checksums for evaluation inputs, provider CLI versions, kit/runtime versions, target Git revision when available, and two fingerprints: a strict input fingerprint for resume and an evaluator fingerprint for safe cross-target comparison. Receipt creation fails if a configured provider's CLI version cannot be determined; run `aek doctor` instead of producing an unverifiable receipt. Receipt files contain hashes and metadata, not fixture contents or secrets.
-
-Pin `agent.model`, `judge.model` and their `effort` settings for comparisons.
-The report's provider table shows the requested model, reasoning effort and CLI
-version from the retained receipt; JSON retains these under `providers.agent`
-and `providers.judge`. Changing model or effort changes the evaluation
-fingerprint. Omitted settings appear as `Provider default (unrecorded)` in HTML.
-Rebuilding a report from retained evidence preserves the receipt's provider
-settings, even when the current configuration has changed.
-These fields record requested settings, not a provider-confirmed model snapshot:
-Codex's current `exec --json` stream does not expose that resolved identity.
-The exact invocation argv is retained in `provider-run.json`, with explicit
-`requestedModel` and `requestedEffort` fields for browser/workspace collection
-and ordinary LLM judging. Pinning a model ID does not make model output
-deterministic or freeze a provider's implementation of that ID.
-
-
-After changing only scoring weights/tags, intentionally apply the current specs without a model call. Rescore requires the sealed original resolved-config snapshot and uses its original scoring values when checking that no unrelated collection settings changed:
-
-```bash
-aek rescore --run .agent-eval/runs/<timestamp>
-```
-
-For pending manual checks, edit `manual-results.json`, then:
-
-```bash
-aek finalize --run .agent-eval/runs/<timestamp> --reviewer dean
-```
-
-Finalization appends a hashed entry to `manual-revisions.ndjson` for every changed manual or hybrid result. Each revision records its reviewer, timestamp, verdict, notes, and the previous revision hash. Re-running finalize without a change does not create a duplicate revision. Unknown rubric IDs and invalid completed verdicts are rejected. If `--reviewer` is omitted, AEK uses the reviewer saved in the entry or the local operating-system username; if none is available, finalization requires `--reviewer` instead of recording an anonymous revision.
-
-For automatic `cannot_judge` results, review `adjudication-checklist.md` and create a decision file outside the run directory:
-
-```bash
-aek adjudicate --run .agent-eval/runs/<timestamp> --input decisions.json --reviewer dean
-```
-
-Adjudication requires a named reviewer, rationale, and supporting evidence. It preserves the original automatic result, distinguishes newly supplied human evidence from collected artifacts, and appends hashed revisions to `adjudications.ndjson`. Hybrid automatic and manual shares remain separate. See [human adjudication](docs/adjudication.md) for the input format, corrections, and scoring behavior.
-
-Every report update also writes `artifact-index.json`, which checksums retained inputs, evidence, screenshots, provider events, judgements, review history, and reports. Verify a run explicitly with:
-
-```bash
-aek verify --run .agent-eval/runs/<timestamp>
-```
-
-Resume, compare, rescore, finalize, adjudicate, and baseline promotion verify an existing index before trusting its artifacts. `manual-results.json`, `run-state.json`, `run.log`, temporary files, and generated comparisons are documented mutable exclusions; finalized review revisions and rebuilt reports are sealed into the next index.
-
-## Repeated-run campaigns
-
-Coding-agent results are stochastic, so AEK can execute the same resolved evaluation sequentially several times:
-
-```bash
-aek campaign --repetitions 5
-aek campaign --repetitions 5 --areas checkout --output .agent-eval/campaigns/checkout
-```
-
-Resume an interrupted campaign with `aek campaign --resume <campaign-directory>`.
-Recovery restores the original options and thresholds, verifies retained artifacts,
-and continues only repetitions that never started. Failed or interrupted attempts
-remain in the results. See [campaign recovery](docs/cli.md#campaign-recovery).
-
-Each repetition remains a normal independently receipted run. `campaign.json` and `campaign.html` report completion failures, score and coverage mean/median/range/standard deviation, deterministic 95% percentile-bootstrap intervals using the complete run as the resampling unit, critical-gate pass rate, and rubric, case, and stratum verdict stability. Aggregate metrics are withheld if evaluator or strict target-input fingerprints differ. Campaigns are deliberately sequential to avoid subscription concurrency and rate-limit surprises. Intervals are descriptive and small repetition counts remain unstable. A campaign does not reset a deployed target's database: use idempotent scenarios, isolated test tenants, or a lifecycle setup command that restores state between runs.
-
-An incompatible campaign exits with status `2` even if every individual repetition passes its numeric thresholds; execution failures take precedence with status `1`. Hybrid rubric stability counts a full pass only after every required automatic and manual share passes. Pending hybrid reviews retain automatic credit and `components.automatic`, while their aggregate verdict is `cannot_judge` until review is complete. Case and stratum diagnostics continue to describe automatic judgements.
-
-For project-owned benchmarks that compare multiple candidates with controlled
-visit order and a shared resource, use:
-
-```sh
-aek benchmark experiment --recipe evals/benchmark.json --output .agent-eval/experiments/trial-1
-```
-
-The command reports each visit's progress and prints the final report and summary
-paths. See the [benchmark guide](examples/benchmark/README.md) for the recipe,
-correctness gates and limits of the descriptive comparisons.
-
-Compare two campaigns over matching stable cases:
-
-```bash
-aek campaign compare \
-  --baseline .agent-eval/campaigns/before \
-  --candidate .agent-eval/campaigns/after \
-  --fail-on-regression
-```
-
-The comparison reports each case's mean verdict value across repetitions, improvement/regression and coverage/add/remove states, stratum-level mean deltas, and a deterministic 95% paired-case bootstrap interval. The resampling unit is the matched case, so large matrices do not get confused with random repetition noise. Numeric results are withheld when evaluator fingerprints differ unless `--allow-incompatible` is explicitly recorded. `--fail-on-regression` exits with status `2` after writing the JSON and HTML reports if a case regresses, loses coverage, or disappears, or if the campaign mean score, critical-gate pass rate, or completion rate falls. Completion rate is completed runs divided by attempted runs; pending repetitions are excluded. It is checked even for campaigns without case results. Execution failures remain separate from product scores and evidence coverage.
-
-## CI thresholds
-
-Add score and evidence-coverage gates directly to a run:
-
-```bash
-aek run --fail-under-score 85 --fail-under-coverage 90
-```
-
-The same flags work with `rescore` and `finalize`. Critical rubric items marked `gate: true` are always enforced as hard gates. Artifacts are written first; any failed or unavailable critical gate or numeric threshold exits with status `2`. A withheld or unavailable score cannot pass `--fail-under-score`, even if its provisional numeric value is high. Invalid thresholds and execution errors use status `1`.
-
-Run, rescore, and finalize thresholds and score withholding use full-precision weights, allowing only machine-level arithmetic roundoff at equality. Display percentages are rounded: a displayed 100% may still fail a 100% requirement; the failure message includes the unrounded measurement.
-
-## Compare runs
-
-Compare two run directories—or two explicit `report.json` files whose parent directories are sealed runs—without another agent call:
-
-```bash
-aek compare \
-  --baseline .agent-eval/runs/2026-09-01T12-00-00 \
-  --candidate .agent-eval/runs/2026-09-04T12-00-00
-```
-
-This writes `comparison.json` and a standalone `comparison.html` below the candidate run's `comparisons/vs-<baseline-run-id>/` directory. The report includes overall, area, tag, and rubric-item deltas; item changes distinguish improvements, regressions, gained/lost coverage, additions, and removals.
-
-The HTML report also shows baseline/candidate reasoning, confidence, critical
-gates, evidence links, and relevant screenshot/text previews. Filter the review
-to regressions, lost coverage, or critical gates; unchanged decisions remain
-inspectable. Evidence links are relative to the output location and require the
-retained source artifacts. Promoted snapshots omit private reasoning and evidence.
-
-Rubric items retain weighted score and coverage measurements, so hybrid regressions are detected even when both aggregate verdicts are `partial`. Campaign case coverage is judgeable repetitions divided by all attempted repetitions, including failed runs; pending runs are excluded. `--fail-on-regression` detects partial case coverage loss and decreases in campaign mean evidence coverage. See [release validation](docs/release-validation.md#comparison-and-recovery-corrections-013) for artifact regeneration and interrupted-lock recovery.
-
-Comparisons require current, receipt-bearing reports and a valid `artifact-index.json` for both direct inputs. They verify that both have the same evaluator fingerprint: kit version, provider versions/configuration, scoring method, variables/instructions, selected inputs, exact specs, and exact fixtures. Incompatible reports still produce an audit report, but numeric deltas are withheld and the command exits with status `2`. Use `--allow-incompatible` only for exploratory analysis; it records the override and enables deltas explicitly.
-
-Promote a reviewed run to a named baseline, then compare against that name:
-
-```bash
-aek baseline promote --run "$BASE_RUN" --name main --reviewer dean
-aek baseline list
-aek compare --baseline-name main --candidate "$CANDIDATE_RUN" --fail-on-regression
-```
-
-Release promotion (the default) also checks the full declared scenario suite, required gates, and promotion coverage/score policy. The default requires 100% coverage across all splits in required areas. Use an explicitly reviewed `--mode milestone --reason "..."` for an intermediate result; the exception is recorded. See [promotion policy](docs/evidence-workflows.md#baseline-promotion-policy).
-
-Promotion requires a valid `run-state.json` with `status: complete`, then verifies the source artifact index. Every promotion creates a new content-checked snapshot containing the comparison-relevant report fields, source report and artifact-index hashes, evaluator fingerprint, target revision, reviewer, and timestamp. Full scenario evidence and judge reasoning remain in the source run rather than being copied into the baseline. Updating a name moves only its atomic `current.json` pointer; previous snapshots remain available in the baseline directory. The default `evals/baselines` location is evaluator-hidden and suitable for code review and version control.
-
-Optional comparison gates also exit with status `2` after writing the report:
-
-```bash
-aek compare --baseline "$BASE_RUN" --candidate "$CANDIDATE_RUN" \
-  --fail-on-regression --max-score-drop 2 --max-coverage-drop 5
-```
-
-`--fail-on-regression` treats a lower item verdict, lost item coverage, a removed item, or a removed area as a regression. Score-drop enforcement fails closed when either headline score was withheld, because the two scores are not safely comparable.
-
-## Public export and privacy lint
-
-Create a small shareable package from an integrity-verified run:
-
-```bash
-aek export --public --run .agent-eval/runs/<timestamp>
-```
-
-The default destination is `.agent-eval/exports/<run-id>/`. The export contains aggregate, area, rubric, case, stratum, split, provider, source-hash, and gate outcomes. It deliberately excludes target URLs and absolute paths, fixtures and case variables, prompts and evaluator instructions, transcripts and observations, screenshots and provider events, defects and notes, evidence references, and grader reasoning. `--public` is required so this lossy boundary is explicit.
-
-Before publishing atomically, AEK scans every exported text file for private keys, bearer and known API-token formats, probable secret assignments, email addresses, user home paths, and credentials embedded in URLs. Findings name only the rule and file/line; they never echo the matched value. A failed scan publishes nothing. You can run the same heuristic scanner independently:
-
-```bash
-aek privacy lint --path path/to/proposed-artifact
-```
-
-The lint is a guardrail, not proof of anonymity: product-specific customer IDs or sensitive business labels may not match a generic pattern and still require human review. Binary files are skipped and counted; public exports contain no binary evidence by design.
-
-## Provider behavior
-
-| Provider | Scenario mode | Structured result | Subscription authentication |
-|---|---|---|---|
-| Codex | `codex exec --json --ephemeral` | `--output-schema` | saved ChatGPT sign-in |
-| Claude Code | `claude -p --output-format stream-json` | `--json-schema` | saved `claude.ai` sign-in |
-| Grok Build | headless `--prompt-file` | `--json-schema` | saved Grok browser/device login |
-| Cursor | `cursor-agent --print --output-format stream-json` | schema in prompt, validated by AEK | saved Cursor file credentials |
-
-Codex is the default and most-tested adapter. Claude Code, Grok Build, and Cursor are supported adapters, but their CLIs evolve independently; `aek doctor` records the installed versions, and every invocation stores its exact argv, raw events, stderr, model, session id, and token usage when exposed.
-
-`doctor` checks installation and local authentication status, not remaining model quota or successful OAuth refresh. Use the opt-in provider smoke to verify actual collection and judging. Claude, Grok, and Cursor preserve provider-written credential refreshes before removing their temporary configuration homes, provided the original credential file has not changed during the invocation.
-
-For Cursor, install the [Cursor CLI](https://cursor.com/docs/cli/installation), then run:
-
-```bash
-AGENT_CLI_CREDENTIAL_STORE=file cursor-agent login
-aek doctor --providers cursor
-aek run --agent cursor --judge cursor
-```
-
-AEK uses `cursor-agent` explicitly because the `agent` command can belong to another provider. Cursor runs with an isolated home and only its saved `auth.json` credentials; on macOS, the file-store login above is required even if you have already signed in using Keychain. Linux credentials are read from `$XDG_CONFIG_HOME/cursor/auth.json` or `~/.config/cursor/auth.json`; macOS uses `~/.cursor/auth.json`. Ambient API keys and user settings are not passed through. Browser/workspace collection and image judging use AEK's MCP servers.
-
-Cursor supports `model` and `timeoutSeconds`. Separate `effort`, `maxTurns`, and `extraArgs` settings are rejected. Its [CLI output format](https://cursor.com/docs/cli/reference/output-format) does not enforce a JSON Schema: AEK supplies the schema in the prompt and validates the final answer. Malformed answers fail the run. Cursor token usage is not reported when the CLI does not expose it.
-
-The offline `mock` provider exists for harness tests. It does not inspect a target and should not be used for real LLM-graded evaluations.
-
-## Evidence and safety model
-
-- Browser top-level navigation is exact-origin by default. Sibling subdomains require an explicit wildcard.
-- Each scenario gets a fresh provider context and isolated artifact directory.
-- Real scenario and judge providers execute from disposable working directories outside the target's instruction-file scope. Provider arguments that could import external instructions, sessions, agents, or rules are rejected; Claude also receives an isolated configuration home containing only copied subscription credentials. Browser actions use the allowlisted Playwright MCP; workspace inspection uses a path-contained, read-only MCP with list/read/literal-search tools. The workspace view hides the eval config, specs, fixture manifest, named fixture files, prior runs, and VCS metadata. Executable project checks belong in explicitly configured command graders.
-- Repository scenario prompts contain scenario instructions and success signals, but not rubric criteria or pass thresholds. Attempts by Codex, Claude, or Cursor to use provider-native shell/file/web tools across the MCP evidence boundary invalidate the scenario.
-- Judges cannot revisit the target and receive only the evidence bundle plus capped, round-robin screenshot attachments.
-- Judges receive canonical IDs for scenario records, observations, screenshots, and transcript steps. Unknown or out-of-scope citations, non-`cannot_judge` verdicts without citations, and defects without reached evidence fail the judge contract with retained diagnostics. Explicit abstentions may omit citations.
-- Screenshot citations in non-abstaining item/case verdicts and defects require actual image access: a selected direct attachment for Codex, or a successful evidence MCP view for other judges. Unselected images and failed views cannot support visual claims. Text-only judgments and explicit abstentions do not require image views.
-- Judges must return exactly the requested rubric and case identities. Missing, unexpected, or duplicate results abort the run; only an explicit `cannot_judge` counts as an abstention.
-- Raw provider output is retained. Provider timeouts, nonzero exits, evidence-boundary violations, malformed structured answers or events, missing scenario finalization, and corrupt transcripts abort the run with diagnostics instead of being mislabeled as model uncertainty. A valid judge abstention still becomes unavailable coverage.
-- Command strings in configuration are trusted project code. Review them before running an eval kit from someone else.
-
-This is evaluation infrastructure, not a hardened hostile-code sandbox. Tool-policy
-monitoring can invalidate a run after an action has occurred; it cannot undo that
-action. Run untrusted projects in externally isolated, disposable environments.
-See [deployment and isolation](docs/deployment.md) for the boundaries of local,
-CI, and hosted execution, including credentials, mounts, and network access.
-
-## Artifact layout
-
-```text
-.agent-eval/runs/<timestamp>/
-├── inputs/                       # resolved/redacted config and exact spec copies
-├── receipt.json                  # input hashes, method/runtime metadata, fingerprints
-├── artifact-index.json           # hashes for retained generated artifacts
-├── run-state.json                # resume metadata and strict input fingerprint
-├── run.log
-├── <scenario-id>/
-│   ├── prompt.md
-│   ├── evidence.json
-│   ├── provider-events.ndjson
-│   ├── provider-stderr.log
-│   ├── browser-transcript.ndjson      # or workspace-transcript.ndjson
-│   └── screenshots/*.jpg
-├── areas/<area-id>/
-│   ├── graders/*
-│   └── _judge/*
-├── report.json
-├── report.html
-├── manual-checklist.md
-├── manual-results.json           # editable review input; intentionally not sealed
-├── manual-revisions.ndjson       # append-only hashed review history
-└── comparisons/vs-<baseline-run-id>/
-    ├── comparison.json
-    └── comparison.html
-```
-
-Campaigns are stored beside the configured runs directory under `campaigns/<timestamp>/`. Promoted baselines use `paths.baselines` (default `evals/baselines`) and are stored under `<name>/`: `current.json` points to the latest immutable snapshot while earlier snapshot directories remain intact.
-
-Run state retains one-off provider, model, URL, turn-budget, scenario, area, and split selections so `aek run --resume <run>` reproduces the original invocation without requiring flags to be repeated. For Git targets, clean commits identify clean trees; dirty trees also receive an exact content fingerprint. AEK-owned run/auth/baseline/campaign paths are excluded so harness output cannot invalidate its own resume or repeated campaign.
-
-Public exports are stored beside runs under `exports/<run-id>/` by default. Campaign comparisons are written below the candidate campaign under `comparisons/vs-<baseline-campaign-id>/`.
-
-## Development
-
-See [shared judging contracts](docs/judging-contracts.md) for identity, evidence, image-access, and case-aggregation rules across grading modes.
-See [internal boundaries](docs/internal-boundaries.md) for run recovery, input provenance, browser interactions, and scoring responsibilities.
-
-```bash
-pnpm format:check
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm smoke:browser
-pnpm smoke:browser:full
-pnpm test:reference
-pnpm smoke:package
-pnpm build
-```
-
-Code linting uses [Biome](https://biomejs.dev/) with its recommended preset. Run `pnpm lint:fix` to apply safe fixes. Run `pnpm format` to format code and `pnpm format:check` to verify formatting. Formatting uses two spaces and a 100-column line width; CI enforces it. Import organization is disabled. The configuration allows non-null assertions, string concatenation, explicit null guards, and assignments in loop conditions to preserve existing code conventions. Lint warnings fail CI. The `noFloatingPromises` and `noMisusedPromises` rules are explicitly enforced as errors.
-
-TypeScript enforces strict mode, checked indexed access, exact optional properties, explicit return paths, switch fallthrough checks, explicit overrides, and unused-code checks. Omit absent optional fields instead of assigning `undefined`; validate required indexed values before using them.
-
-The fast browser smoke covers the basic contract. The full regression fixture covers SPA click targets, custom dropdowns, rich-text editors, temporal inputs, iframes, open shadow DOM, modal scoping, overlays, nested upload controls, drag-and-drop, inner scroll containers, origin containment, synthesized labels, ref-budget collapse, and bounded screenshots.
-
-The CI workflow runs these checks on Linux with Node 20.19, 22, and 24. Package smoke builds a tarball, installs production dependencies in a temporary consumer, and exercises the installed CLI and workspace MCP without TypeScript source or `tsx`.
-
-Reference checks contain working, broken, and missing cart-total implementations with separately specified expected outcomes. The default command uses deterministic graders and no model quota. To measure a real collector/judge pair or check a provider's browser and workspace integration:
-
-```bash
-pnpm test:reference --provider codex --judge claude --repetitions 3
-pnpm smoke:provider --provider codex
-pnpm smoke:provider --provider claude
-pnpm smoke:provider --provider grok
-```
-
-These opt-in commands use the selected subscriptions and retain versioned, integrity-checked reports under `.agent-eval/reference/`. Each provider invocation is capped at 180 seconds and 20 turns/interactions. See [release validation](docs/release-validation.md) for interpretation, known limits, and the provider verification record.
+Commands beginning with `pnpm aek` assume you are working from this source
+checkout. See [development](docs/development.md) for checks and smoke tests.
+
+## Quick start
+
+1. **Run the offline demonstration.** From the project where AEK is installed:
+
+   ```sh
+   node node_modules/agent-eval-kit/examples/authoring/run.mjs ./aek-demo
+   ```
+
+   It retains working, deliberately broken, and restored runs plus their comparison,
+   without provider access. Use [your first evaluation](docs/first-run.md) to run the
+   steps yourself and learn to read score, coverage, and critical gates.
+
+2. **Start an evaluation for your project.** In your project's root:
+
+   ```sh
+   npx aek init --kind command
+   ```
+
+   Choose `--kind web` (the default), `repository`, `command`, `artifact`, or `visual`.
+   Initialization writes an editable starter, not a discovered evaluation of your project.
+   Follow the generated `evals/ONBOARDING.md` to define one measurable requirement,
+   prepare test state, and calibrate it on known-good and deliberately broken behavior;
+   implement the checker before running the command starter (`aek check` runs it
+   without creating a run). Edit `evalkit.yaml`, `evals/specs/core.yaml`, and
+   `evals/fixtures.yaml`, then:
+
+   ```bash
+   aek validate
+   aek list
+   aek run --dry-run
+   aek run
+   aek runs list
+   aek compare --baseline previous --candidate latest
+   ```
+
+   Artifacts go to `.agent-eval/runs/<timestamp>/`, which `init` adds to `.gitignore`.
+   Each run lists every criterion's verdict in the terminal and prints its next
+   commands. Open `report.html` for the evidence-backed report and keep `report.json`
+   as the stable machine-readable result.
+   See [onboarding your project](docs/onboarding.md) and
+   [running evaluations](docs/runs.md).
+
+3. **Let your coding agent author the suite.** Install the authoring and
+   improvement skills into your project's agent skill directory:
+
+   ```sh
+   npx aek skills install            # add --agent claude for .claude/skills
+   ```
+
+   Then ask your coding agent: “Use $aek-author to survey this whole project, ask me
+   about missing product expectations, and build an evaluation suite.” `aek author status`
+   reports progress from the persistent `.aek-authoring/plan.json` map, separately
+   from evaluation scores and rubric evidence coverage. See [project authoring](docs/authoring.md).
+
+## Documentation
+
+The [documentation index](docs/README.md) covers every workflow and reference:
+[configuration](docs/configuration.md), [specs and cases](docs/specs.md),
+[grader types](docs/graders.md), [text](docs/text-evaluation.md) and
+[visual](docs/visual-evaluation.md) evaluation, [comparisons and campaigns](docs/comparisons.md),
+[bounded project improvement](docs/improvement.md), [CLI automation](docs/cli.md#structured-results),
+and [troubleshooting](docs/troubleshooting.md).

@@ -11,7 +11,7 @@ and validates generated checks. The steps below describe manual setup.
 ## Choose a starter
 
 Install the [built package](../README.md#built-package-distribution) or link the
-source checkout using the [quick start](../README.md#quick-start), then run one of
+source checkout as described in [installation](../README.md#from-a-source-checkout), then run one of
 these in your project's root. For a local npm install, replace `aek` with `npx aek`;
 for a local pnpm install, use `pnpm exec aek`.
 
@@ -26,6 +26,8 @@ for a local pnpm install, use `pnpm exec aek`.
 An optional positional directory chooses the destination. Omitting `--kind`
 selects `web`. Existing destination files are never overwritten; all generated
 files are preflighted before publication, including the guide and helper scripts.
+Initialization stages the complete starter kit and rolls back files it published
+if initialization fails, so a conflict cannot leave a half-created kit.
 
 Every starter contains `evalkit.yaml`, `evals/specs/core.yaml`, and
 `evals/ONBOARDING.md`. Non-visual starters also include `evals/fixtures.yaml`. Command and artifact starters
@@ -89,11 +91,13 @@ The generated guide contains a calibration procedure and commands:
 3. Reset equivalent test state and start a new run. The intended item should
    fail with observed evidence and comparable coverage. A critical gate should
    produce exit 2; an execution error (exit 1) does not count as detection.
-4. Compare the good and broken run directories with `aek compare --baseline
-   /path/to/good-run --candidate /path/to/broken-run --fail-on-regression`.
+4. Compare the good and broken runs with `aek compare --baseline previous
+   --candidate latest --fail-on-regression`. Run IDs and `latest`/`previous`
+   resolve within `paths.runs`; `aek runs list` shows them.
 5. Restore the good target and run `aek run --split all`. Review and finalize
-   required manual work, then promote that restored run with `aek baseline
-   promote --run /path/to/restored-good-run --name main --reviewer YOUR_NAME`.
+   required manual work (`aek finalize --run latest --interactive`), then promote
+   that restored run with `aek baseline promote --run latest --name main
+   --reviewer YOUR_NAME`.
    The default release promotion policy requires the `all` split, the complete
    required suite, 100% coverage, and passed gates. If you configure a different
    [promotion policy](evidence-workflows.md#baseline-promotion-policy), run its

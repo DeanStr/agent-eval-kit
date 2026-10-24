@@ -329,6 +329,21 @@ export interface JudgedCase {
   source: "llm" | "pairwise" | "text-pairwise" | "text-rubric";
   /** Numeric value under this run's configured partial-credit rule. */
   points?: number | null;
+  votes?: JudgedVotes;
+}
+
+/** One fresh judge context's decision within repeated judging. */
+export interface JudgeBallot {
+  verdict: Verdict;
+  confidence: "high" | "medium" | "low";
+  /** The counted outcome: the verdict, or abstain below the policy's minimum confidence. */
+  outcome: string;
+  reasoning: string;
+}
+
+/** Vote tally; repeated rubric judging also retains every ballot in judging order. */
+export interface JudgedVotes extends VoteSummary {
+  ballots?: JudgeBallot[];
 }
 
 export interface JudgedItem {
@@ -348,7 +363,7 @@ export interface JudgedItem {
     | "capture"
     | "image-distinctness"
     | "image-regression";
-  votes?: VoteSummary;
+  votes?: JudgedVotes;
   comparisons?: string[];
   /** Populated by scoreArea, using the actual weights and evidence coverage. */
   score?: ScoreSlice;

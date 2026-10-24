@@ -232,7 +232,7 @@ const onboarding = `# Controlled visual starter
 
 This is a runnable calibration fixture, not an evaluation of your application.
 Run commands from this project root using your installed aek executable (for a
-local npm dependency, prefix with npx --no-install). Add .agent-eval/ to .gitignore.
+local npm dependency, prefix with npx --no-install). aek init added .agent-eval/ to .gitignore.
 Install matching Chromium with npx --no-install playwright install chromium.
 
 ## Calibrate capture without a subscription

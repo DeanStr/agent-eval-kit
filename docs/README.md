@@ -7,7 +7,8 @@ the evaluation detects a deliberate defect, then expand the suite.
 ## Start here
 
 1. [Install AEK](../README.md#built-package-distribution), or use the
-   [source checkout](../README.md#quick-start).
+   [source checkout](../README.md#from-a-source-checkout). Check
+   [requirements](../README.md#requirements) first.
 2. [Run your first evaluation](first-run.md): an offline cart example with known
    scores, coverage, a failed critical gate, and a before/after comparison.
    The fixture ships in the installed package and needs no provider access.
@@ -21,7 +22,8 @@ to substitute your actual paths.
 
 For guided whole-project setup, use [project authoring](authoring.md): the agent
 surveys your project, interviews you about expectations, and writes a persistent
-evaluation map and executable suite.
+evaluation map and executable suite. For a summary of everything AEK supports,
+see [capabilities](capabilities.md).
 
 ## Choose an evaluation workflow
 
@@ -31,9 +33,10 @@ checks, and file/integration workflows, including a user-story YAML example.
 
 | What you want to evaluate | Guide |
 | --- | --- |
-| Web behavior, repository contracts, or command output | [Configuration and specs](../README.md#configuration), [grader types](../README.md#grader-types) |
-| Existing tests as an evaluation gate | [Worked JSON test adapter](existing-tests.md) |
-| Authenticated flows or workflows spanning scenarios | [Authentication](../README.md#authentication), [dependencies, bindings, and personas](workflows.md) |
+| Web behavior, repository contracts, or command output | [Configuration](configuration.md), [specs and cases](specs.md), [grader types](graders.md) |
+| Existing tests as an evaluation gate | [Reusing tests](graders.md#reuse-existing-tests), [worked JSON test adapter](existing-tests.md) |
+| Authenticated flows or workflows spanning scenarios | [Authentication](authentication.md), [dependencies, bindings, and personas](workflows.md) |
+| Variations of one scenario across users, inputs, or states | [Case matrices, strata, and splits](specs.md#case-matrices-strata-and-splits) |
 | Writing, voice, factual fidelity, or datasets of related texts | [Text evaluation](text-evaluation.md), [packaged dataset example](../examples/text-datasets/README.md) |
 | Two existing image files | [Direct image comparison](image-comparison.md) |
 | Screenshots, motion, visual regressions, or exported images | [Visual evaluation](visual-evaluation.md) |
@@ -48,24 +51,27 @@ checks, and file/integration workflows, including a user-story YAML example.
 | --- | --- |
 | Improve a project through bounded edits, full evaluation, and restoration | [Project improvement](improvement.md) |
 | Look up configuration fields, defaults, limits, and precedence | [Configuration reference](configuration.md) |
+| Manage local target setup, startup, readiness, and interruption | [Target lifecycle](configuration.md#target-lifecycle) |
+| Choose providers, check readiness, or set up Cursor | [Provider behavior](providers.md) |
 | Find commands, selection flags, defaults, and exit statuses | [Command guide](cli.md) |
 | Diagnose setup failures, blocked scenarios, or low coverage | [Troubleshooting](troubleshooting.md) |
-| Interpret score, coverage, and critical gates | [Read the first report](first-run.md#read-the-report) |
-| Resume a run, adjust scoring, or complete manual checks | [Run recovery and manual finalization](../README.md#run-resume-rescore-finalize) |
+| Interpret score, coverage, and critical gates | [Read the first report](first-run.md#read-the-report), [critical gates](specs.md#critical-gates) |
+| Start, slice, or resume a run, adjust scoring, or complete manual checks | [Run, recover, and review](runs.md) |
+| Understand receipts, fingerprints, and the run directory | [Receipts](runs.md#receipts-and-provider-settings), [artifact layout](runs.md#artifact-layout) |
 | Resolve an automatic abstention with human evidence | [Adjudication](adjudication.md) |
-| Enforce CI acceptance criteria | [CI thresholds](../README.md#ci-thresholds), [exit statuses](cli.md#exit-statuses) |
-| Deploy locally, in CI, or for untrusted submissions | [Deployment and isolation](deployment.md) |
-| Compare versions or assess repeated-run stability | [Run comparisons](../README.md#compare-runs), [campaigns](../README.md#repeated-run-campaigns) |
+| Enforce CI acceptance criteria | [CI thresholds](runs.md#ci-thresholds), [exit statuses](cli.md#exit-statuses) |
+| Deploy locally, in CI, or for untrusted submissions | [Deployment and isolation](deployment.md), [evidence and safety model](deployment.md#evidence-and-safety-model) |
+| Compare versions or assess repeated-run stability | [Run comparisons](comparisons.md#compare-runs), [campaigns](comparisons.md#repeated-run-campaigns) |
 | Compare candidate instructions with controlled repeated execution | [Packaged skill comparison](../examples/skill-comparison/README.md) |
 | Compare project-owned workload measurements and correctness gates | [Benchmark recipe](../examples/benchmark/README.md), [consumer validation](workflow-consumers.md) |
 | Maintain coverage after product changes | [Authoring maintenance](authoring.md#maintain-an-existing-suite) |
-| Promote an accepted release or record an incomplete milestone | [Promotion policies](evidence-workflows.md#baseline-promotion-policy) |
-| Share results without raw private evidence | [Public export and privacy lint](../README.md#public-export-and-privacy-lint) |
+| Promote an accepted release or record an incomplete milestone | [Baselines](comparisons.md#promote-baselines), [promotion policies](evidence-workflows.md#baseline-promotion-policy) |
+| Share results without raw private evidence | [Public export and privacy lint](public-export.md) |
 
 ## Project and maintainer references
 
-[Development commands](../README.md#development), [judging contracts](judging-contracts.md),
+[Development commands](development.md), [judging contracts](judging-contracts.md),
 [internal boundaries](internal-boundaries.md), and [release validation](release-validation.md)
-describe implementation and verification. Dated `review-loop` documents in this
-directory are historical engineering records; use the task guides above for
-current workflows.
+describe implementation and verification. Dated review-loop records, comparisons,
+and exercises live in the repository's `docs/history/` directory as historical
+engineering records; use the task guides above for current workflows.

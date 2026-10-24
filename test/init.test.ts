@@ -7,7 +7,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { initializeProject, STARTER_KINDS } from "../src/templates.js";
+import { initializeProject, STARTER_KINDS, starterProviders } from "../src/templates.js";
+import { loadConfig } from "../src/config.js";
+import { runCursor } from "../src/providers/cursor.js";
 
 const temporary = () => fs.mkdtempSync(path.join(os.tmpdir(), "aek-init-test-"));
 
@@ -50,6 +52,54 @@ test("project initialization preflights every conflict before writing anything",
   assert.equal(fs.existsSync(path.join(root, "evalkit.yaml")), false);
   assert.equal(fs.existsSync(path.join(root, "evals", "fixtures.yaml")), false);
   assert.equal(fs.readFileSync(conflict, "utf8"), "user-owned\n");
+});
+
+test("explicit and detected Cursor starters use settings the adapter supports", async (t) => {
+  for (const providers of [
+    starterProviders("repository", [], { agent: "cursor", judge: "cursor" }),
+    starterProviders("repository", ["cursor"]),
+    starterProviders("repository", [], { agent: "codex", judge: "cursor" }),
+    starterProviders("repository", [], { agent: "cursor", judge: "claude" }),
+  ]) {
+    const root = temporary();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    initializeProject(root, "repository", providers);
+    const config = loadConfig(path.join(root, "evalkit.yaml"));
+    for (const settings of [config.agent, config.judge]) {
+      if (settings.provider !== "cursor") {
+        assert.equal(settings.effort, "high");
+        continue;
+      }
+      assert.equal(settings.effort, undefined);
+      assert.equal(settings.maxTurns, undefined);
+      // Stop after the settings check, before reading real subscription credentials.
+      const auth = path.join(root, "auth.json");
+      const exists = fs.existsSync;
+      const intercepted = t.mock.method(fs, "existsSync", (file: fs.PathLike) => {
+        if (String(file).endsWith("auth.json"))
+          throw new Error(`fixture reached credentials: ${auth}`);
+        return exists(file);
+      });
+      try {
+        await assert.rejects(
+          runCursor({
+            ...settings,
+            purpose: "judge",
+            cwd: root,
+            promptFile: "prompt.md",
+            outputSchemaFile: "schema.json",
+            outputFile: "out.json",
+            eventLogFile: "events.ndjson",
+            stderrFile: "stderr.log",
+            allowWorkspaceTools: false,
+          }),
+          /fixture reached credentials/,
+        );
+      } finally {
+        intercepted.mock.restore();
+      }
+    }
+  }
 });
 
 test("project initialization fails when the filesystem root is unavailable", (t) => {
@@ -95,7 +145,7 @@ for (const kind of STARTER_KINDS) {
     assert.match(
       preview.stdout,
       new RegExp(
-        `\\[${kind === "web" || kind === "visual" ? "browser" : kind === "artifact" ? "command" : "workspace"}\\]`,
+        `\\[${kind === "web" || kind === "visual" ? "browser" : kind === "artifact" || kind === "command" ? "command" : "workspace"}\\]`,
       ),
     );
     assert.equal(fs.existsSync(path.join(root, ".agent-eval/runs")), false);

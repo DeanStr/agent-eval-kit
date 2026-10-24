@@ -19,7 +19,7 @@ test("CLI without arguments prints help successfully", () => {
   const result = runCli(kitRoot, []);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Agent Eval Kit/);
-  assert.match(result.stdout, /benchmark experiment --recipe/);
+  assert.match(result.stdout, /benchmark experiment/);
 });
 
 test("command and subcommand help lists exact accepted options without loading a project", () => {
@@ -363,7 +363,7 @@ test("CLI critical gates preserve run artifacts, and comparison gates preserve c
   assert.equal(run.status, 2, run.stderr);
   assert.match(
     run.stderr,
-    /CI threshold failed: critical gates not satisfied: core\/R1 \(failed: fail\)/,
+    /Acceptance failed: critical gates not satisfied: core\/R1 failed \(Critical criterion received fail; critical gates require a full pass\)/,
   );
   const candidateDir = path.join(
     root,
@@ -439,7 +439,7 @@ test("CLI critical gates preserve run artifacts, and comparison gates preserve c
     path.join(root, "named-comparison"),
   ]);
   assert.equal(comparedToNamed.status, 0, comparedToNamed.stderr);
-  assert.match(comparedToNamed.stdout, /score \+0 points/);
+  assert.match(comparedToNamed.stdout, /score 0% → 0% \(0 points\)/);
 
   const baselineDir = path.join(root, "baseline");
   fs.mkdirSync(baselineDir);
@@ -518,7 +518,7 @@ test("CLI critical gates preserve run artifacts, and comparison gates preserve c
     "--fail-on-regression",
   ]);
   assert.equal(compared.status, 2, compared.stderr);
-  assert.match(compared.stderr, /CI comparison failed/);
+  assert.match(compared.stderr, /Acceptance failed: regressions: /);
   assert(fs.existsSync(path.join(output, "comparison.json")));
   assert(fs.existsSync(path.join(output, "comparison.html")));
 
@@ -608,7 +608,7 @@ test("CLI campaign runs repeated subscription-compatible evaluations and writes 
   fs.writeFileSync(runStateFile, JSON.stringify(mutableRunState));
   const rescored = runCli(root, ["rescore", "--run", runDir]);
   assert.equal(rescored.status, 0, rescored.stderr);
-  assert.match(rescored.stdout, /Rescored:/);
+  assert.match(rescored.stdout, /Rescored [\s\S]*\nResult: /);
   const afterRescore = JSON.parse(fs.readFileSync(path.join(runDir, "report.json"), "utf8"));
   assert.deepEqual(afterRescore.receipt.target, beforeRescore.receipt.target);
   assert.deepEqual(afterRescore.receipt.providers, beforeRescore.receipt.providers);
@@ -888,7 +888,7 @@ test("CLI campaign regression gate writes completion rates before exiting 2", (t
   );
   assert.equal(comparison.overall.completionRate.candidate, 1 / 3);
   const html = fs.readFileSync(path.join(output, "campaign-comparison.html"), "utf8");
-  assert.match(html, /Completion rate.*100% → 33.333%/);
+  assert.match(html, /Completion rate.*100% → 33.3%/);
 });
 
 test("CLI adjudicates automatic abstentions with explicit review, rescore retention, and private public exports", (t) => {
@@ -947,7 +947,7 @@ test("CLI adjudicates automatic abstentions with explicit review, rescore retent
     "100",
   ]);
   assert.equal(reviewed.status, 2, reviewed.stderr);
-  assert.match(reviewed.stdout, /Adjudicated: 50% \/ 100% coverage/);
+  assert.match(reviewed.stdout, /Adjudicated .*\nResult: 50% score · 100% coverage/);
   const report = JSON.parse(fs.readFileSync(reportFile, "utf8"));
   assert.deepEqual(report.areas[0].items[0].adjudication.original, original.areas[0].items[0]);
   const configFile = path.join(root, "evalkit.yaml");
@@ -1083,7 +1083,7 @@ test("CLI doctor honors explicit suite selection and requires its config", (t) =
   fs.unlinkSync(configFile);
   const missing = runCli(root, ["doctor", "--suite", "local", "--providers", "mock"]);
   assert.equal(missing.status, 1);
-  assert.match(missing.stderr, /No config file/);
+  assert.match(missing.stderr, /No evalkit\.yaml in /);
 });
 
 test("JSON planning stays machine-readable with text-case selection", (t) => {

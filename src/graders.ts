@@ -33,8 +33,9 @@ import type {
   ScenarioEvidence,
   Verdict,
 } from "./types.js";
+import type { VoteSummary } from "./visual/contracts.js";
 
-const commandOutputValidator = z
+export const commandOutputValidator = z
   .object({
     verdict: z.enum(["pass", "partial", "fail", "not_found", "cannot_judge"]),
     reasoning: z.string(),
@@ -42,6 +43,15 @@ const commandOutputValidator = z
     confidence: z.enum(["high", "medium", "low"]).default("high"),
   })
   .strict();
+
+/** Verdicts for `output: exit-code` checkers; any other exit status is an execution error. */
+export const EXIT_CODE_VERDICTS: Record<number, Verdict> = {
+  0: "pass",
+  1: "fail",
+  2: "partial",
+  3: "cannot_judge",
+  4: "not_found",
+};
 
 function commandCwd(item: RubricItem, config: EvalConfig, runDir: string): string {
   if (item.grader.type !== "command") return config.project.root;
@@ -112,14 +122,7 @@ export async function runCommandGrader(options: {
       source: "command",
     };
   }
-  const byExit: Record<number, Verdict> = {
-    0: "pass",
-    1: "fail",
-    2: "partial",
-    3: "cannot_judge",
-    4: "not_found",
-  };
-  const verdict = byExit[result.exitCode];
+  const verdict = EXIT_CODE_VERDICTS[result.exitCode];
   if (!verdict) throw failure(`unexpected exit code ${result.exitCode}; expected 0 through 4`);
   const output = result.stdout.trim() || result.stderr.trim();
   return {
@@ -232,6 +235,8 @@ async function runLlmJudge(options: {
   runDir: string;
   directory: string;
   onProgress?: (message: string) => void;
+  /** Repeated judging announces each vote itself, so it suppresses the per-call line. */
+  announce?: boolean;
 }): Promise<{ items: JudgedItem[]; cases: JudgedCase[]; defects: Defect[]; notes: string }> {
   const { config, spec, items, evidence, runDir, directory } = options;
   fs.mkdirSync(directory, { recursive: true });
@@ -281,9 +286,10 @@ async function runLlmJudge(options: {
     }),
   );
   writeJson(schemaFile, judgementOutputSchema);
-  options.onProgress?.(
-    `judge ${config.judge.provider}${config.judge.model ? `/${config.judge.model}` : ""}`,
-  );
+  if (options.announce !== false)
+    options.onProgress?.(
+      `judge ${config.judge.provider}${config.judge.model ? `/${config.judge.model}` : ""}`,
+    );
 
   const provider = await runProvider(config.judge.provider, {
     purpose: "judge",
@@ -402,7 +408,9 @@ async function repeatedLlmJudge(
     );
   while (votes.length < policy.maximumVotes) {
     const ordinal = votes.length + 1;
-    options.onProgress?.(`rubric judge vote ${ordinal}/${policy.maximumVotes}`);
+    options.onProgress?.(
+      `judge vote ${ordinal} of up to ${policy.maximumVotes} · ${options.config.judge.provider}${options.config.judge.model ? `/${options.config.judge.model}` : ""}`,
+    );
     votes.push(
       await journalVote({
         directory: path.join(
@@ -427,8 +435,14 @@ async function repeatedLlmJudge(
           return result;
         },
         ...(options.onVoteComplete === undefined ? {} : { seal: options.onVoteComplete }),
-        run: (directory) => runLlmJudge({ ...options, directory }),
+        run: (directory) => runLlmJudge({ ...options, directory, announce: false }),
       }),
+    );
+    const counts = new Map<string, number>();
+    for (const item of votes.at(-1)?.items ?? [])
+      counts.set(item.verdict, (counts.get(item.verdict) ?? 0) + 1);
+    options.onProgress?.(
+      `  vote ${ordinal}: ${[...counts].map(([verdict, count]) => `${count} ${verdict}`).join(" · ") || "no item verdicts"}${votes.at(-1)?.cases.length ? ` (${votes.at(-1)!.cases.length} cases)` : ""}`,
     );
     if (
       options.items.every((item) => itemDecision(item.id).decision !== "continue") &&
@@ -439,14 +453,42 @@ async function repeatedLlmJudge(
       break;
   }
   const verdict = rubricVoteVerdict;
+  // Reasoning stays concise: the consensus plus one agreeing vote. Every ballot is retained.
+  const consensus = (
+    decision: VoteSummary,
+    results: Array<{
+      verdict: Verdict;
+      confidence: "high" | "medium" | "low";
+      reasoning: string;
+      evidenceRefs: string[];
+    }>,
+  ) => {
+    const selected = results.filter((result) => outcome(result) === decision.decision);
+    const tally = Object.entries(decision.counts)
+      .map(([name, count]) => `${name} ${count}`)
+      .join(", ");
+    return {
+      reasoning: `Repeated judge: ${decision.decision}; ${decision.judgeable}/${decision.attempted} judgeable votes (${tally}). ${selected[0] ? `Representative vote: ${selected[0].reasoning}` : "No outcome reached the required agreement; see the individual votes."}`,
+      evidenceRefs: [...new Set(selected.flatMap((result) => result.evidenceRefs))],
+      votes: {
+        ...decision,
+        ballots: results.map((result) => ({
+          verdict: result.verdict,
+          confidence: result.confidence,
+          outcome: outcome(result),
+          reasoning: result.reasoning,
+        })),
+      },
+    };
+  };
   const cases: JudgedCase[] = requests.map((request) => {
     const decision = caseDecision(request.rubricId, request.caseId);
-    const selected = votes.flatMap((vote) =>
-      vote.cases.filter(
-        (item) =>
-          item.rubricId === request.rubricId &&
-          item.caseId === request.caseId &&
-          outcome(item) === decision.decision,
+    const results = votes.map((vote) =>
+      requiredJudgeResult(
+        vote.cases.find(
+          (item) => item.rubricId === request.rubricId && item.caseId === request.caseId,
+        ),
+        `case ${request.rubricId}/${request.caseId} in ${options.directory}`,
       ),
     );
     return {
@@ -455,15 +497,15 @@ async function repeatedLlmJudge(
       source: "llm",
       verdict: verdict(decision.decision),
       confidence: decision.decision === "inconclusive" ? "low" : "high",
-      reasoning: `Repeated judge: ${decision.decision}; ${decision.judgeable}/${decision.attempted} judgeable votes. ${selected.map((item) => item.reasoning).join(" ")}`,
-      evidenceRefs: [...new Set(selected.flatMap((item) => item.evidenceRefs))],
+      ...consensus(decision, results),
     };
   });
   const items: JudgedItem[] = options.items.map((item) => {
     const decision = itemDecision(item.id);
-    const selected = votes.flatMap((vote) =>
-      vote.items.filter(
-        (candidate) => candidate.id === item.id && outcome(candidate) === decision.decision,
+    const results = votes.map((vote) =>
+      requiredJudgeResult(
+        vote.items.find((candidate) => candidate.id === item.id),
+        `rubric item ${item.id} in ${options.directory}`,
       ),
     );
     let result = verdict(decision.decision);
@@ -477,9 +519,7 @@ async function repeatedLlmJudge(
       source: "llm",
       verdict: result,
       confidence: result === "cannot_judge" ? "low" : "high",
-      reasoning: `Repeated judge: ${decision.decision}; ${decision.judgeable}/${decision.attempted} judgeable votes. ${selected.map((item) => item.reasoning).join(" ")}`,
-      evidenceRefs: [...new Set(selected.flatMap((item) => item.evidenceRefs))],
-      votes: decision,
+      ...consensus(decision, results),
     };
   });
   writeJson(path.join(options.directory, "vote-summary.json"), { items, cases });

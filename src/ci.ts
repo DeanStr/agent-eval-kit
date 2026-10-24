@@ -11,7 +11,7 @@ export function evaluateCiThresholds(report: RunReport, thresholds: CiThresholds
   const measurements = aggregateAreaMeasurements(report.areas);
   if (report.gates && !report.gates.passed) {
     failures.push(
-      `critical gates not satisfied: ${report.gates.blocking.map((gate) => `${gate.areaId}/${gate.itemId} (${gate.status}${gate.verdict ? `: ${gate.verdict}` : ""})`).join(", ")}`,
+      `critical gates not satisfied: ${report.gates.blocking.map((gate) => `${gate.areaId}/${gate.itemId} ${gate.status} (${gate.reason.replace(/\.$/, "")})`).join("; ")}`,
     );
   }
   if (

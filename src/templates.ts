@@ -3,11 +3,50 @@ import fs from "node:fs";
 import path from "node:path";
 import { visualStarterFiles } from "./starters/visual.js";
 import { editorSchemas } from "./editor-schemas.js";
+import { didYouMean } from "./suggest.js";
+import type { ProviderId } from "./types.js";
 
 export const STARTER_KINDS = ["web", "repository", "command", "artifact", "visual"] as const;
 export type StarterKind = (typeof STARTER_KINDS)[number];
 
-function configTemplate(kind: StarterKind): string {
+export interface StarterProviders {
+  agent: ProviderId;
+  judge: ProviderId;
+  /** Signed-in providers found by `aek doctor` probes; undefined when chosen explicitly. */
+  detected?: ProviderId[];
+}
+
+/**
+ * Choose starter providers. Offline starters use mock collection; otherwise prefer
+ * signed-in providers, with a different judge than agent when two are available.
+ */
+export function starterProviders(
+  kind: StarterKind,
+  ready: ProviderId[],
+  explicit: { agent?: ProviderId; judge?: ProviderId } = {},
+): StarterProviders {
+  const offlineAgent = kind === "command" || kind === "artifact";
+  const agent = explicit.agent ?? (offlineAgent ? "mock" : (ready[0] ?? "codex"));
+  const judge =
+    explicit.judge ??
+    (kind === "command"
+      ? "mock"
+      : (ready.find((provider) => provider !== agent) ?? ready[0] ?? "codex"));
+  return explicit.agent && explicit.judge ? { agent, judge } : { agent, judge, detected: ready };
+}
+
+function providerComment(providers: StarterProviders, kind: StarterKind): string {
+  if (!providers.detected || kind === "command") return "";
+  if (!providers.detected.length)
+    return "# No signed-in provider was detected. Choose codex, claude, grok, or cursor,\n# sign in to its CLI, then run aek doctor.\n";
+  return `# Signed-in providers detected by aek init: ${providers.detected.join(", ")}.\n${
+    providers.agent !== providers.judge && providers.agent !== "mock"
+      ? "# A judge from a different provider than the agent reduces self-confirmation bias.\n"
+      : ""
+  }`;
+}
+
+function configTemplate(kind: StarterKind, providers: StarterProviders): string {
   return `version: 1
 project:
   name: Example project
@@ -28,16 +67,20 @@ ${
 `
     : ""
 }
-agent:
-${kind === "command" || kind === "artifact" ? "  # Collection needs no agent subscription.\n" : ""}  provider: ${kind === "command" || kind === "artifact" ? "mock" : "codex"}
-  effort: high
-  maxTurns: 30
-  timeoutSeconds: 900
+${providerComment(providers, kind)}${
+  kind === "command"
+    ? `# Command checkers need no agent or judge subscription.
+agent: { provider: ${providers.agent} }
+judge: { provider: ${providers.judge} }
+`
+    : `agent:
+${kind === "artifact" ? "  # Collection needs no agent subscription.\n" : ""}  provider: ${providers.agent}
+${providers.agent === "cursor" ? "" : "  effort: high\n  maxTurns: 30\n"}  timeoutSeconds: 900
 judge:
-  provider: ${kind === "command" ? "mock" : "codex"}
-  effort: high
-  timeoutSeconds: 900
-
+  provider: ${providers.judge}
+${providers.judge === "cursor" ? "" : "  effort: high\n"}  timeoutSeconds: 900
+`
+}
 paths:
   specs: evals/specs
   fixtures: evals/fixtures.yaml
@@ -122,13 +165,8 @@ rubric:
 title: Command behavior
 weight: 100
 description: Execute a deterministic behavioral check without a model subscription.
-scenarios:
-  - id: CORE-S1
-    name: Deterministic check placeholder
-    kind: workspace
-    # This optional placeholder performs no inspection with the offline mock;
-    # all measured evidence comes from the command grader below.
-    instructions: No agent collection is required; the command grader executes the target.
+# Command checkers run the target themselves, so this area needs no scenarios.
+scenarios: []
 rubric:
   - id: CORE-01
     criterion: The command produces the expected output and exit status
@@ -184,6 +222,8 @@ const commandChecker = `// Replace this stub with a check that EXECUTES your tar
 //   "reasoning": "Invocation, actual result, and expected result" }
 // A product mismatch is a fail verdict; a broken checker must exit nonzero.
 // Use an independent expected value; do not reuse the target's calculation.
+// Run it with \`aek check CORE-01\`. With AEK installed locally, the helpers in
+// "agent-eval-kit/grader" (expectEqual, check, pass, fail) emit this JSON.
 throw new Error("Configure evals/check.mjs to execute your command and compare its output and exit status with independently specified expectations. See evals/ONBOARDING.md.");
 `;
 
@@ -222,9 +262,9 @@ requirements. Finish the steps below before treating its score as meaningful.
 ## 1. Prepare the target
 
 Set the project name, root, providers, and target in evalkit.yaml.
-${kind === "web" ? "Set the URL and allowed origins. For a local app, configure setup/start/readiness. Capture required personas with `aek auth --persona buyer --at /login`, then set persona and requiresAuth on the scenario." : kind === "artifact" ? "Point collect.sources.artifact in evals/specs/core.yaml at a real delivered PNG. The supplied collector checks the PNG signature and copies sealed bytes; other formats require an explicit extraction implementation and provenance. Collection needs no agent subscription; the configured real judge assesses the image." : kind === "command" ? "Implement evals/check.mjs using your real command, fixed inputs, and independently specified expectations. The stub intentionally fails until configured. This starter uses offline mock providers and a placeholder scenario; only the real command checker supplies measured evidence. Select real providers if you later add agent collection or LLM grading." : "Name the interface to inspect in the scenario and rubric. Put executable tests, builds, and type checks in explicit command graders; workspace agents can only list, read, and search."}
+${kind === "web" ? "Set the URL and allowed origins. For a local app, configure setup/start/readiness. Capture required personas with `aek auth --persona buyer --at /login`, then set persona and requiresAuth on the scenario." : kind === "artifact" ? "Point collect.sources.artifact in evals/specs/core.yaml at a real delivered PNG. The supplied collector checks the PNG signature and copies sealed bytes; other formats require an explicit extraction implementation and provenance. Collection needs no agent subscription; the configured real judge assesses the image." : kind === "command" ? "Implement evals/check.mjs using your real command, fixed inputs, and independently specified expectations. The stub intentionally fails until configured. Run it while you work with `aek check CORE-01`, which executes the checker without creating a run. This starter needs no providers; select real ones if you later add agent collection or LLM grading." : "Name the interface to inspect in the scenario and rubric. Put executable tests, builds, and type checks in explicit command graders; workspace agents can only list, read, and search."}
 
-Add .agent-eval/ to your project's .gitignore; it contains retained evidence and
+aek init added .agent-eval/ to .gitignore; it contains retained evidence and
 private browser sessions. Keep credentials out of fixtures and variables.
 
 Document and perform your test-state preparation: seed required records, confirm
@@ -286,8 +326,8 @@ aek author status reports inventory progress separately from evidence coverage.
 Use a disposable test target. Choose a known-good implementation and write down
 the expected item verdict, coverage, and gate result BEFORE running it.
 
-1. Finish the evaluator definition and prepare clean test state. Run aek run.
-   Record the printed run directory as the good run and review its evidence.
+1. Finish the evaluator definition and prepare clean test state. Run aek run
+   and review the evidence for each verdict.
 2. Introduce one deliberate target defect that violates the chosen requirement:
    ignore quantity, omit a saved field, contradict a documented interface, or
    clip a required label. Keep specs, fixtures, providers, scoring, checker and
@@ -295,10 +335,11 @@ the expected item verdict, coverage, and gate result BEFORE running it.
 3. Reset to equivalent test state and start a NEW aek run. Do not resume the
    good run. Confirm the intended rubric item fails with observed evidence,
    coverage stays comparable, and its critical gate blocks the run (exit 2).
-4. Compare the two runs, replacing the paths below:
+4. Compare the two runs. Run IDs and latest/previous resolve within
+   .agent-eval/runs; aek runs list shows them:
 
 \`\`\`bash
-aek compare --baseline /path/to/good-run --candidate /path/to/broken-run --fail-on-regression
+aek compare --baseline previous --candidate latest --fail-on-regression
 \`\`\`
 
 The comparison should report the intended regression and exit 2. Exit 1 means
@@ -316,10 +357,11 @@ check, not a judge-accuracy estimate.
 Restore the good target, reset state, and run aek run --split all. The default
 release promotion policy requires the complete required suite, split all, 100%
 coverage, and passed gates. If you configure a different promotion policy, use
-its required split and thresholds. Finalize required manual reviews, then:
+its required split and thresholds. Finalize required manual reviews
+(aek finalize --run latest --interactive), then:
 
 \`\`\`bash
-aek baseline promote --run /path/to/restored-good-run --name main --reviewer YOUR_NAME
+aek baseline promote --run latest --name main --reviewer YOUR_NAME
 \`\`\`
 
 ## Completion checklist
@@ -336,11 +378,22 @@ reserved for evaluation; ordinary runs default to the development split.
 `;
 }
 
-export function initializeProject(directory: string, requestedKind: string = "web"): string[] {
+export function initializeProject(
+  directory: string,
+  requestedKind: string = "web",
+  providers?: StarterProviders,
+): string[] {
   const kind = STARTER_KINDS.find((candidate) => candidate === requestedKind);
   if (!kind) {
-    throw new Error(`Unknown starter ${requestedKind}; expected ${STARTER_KINDS.join(", ")}`);
+    throw new Error(
+      `Unknown starter ${requestedKind}; expected ${STARTER_KINDS.join(", ")}.${didYouMean(requestedKind, STARTER_KINDS)}`,
+    );
   }
+  if (kind === "visual" && providers && !providers.detected)
+    throw new Error(
+      "The visual starter configures its own calibrated providers; omit --agent and --judge, then edit evalkit.yaml",
+    );
+  const selected = providers ?? starterProviders(kind, []);
   const root = path.resolve(directory);
   const files: Array<{ target: string; content: string; staged?: string }> =
     kind === "visual"
@@ -349,7 +402,7 @@ export function initializeProject(directory: string, requestedKind: string = "we
           content,
         }))
       : [
-          { target: path.join(root, "evalkit.yaml"), content: configTemplate(kind) },
+          { target: path.join(root, "evalkit.yaml"), content: configTemplate(kind, selected) },
           {
             target: path.join(root, "evals", "specs", "core.yaml"),
             content: authoringNotes + specs[kind],
@@ -439,4 +492,34 @@ export function initializeProject(directory: string, requestedKind: string = "we
     }
     throw error;
   }
+}
+
+const IGNORED_RUNTIME_DIRECTORY = ".agent-eval/";
+
+/**
+ * Keep retained evidence and captured browser sessions out of version control:
+ * create .gitignore or append the runtime directory unless an entry already covers it.
+ */
+export function ensureGitignore(directory: string): "created" | "updated" | "unchanged" {
+  const file = path.join(path.resolve(directory), ".gitignore");
+  if (!fs.existsSync(file)) {
+    fs.writeFileSync(
+      file,
+      `# AEK evidence, run artifacts, and browser sessions\n${IGNORED_RUNTIME_DIRECTORY}\n`,
+    );
+    return "created";
+  }
+  const content = fs.readFileSync(file, "utf8");
+  const covered = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .some((line) =>
+      [".agent-eval", ".agent-eval/", "/.agent-eval", "/.agent-eval/"].includes(line),
+    );
+  if (covered) return "unchanged";
+  fs.appendFileSync(
+    file,
+    `${content.endsWith("\n") || !content ? "" : "\n"}\n# AEK evidence, run artifacts, and browser sessions\n${IGNORED_RUNTIME_DIRECTORY}\n`,
+  );
+  return "updated";
 }

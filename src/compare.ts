@@ -5,6 +5,8 @@ import { runReportSchema } from "./artifact-schemas.js";
 import { assertReportAdjudications } from "./adjudication.js";
 import { scoreRatios } from "./score-slice.js";
 import { readJson, safeName, writeJson } from "./io.js";
+import { formatNumber, formatPct, formatPctDelta, plural } from "./format.js";
+import { DEFAULT_RUBRIC_TAG } from "./specs.js";
 import {
   escapeHtml,
   evidenceHtml,
@@ -484,13 +486,25 @@ export function comparisonFailures(
     );
   }
   if (thresholds.failOnRegression) {
-    const count =
-      comparison.summary.regressed + comparison.summary.lost_coverage + comparison.summary.removed;
-    if (count > 0 || comparison.summary.areasRemoved > 0) {
-      failures.push(
-        `${count} item regression(s) or removals and ${comparison.summary.areasRemoved} removed area(s)`,
-      );
-    }
+    const items = (change: ItemChange) =>
+      comparison.items
+        .filter((item) => item.change === change)
+        .map(
+          (item) =>
+            `${item.areaId}/${item.id}${item.baselineVerdict && item.candidateVerdict ? ` (${item.baselineVerdict} → ${item.candidateVerdict})` : ""}`,
+        );
+    const groups = [
+      ["regressions", items("regressed")],
+      ["lost coverage", items("lost_coverage")],
+      ["removed", items("removed")],
+      [
+        "removed areas",
+        comparison.areas.filter((area) => area.status === "removed").map((area) => area.id),
+      ],
+    ] as const;
+    const present = groups.filter(([, ids]) => ids.length);
+    if (present.length)
+      failures.push(present.map(([label, ids]) => `${label}: ${ids.join(", ")}`).join("; "));
   }
   if (thresholds.maxScoreDrop !== undefined) {
     const delta = comparison.overall.scorePct.delta;
@@ -565,9 +579,109 @@ export function loadResumableRunReport(input: string): { file: string; report: R
   return loadReport(input, true);
 }
 
-const display = (value: number | null, suffix = "%") =>
-  value === null ? "—" : `${value}${suffix}`;
-const delta = (value: number | null) => (value === null ? "—" : `${value > 0 ? "+" : ""}${value}`);
+const display = formatPct;
+const delta = formatPctDelta;
+
+const verdictChange: Record<Verdict, string> = {
+  pass: "now passes",
+  partial: "is now partial",
+  fail: "now fails",
+  not_found: "is now not found",
+  cannot_judge: "can no longer be judged",
+};
+
+function listed(values: string[]): string {
+  return values.length > 3
+    ? `${values.slice(0, 3).join(", ")} and ${values.length - 3} more`
+    : values.join(", ");
+}
+
+/** A one-line conclusion derived from the comparison, shown before any numbers. */
+export function comparisonVerdict(comparison: ComparisonReport): {
+  tone: "good" | "bad" | "neutral";
+  text: string;
+} {
+  const qualified = comparison.areas.length > 1;
+  const label = (item: ItemComparison) => (qualified ? `${item.areaId}/${item.id}` : item.id);
+  const describe = (item: ItemComparison) => {
+    if (item.change === "removed") return `${label(item)} removed`;
+    if (item.change === "lost_coverage") return `${label(item)} lost coverage`;
+    if (item.change === "gained_coverage") return `${label(item)} gained coverage`;
+    return item.candidateVerdict && item.candidateVerdict !== item.baselineVerdict
+      ? `${label(item)} ${verdictChange[item.candidateVerdict]}`
+      : `${label(item)} score ${item.change === "improved" ? "rose" : "fell"}`;
+  };
+  const of = (...changes: ItemChange[]) =>
+    comparison.items.filter((item) => changes.includes(item.change));
+  const gates = (status: "failed" | "passed") =>
+    comparison.items.filter(
+      (item) =>
+        item.candidate?.gate?.status === status &&
+        item.baseline?.gate &&
+        item.baseline.gate.status !== status,
+    ).length;
+  const compatible = comparison.compatibility.status === "compatible";
+  if (!compatible && !comparison.compatibility.overridden)
+    return {
+      tone: "bad",
+      text: "Incompatible evaluator inputs: results are not comparable, so numeric deltas are withheld.",
+    };
+  const prefix = compatible ? "" : "Incompatible evaluator inputs (compared by override). ";
+  const regressions = of("regressed", "lost_coverage", "removed");
+  const improvements = of("improved", "gained_coverage");
+  // Overall movement is reported only when no item-level change explains it.
+  const movement = (direction: -1 | 1) =>
+    (
+      [
+        ["score", comparison.overall.scorePct.delta],
+        ["coverage", comparison.overall.coveragePct.delta],
+      ] as const
+    ).flatMap(([name, value]) =>
+      value !== null && Math.sign(Math.round(value * 10)) === direction
+        ? [`${name} ${direction < 0 ? "fell" : "rose"} ${formatNumber(Math.abs(value))} points`]
+        : [],
+    );
+  if (regressions.length || comparison.summary.areasRemoved || movement(-1).length) {
+    const failing = gates("failed");
+    const details = [
+      ...(regressions.length ? [listed(regressions.map(describe))] : movement(-1)),
+      ...(comparison.summary.areasRemoved
+        ? [plural(comparison.summary.areasRemoved, "area removed", "areas removed")]
+        : []),
+      ...(failing
+        ? [plural(failing, "critical gate newly failing", "critical gates newly failing")]
+        : []),
+      ...(improvements.length
+        ? [plural(improvements.length, "item improved", "items improved")]
+        : []),
+    ];
+    return { tone: "bad", text: `${prefix}Regressed: ${details.join("; ")}` };
+  }
+  if (improvements.length || movement(1).length) {
+    const passing = gates("passed");
+    const details = [
+      ...(improvements.length ? [listed(improvements.map(describe))] : movement(1)),
+      ...(passing
+        ? [plural(passing, "critical gate newly passing", "critical gates newly passing")]
+        : []),
+    ];
+    return { tone: "good", text: `${prefix}Improved: ${details.join("; ")}` };
+  }
+  const changed = of("changed", "added");
+  if (changed.length || comparison.summary.areasAdded)
+    return {
+      tone: "neutral",
+      text: `${prefix}Changed without regression: ${[
+        ...changed.map((item) =>
+          item.change === "added" ? `${label(item)} added` : `${label(item)} verdict changed`,
+        ),
+        ...(comparison.summary.areasAdded
+          ? [plural(comparison.summary.areasAdded, "area added", "areas added")]
+          : []),
+      ].join("; ")}`,
+    };
+  return { tone: "neutral", text: `${prefix}No change` };
+}
 
 function metricRows(
   rows: Array<{
@@ -621,14 +735,18 @@ export function comparisonHtml(
     })
     .join("");
   const compatibilityHtml = `<p class="${comparison.compatibility.status === "compatible" ? "good" : "bad"}"><strong>Evaluation inputs:</strong> ${escapeHtml(comparison.compatibility.status)}${comparison.compatibility.overridden ? " (override enabled)" : ""}</p>`;
-  const body = `<h1>${escapeHtml(comparison.candidate.project)} evaluation comparison</h1><p><code>${escapeHtml(comparison.baseline.runId)}</code> → <code>${escapeHtml(comparison.candidate.runId)}</code></p>${compatibilityHtml}${warnings}
+  const verdict = comparisonVerdict(comparison);
+  const tags = comparison.tags.every((tag) => tag.tag === DEFAULT_RUBRIC_TAG)
+    ? ""
+    : `<h2>Tags</h2><div class="table-scroll"><table><thead><tr><th>Tag</th><th>Status</th><th>Base score</th><th>Candidate</th><th>Δ score</th><th>Base coverage</th><th>Candidate</th><th>Δ coverage</th></tr></thead><tbody>${metricRows(comparison.tags.map((tag) => ({ ...tag, name: tag.tag })))}</tbody></table></div>`;
+  const body = `<h1>${escapeHtml(comparison.candidate.project)}</h1><p class="subtitle">Run comparison</p><p class="meta"><code>${escapeHtml(comparison.baseline.runId)}</code> → <code>${escapeHtml(comparison.candidate.runId)}</code></p><p class="verdict${verdict.tone === "neutral" ? "" : ` ${verdict.tone}`}">${escapeHtml(verdict.text)}</p>${compatibilityHtml}${warnings}
 <p class="headline">Score ${display(comparison.overall.scorePct.candidate)} (${delta(comparison.overall.scorePct.delta)} points) · Coverage ${display(comparison.overall.coveragePct.candidate)} (${delta(comparison.overall.coveragePct.delta)} points)</p>
 <p>${comparison.summary.improved} improved · ${comparison.summary.regressed} regressed · ${comparison.summary.gained_coverage} gained coverage · ${comparison.summary.lost_coverage} lost coverage · ${comparison.summary.added} added · ${comparison.summary.removed} removed · ${comparison.summary.unavailable} unavailable</p>
 <h2>Areas</h2><div class="table-scroll"><table><thead><tr><th>Area</th><th>Status</th><th>Base score</th><th>Candidate</th><th>Δ score</th><th>Base coverage</th><th>Candidate</th><th>Δ coverage</th></tr></thead><tbody>${metricRows(comparison.areas.map((area) => ({ ...area, name: area.title })))}</tbody></table></div>
-<h2>Tags</h2><div class="table-scroll"><table><thead><tr><th>Tag</th><th>Status</th><th>Base score</th><th>Candidate</th><th>Δ score</th><th>Base coverage</th><th>Candidate</th><th>Δ coverage</th></tr></thead><tbody>${metricRows(comparison.tags.map((tag) => ({ ...tag, name: tag.tag })))}</tbody></table></div>
+${tags}
 <h2>Rubric decisions and evidence</h2><div class="filters"><label>Show <select id="change-filter"><option value="all">All items</option><option value="changed">Changed items</option><option value="regressed">Regressions</option><option value="lost_coverage">Lost coverage</option></select></label><label><input type="checkbox" id="critical-filter"> Critical gates only</label></div><p id="filter-count" aria-live="polite">${comparison.items.length} items</p>${items || "<p>No rubric items.</p>"}`;
   return reportDocument(
-    `${comparison.candidate.project} comparison`,
+    `${comparison.candidate.project} · Run comparison`,
     body,
     `
 const change = document.getElementById('change-filter');

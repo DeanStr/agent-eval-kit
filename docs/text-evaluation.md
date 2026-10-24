@@ -9,7 +9,9 @@ The [runnable example](../examples/text/evalkit.yaml) includes two comparisons:
 candidate versus target writing, and candidate versus original with a fixed
 style target. Its short passages are synthetic fixtures created for the example,
 not published human reference articles or real experimental results. Replace
-them with your own candidate and selected reference passages.
+them with your own candidate and selected reference passages. See the
+[text example guide](../examples/text/README.md) for direct reference comparisons,
+style-guided revisions, and separate voice and editorial-quality evaluations.
 
 ```sh
 pnpm aek run --config examples/text/evalkit.yaml --judge codex

@@ -54,8 +54,37 @@ export function doctor(options: DoctorOptions = {}): DoctorCheck[] {
     required: options.requireBrowser === true,
   });
 
-  const providers = options.providers ?? ["codex", "claude", "grok", "cursor"];
+  const providers = options.providers ?? SUBSCRIPTION_PROVIDERS;
   const requireEveryProvider = options.providers !== undefined;
+  const probed = probeProviders(providers, requireEveryProvider);
+  checks.push(...probed.checks);
+  const healthyProviders = probed.healthy;
+  if (!requireEveryProvider) {
+    checks.push({
+      name: "supported subscription provider",
+      ok: healthyProviders.length > 0,
+      detail: healthyProviders.length
+        ? `healthy: ${healthyProviders.join(", ")}`
+        : "none of codex, claude, grok, or cursor is both installed and ready",
+      required: true,
+    });
+  }
+  return checks;
+}
+
+const SUBSCRIPTION_PROVIDERS: ProviderId[] = ["codex", "claude", "grok", "cursor"];
+
+/** Installed and signed-in subscription providers, probed without model calls. */
+export function readyProviders(): ProviderId[] {
+  if (process.platform === "win32") return [];
+  return probeProviders(SUBSCRIPTION_PROVIDERS, false).healthy;
+}
+
+function probeProviders(
+  providers: ProviderId[],
+  requireEveryProvider: boolean,
+): { checks: DoctorCheck[]; healthy: ProviderId[] } {
+  const checks: DoctorCheck[] = [];
   const healthyProviders: ProviderId[] = [];
   for (const provider of providers) {
     if (provider === "mock") continue;
@@ -135,15 +164,5 @@ export function doctor(options: DoctorOptions = {}): DoctorCheck[] {
     }
     if (healthy) healthyProviders.push(provider);
   }
-  if (!requireEveryProvider) {
-    checks.push({
-      name: "supported subscription provider",
-      ok: healthyProviders.length > 0,
-      detail: healthyProviders.length
-        ? `healthy: ${healthyProviders.join(", ")}`
-        : "none of codex, claude, grok, or cursor is both installed and ready",
-      required: true,
-    });
-  }
-  return checks;
+  return { checks, healthy: healthyProviders };
 }

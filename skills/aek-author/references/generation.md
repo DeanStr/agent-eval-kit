@@ -20,10 +20,10 @@ validating independent areas.
 | Exported/downloaded file correctness | File evidence plus project-owned parser | `command` |
 | Human-only requirement | Explicit review instructions | `manual` or weighted `hybrid` |
 
-For full field contracts use AEK's packaged docs. Installed copies are `docs/` and `README.md` relative to this reference file's
-directory. From the source skill use the package's root `docs/` and `README.md`. Read only the
-relevant guide: `workflows.md`, `file-evidence.md`, `email.md`, `text-evaluation.md`,
-`visual-evaluation.md`, or README's configuration, specs, and grader sections.
+For full field contracts use AEK's packaged docs. Installed copies are in `docs/` relative to this reference file's
+directory. From the source skill use the package's root `docs/`. Read only the
+relevant guide: `configuration.md`, `specs.md`, `graders.md`, `workflows.md`,
+`file-evidence.md`, `email.md`, `text-evaluation.md`, or `visual-evaluation.md`.
 The artifact/image and specialized format paths can need project-owned extraction.
 For a one-off pair of existing images, use `aek image compare --candidate file --reference file --criterion text`; add `--absolute-criterion` for a candidate-only quality gate. For project suites, generate collection and rubric definitions. Don't imply built-in PDF/video/spreadsheet semantics.
 

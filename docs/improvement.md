@@ -5,20 +5,22 @@ a hypothesis, edit a candidate, run the full suite, and keep or restore the resu
 AEK owns the checkpoints and acceptance decision; the coding agent supplies edits.
 It does not launch another coding agent or require a particular provider.
 
-Install the optional skill with `aek improve install`, then ask your coding agent
+Install the optional skill with `aek improve install` (or both skills with
+`aek skills install`), then ask your coding agent
 to use `$aek-improve` for a specific objective. Installation defaults to
 `.agents/skills/aek-improve`, includes its own instructions, and refuses to overwrite
 an existing skill. Commit the installation if it lives in the project before starting.
 
 ## Prepare the acceptance suite
 
-Use a deterministic, executable acceptance suite that measures the improvement
-objective and protects existing requirements. This version compares one baseline
-run with one run per candidate and allows no item or case regression. It has no
-repeated-run acceptance protocol or noise tolerance. LLM judges and other noisy
-checks can reject useful candidates or retain a lucky run as best; calibration
-alone does not remove that limitation. Use independent repeated evaluation for
-claims about noisy performance outside this strict loop.
+Use an executable acceptance suite that measures the improvement objective and
+protects existing requirements. By default, a session compares one baseline run
+with one run per candidate and allows no item or case regression. This
+single-run mode has no noise tolerance: LLM judges and other noisy checks can
+reject useful candidates or retain a lucky run as best, and calibration alone
+does not remove that limitation. Prefer deterministic checks for it. For noisy
+judging, start the session with `--repetitions n` (see
+[Repeated-run acceptance](#repeated-run-acceptance)).
 
 The objective text is a record of intent; it does not alter the rubric or become
 judge instructions.
@@ -66,7 +68,8 @@ aek improve evaluate --session ../project-improvement --json
 aek improve status --session ../project-improvement --json
 ```
 
-Use `--suite name` on `start` to select an existing named suite. Session settings
+Use `--suite name` on `start` to select an existing named suite, and
+`--repetitions n` for [repeated-run acceptance](#repeated-run-acceptance). Session settings
 are fixed at creation: default three candidate attempts, two consecutive
 attempts without improvement (including inconclusive and execution-error attempts),
 and a one-hour wall-clock budget including editing. New attempts check
@@ -95,7 +98,7 @@ collection/judging through the existing runner and its frozen evaluation method.
 
 ## Acceptance and stopping
 
-A candidate replaces the best checkpoint only when:
+In the default single-run mode, a candidate replaces the best checkpoint only when:
 
 1. The complete evaluation succeeds with compatible evaluator fingerprints and
    intact report/evidence artifacts.
@@ -125,7 +128,7 @@ against the latest best.
 | --- | --- |
 | `accepted` | Keep the candidate as best; continue if budget permits. |
 | `rejected` | Measured acceptance failure; retain evidence and restore best. |
-| `inconclusive` | Missing evidence, including blocked or agent-error scenarios; retain diagnostics, restore best, and continue within the original budgets. |
+| `inconclusive` | Missing evidence, including blocked or agent-error scenarios, or (with `--repetitions`) a sufficient mean gain whose paired-case interval does not exclude zero; retain diagnostics, restore best, and continue within the original budgets. |
 | `execution_error` | Candidate execution failed; retain diagnostics without an acceptance score and restore best. Another attempt is permitted only if source, evaluator, retained artifacts, and restoration remain valid. |
 | `stopped` | User interruption, explicit stop, or time budget expiry; retain the candidate and restore best when ownership is intact. |
 
@@ -144,6 +147,86 @@ plateau is not permission to relax requirements. A minimum gain is an effect-siz
 threshold, not a statistical confidence guarantee. SIGINT and SIGTERM stop the
 session with `user_stopped` and exit 130/143, including during baseline evaluation.
 
+## Repeated-run acceptance
+
+`aek improve start ... --repetitions n` (an integer from 2 to 20) evaluates the
+baseline and every candidate as an n-repetition campaign of the same full suite
+(all areas, optional areas, and all splits), using the same machinery as
+`aek campaign`. Omitting the flag keeps the single-run mode above. The setting is
+fixed for the session and recorded as `repetitions` in `session.json` and `status`
+output (`1` means single-run).
+
+Use it when judges or checks are noisy, such as LLM rubric or dataset judges, and
+the suite has scored cases. Cases come from LLM-judged rubric items linked to
+scenarios, text datasets, and scenario templates; command, capture, and visual
+checks are scored items without cases. The paired interval needs at least two
+cases, so a session whose baseline produces fewer stops with `execution_error`
+and a message to use single-run mode instead.
+
+Each evaluation runs n full-suite repetitions sequentially, so a session can run
+up to (1 + `--max-attempts`) × n suite runs. They all count against the same
+`--budget-seconds` wall-clock deadline, which cancels an in-flight repetition and
+stops the session with `budget_exhausted` exactly as in single-run mode; size the
+budget for the extra runs.
+
+A candidate campaign is decided against the best campaign in this order:
+
+1. Every repetition must complete, and both campaigns must have one compatible
+   evaluator fingerprint. A failed repetition makes the attempt an
+   `execution_error` (the campaign still attempts its remaining repetitions);
+   an evaluator change stops the session, as in single-run mode.
+2. Every repetition must have complete evidence, an available score, and
+   exercised scenarios. Otherwise the attempt is `inconclusive` without a score.
+3. The attempt is `rejected` if any of these hold:
+   - a repetition misses part of the full suite;
+   - a regression signal from campaign comparison (as with
+     `aek campaign compare` and its regression check): lower completion rate,
+     lower campaign mean score, lower mean evidence coverage, **any** drop in
+     critical-gate pass rate, or a case that lost coverage or disappeared;
+   - a rubric item or case regressed in every repetition: every candidate
+     repetition scored lower, or received a lower verdict, than every baseline
+     repetition;
+   - the mean score gain does not strictly exceed zero or is below
+     `--minimum-gain`. The gain is the full-precision mean of the candidate
+     repetitions' headline scores minus the same mean for the best campaign
+     (`attempt.scoreGain`). Ties still fail.
+4. Otherwise the paired-case 95% bootstrap interval from the campaign comparison
+   decides: a lower bound above 0 is `accepted`, and the candidate campaign
+   becomes the best baseline for the next attempt. A lower bound of 0 or below
+   (or no interval) is `inconclusive`: the gain is positive but not established.
+   Inconclusive attempts count toward `--max-stalls`.
+
+Campaign comparison marks a case `regressed` whenever its mean points decrease at
+all. That signal is not noise-tolerant: under noisy judging an unchanged case
+decreases by chance roughly half the time, so requiring zero such cases would
+reject almost every candidate on a noisy suite. Acceptance therefore replaces it
+with the reproduced-regression rule in step 3, applied to rubric items and cases.
+With one run per side that rule is exactly the single-run rule. For an unchanged
+item or case with independent noisy outcomes, it fires by chance with
+probability at most 1/C(2n, n) per item or case: about 17% at n = 2, 5% at n = 3,
+and 0.4% at n = 5. The cost is sensitivity. A partial regression (for example,
+from always passing to passing half the time), or a regression on a case that
+already failed in some baseline repetition, does not reject on its own; it still
+lowers the mean gain and the paired interval, which must both stay positive.
+`campaign-comparison.json` still lists every mean-level decrease for review.
+Critical gates stay strict: a gate that fails more often than in the best
+campaign rejects the candidate even when no item regressed in every repetition.
+Each gate's pass rate is checked independently, including optional areas; another
+gate that already fails every run cannot mask a new failure.
+
+The interval resamples matched cases, so it asks whether the gain holds across
+the suite's cases, not only whether it survives repetition noise. A gain confined
+to a few cases among many unchanged ones can leave the lower bound at 0 and be
+inconclusive even with deterministic judging; for example, one improved case
+among five. Rubric items without cases contribute to the mean score, gate rate,
+and reproduced item rule, but not to the interval. Prefer single-run mode for
+deterministic suites and narrowly targeted fixes. The interval is a descriptive,
+deterministic bootstrap over a small number of runs, and repeated attempts against
+the same suite select among candidates; treat it as evidence for this loop, not
+a calibrated confidence guarantee. Campaign progress on stderr can include
+`Acceptance failed:` lines for repetitions with failing critical gates; they are
+informational, and only the attempt decision determines acceptance.
+
 ## Review artifacts and recovery
 
 The session directory contains:
@@ -152,10 +235,22 @@ The session directory contains:
 session.json                         # settings, state, best checkpoint, attempt history
 workspace/                           # owned detached Git worktree
 runs/<run-id>/                       # ordinary sealed AEK runs and reports
-attempts/<n>/decision.json            # hypothesis, decision, reasons, checkpoint, run
+attempts/<n>/decision.json            # hypothesis, decision, reasons, checkpoint, run or campaign
 attempts/<n>/comparison/              # JSON and HTML comparison against the prior best
 process-groups.json                  # owned process groups; empty after successful cleanup
+baseline-campaign/                   # --repetitions only: the baseline campaign
+attempts/<n>/attempt-<n>-campaign/    # --repetitions only: the candidate campaign
 ```
+
+Single-run comparisons are `comparison.json` and `comparison.html`; repeated-run
+comparisons are `campaign-comparison.json` and `campaign-comparison.html`.
+Campaign directories hold `campaign.json`, `campaign.html`, and campaign state;
+their repetitions are ordinary sealed runs under `runs/`. In repeated mode, `best`
+and each attempt record `campaign` instead of `run`. The campaign reference
+retains its directory, `campaign.json` hash, and a `runs` inventory with each
+repetition's relative run directory and original `report.json` hash. Later
+operations validate against those saved hashes; reindexing an altered report
+does not make it a valid acceptance baseline.
 
 Paths inside `session.json` are relative to its directory except the source and
 Git ownership metadata. Accepted and rejected commits are retained under

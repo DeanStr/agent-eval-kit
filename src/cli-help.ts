@@ -1,5 +1,5 @@
 const descriptions: Record<string, string> = {
-  config: "Configuration file (default: evalkit.yaml; recovery restores the saved path).",
+  config: "Configuration file (default: the nearest evalkit.yaml in this or a parent directory).",
   suite: "Select a configured named suite.",
   url: "Override the web target URL.",
   "max-turns": "Positive scenario turn budget; Codex uses an MCP interaction limit.",
@@ -14,28 +14,30 @@ const descriptions: Record<string, string> = {
     "Comma-separated scenario/template IDs. Omitting prerequisites blocks their dependents.",
   "include-optional": "Include optional areas when no explicit area list is supplied.",
   split: "development (default), evaluation, or all; unsplit cases are shared.",
-  resume: "Resume a saved directory with matching inputs and the original options.",
+  resume:
+    "Resume an incomplete run (directory, run ID, or latest) with matching inputs and its original options.",
   "dry-run":
     "Validate and preview execution without creating output or starting services/providers.",
   json: "Print machine-readable results to stdout; progress goes to stderr.",
   debug: "Include error stack traces on stderr.",
   "fail-under-score": "Minimum score percentage, 0–100; unavailable scores fail.",
   "fail-under-coverage": "Minimum evidence coverage percentage, 0–100.",
-  "changed-since": "Evaluate changed text dataset cases against an intact prior run.",
+  "changed-since":
+    "Evaluate text dataset cases changed since an intact prior run (directory, run ID, latest, or previous).",
   "text-cases": "Comma-separated area/dataset/case selectors; skipped cases reduce coverage.",
   repetitions: "Total campaign attempts, at least 2 (default: 3).",
-  output: "Output directory; creation commands require a new destination.",
+  output: "New output directory.",
   recipe: "Benchmark experiment JSON; candidate config and resource paths resolve relative to it.",
-  run: "Existing run directory.",
-  evidence: "Completed, sealed collection directory.",
+  run: "Run directory, run ID from paths.runs, latest, or previous.",
+  evidence: "Sealed collection: directory, run ID, latest, or previous.",
   dataset: "Judge-validation dataset JSON with pinned collection identities.",
   labels: "Separate reviewer-label JSON; never passed to judges.",
   configurations: "JSON manifest of named judge configurations.",
   input: "Adjudication decision JSON file outside the run directory.",
   reviewer: "Reviewer identity recorded with the decision or promotion.",
-  baseline: "Baseline run directory or report; campaign compare takes a campaign.",
+  baseline: "Baseline run: directory, report.json, run ID, latest, or previous.",
   "baseline-name": "Promoted baseline name instead of --baseline.",
-  candidate: "Candidate run directory or report; campaign compare takes a campaign.",
+  candidate: "Candidate run: directory, report.json, run ID, latest, or previous.",
   "fail-on-regression": "Exit 2 when comparable results regress or lose coverage.",
   "max-score-drop": "Largest permitted score drop, in percentage points (0–100).",
   "max-coverage-drop": "Largest permitted coverage drop, in percentage points (0–100).",
@@ -54,6 +56,10 @@ const descriptions: Record<string, string> = {
   email: "Use the persona's configured magic-link or verification-code flow.",
   kind: "Starter: web (default), repository, command, artifact, or visual.",
   directory: "Skill installation directory (default: .agents/skills).",
+  interactive: "Prompt for each pending manual verdict instead of reading manual-results.json.",
+  keep: "Keep this many newest runs.",
+  "older-than": "Delete only runs started more than this many days ago.",
+  limit: "Show at most this many newest runs (default: 20).",
   goal: "Product improvement objective; acceptance comes from the frozen suite.",
   session: "Existing improvement session directory.",
   hypothesis: "Concrete change and expected benefit, recorded before editing.",
@@ -84,12 +90,132 @@ const descriptions: Record<string, string> = {
   help: "Show help for this command.",
 };
 
+/** Value names shown after each flag; boolean flags have none. */
+const placeholders: Record<string, string> = {
+  config: "file",
+  suite: "name",
+  url: "url",
+  "max-turns": "n",
+  agent: "provider",
+  judge: "provider",
+  "agent-model": "id",
+  "judge-model": "id",
+  "judge-effort": "level",
+  areas: "a,b",
+  scenarios: "x,y",
+  split: "split",
+  resume: "run",
+  "fail-under-score": "pct",
+  "fail-under-coverage": "pct",
+  "changed-since": "run",
+  "text-cases": "a/d/c,…",
+  repetitions: "n",
+  output: "dir",
+  recipe: "file",
+  run: "run",
+  evidence: "run",
+  dataset: "file",
+  labels: "file",
+  configurations: "file",
+  input: "file",
+  reviewer: "name",
+  baseline: "run",
+  "baseline-name": "name",
+  candidate: "run",
+  "max-score-drop": "points",
+  "max-coverage-drop": "points",
+  name: "name",
+  mode: "mode",
+  reason: "text",
+  path: "path",
+  providers: "a,b",
+  persona: "name",
+  at: "path",
+  click: "text",
+  kind: "kind",
+  directory: "dir",
+  goal: "text",
+  session: "dir",
+  hypothesis: "text",
+  guidance: "file",
+  "max-attempts": "n",
+  "max-stalls": "n",
+  "budget-seconds": "seconds",
+  "minimum-gain": "points",
+  project: "dir",
+  description: "text",
+  manifest: "file",
+  concurrency: "n",
+  reuse: "dir",
+  "capacity-retries": "n",
+  reference: "file",
+  criterion: "text",
+  "absolute-criterion": "text",
+  policy: "policy",
+  "timeout-seconds": "seconds",
+  "minimum-votes": "n",
+  "maximum-votes": "n",
+  agreement: "fraction",
+  "minimum-confidence": "fraction",
+  width: "pixels",
+  height: "pixels",
+  keep: "n",
+  "older-than": "days",
+  limit: "n",
+};
+
+/** Descriptions that differ by command, keyed by `<command> --<flag>`. */
+const contextual: Record<string, string> = {
+  "image compare --candidate": "Candidate image file.",
+  "image compare --output": "New output directory (default: .agent-eval/image-comparisons/<id>).",
+  "author init --mode": "Authoring scope: project (default) or feature.",
+  "improve stop --reason": "Reason for ending this session and restoring its best checkpoint.",
+  "improve start --output":
+    "New session directory outside the source checkout; owns its candidate Git worktree.",
+  "improve start --repetitions":
+    "Evaluate baseline and candidates as 2–20-run campaigns; omit for single-run acceptance.",
+  "campaign --resume":
+    "Continue only unstarted repetitions; only --json and --debug may accompany it. Retains failures and thresholds.",
+  "campaign --output": "New campaign directory (default: campaigns/ beside paths.runs).",
+  "campaign compare --baseline": "Baseline campaign directory or campaign.json.",
+  "campaign compare --candidate": "Candidate campaign directory or campaign.json.",
+  "campaign compare --output": "New comparison directory (default: inside the candidate campaign).",
+  "compare --output": "New comparison directory (default: the candidate run's comparisons/).",
+  "compare --config":
+    "Configuration for resolving run IDs and --baseline-name (default: nearest evalkit.yaml).",
+  "export --output": "New export directory (default: exports/<run-id> beside paths.runs).",
+  "export --config": "Configuration for resolving run IDs (default: nearest evalkit.yaml).",
+  "verify --config": "Configuration for resolving run IDs (default: nearest evalkit.yaml).",
+  "rescore --config": "Current project configuration to rescore with (default: the run's config).",
+  "finalize --config": "Current project configuration (default: the run's recorded config).",
+  "adjudicate --config": "Current project configuration (default: the run's recorded config).",
+  "judge --resume": "Resume an incomplete judging run (directory, run ID, or latest).",
+  "collect --resume": "Resume an incomplete collection (directory, run ID, or latest).",
+  "init --agent": "Collection provider (default: a signed-in provider; command starters use mock).",
+  "init --judge":
+    "Judging provider (default: a signed-in provider other than the agent when available).",
+  "skills install --agent":
+    "Coding agent: claude installs into .claude/skills; codex, cursor, and grok into .agents/skills.",
+  "skills install --directory":
+    "Installation directory (default: .claude/skills when only .claude/ exists, else .agents/skills).",
+  "check --areas": "Only checkers in these area IDs.",
+  "runs prune --dry-run": "List the runs that would be deleted without deleting them.",
+  "auth --json": "Print the result as JSON.",
+  "author install --json": "Print the result as JSON.",
+  "author init --json": "Print the result as JSON.",
+  "author status --json": "Print the result as JSON.",
+  "author validate --json": "Print the result as JSON.",
+  "image compare --json": "Print the execution preview as JSON; requires --dry-run.",
+  "image batch --json": "Print the execution preview as JSON; requires --dry-run.",
+};
+
 const usages: Record<string, string> = {
   "image batch": "--manifest file.json [options] | --resume directory",
   "image compare": "--candidate file --reference file --criterion text [options]",
   "author install": "[--directory directory]",
   "improve install": "[--directory directory] [--json]",
-  "improve start": "--goal text --output new-directory [--config file] [--suite name] [options]",
+  "improve start":
+    "--goal text --output new-directory [--config file] [--suite name] [--repetitions n] [options]",
   "improve attempt": "--session directory --hypothesis text [--json]",
   "improve evaluate": "--session directory [--guidance file] [--json]",
   "improve status": "--session directory [--json]",
@@ -97,29 +223,33 @@ const usages: Record<string, string> = {
   "author init": "[--project directory] [--mode project|feature] [--description text]",
   "author status": "[--project directory] [--json] [--require-ready]",
   "author validate": "[--project directory] [--json] [--require-ready]",
-  init: "[directory] [--kind web|repository|command|artifact|visual]",
+  init: "[directory] [--kind web|repository|command|artifact|visual] [options]",
+  check: "[item | area/item ...] [options]",
+  "runs list": "[--limit n] [--config file]",
+  "runs prune": "--keep n | --older-than days [--dry-run] [--config file]",
+  "skills install": "[--agent claude|codex|cursor|grok] [--directory dir]",
   validate: "[--config file] [--suite name]",
   list: "[--config file] [--suite name]",
   doctor: "[--config file] [--suite name] [--providers a,b]",
-  run: "[options] [--resume directory]",
-  collect: "[options] [--resume directory]",
+  run: "[options] [--resume run]",
+  collect: "[options] [--resume run]",
   campaign: "[options] | --resume directory",
   "campaign compare": "--baseline campaign --candidate campaign [options]",
   "benchmark experiment": "--recipe recipe.json --output new-directory",
   judge: "--evidence collection [options] | --resume judging-directory [options]",
   "judge validate":
     "--dataset cases.json --labels labels.json --configurations configurations.json --output new-directory",
-  verify: "--run directory",
-  export: "--public --run directory [--output directory]",
+  verify: "--run run",
+  export: "--public --run run [--output dir]",
   "privacy lint": "--path file-or-directory",
   auth: "--persona name [options]",
-  rescore: "--run directory [options]",
-  finalize: "--run directory [options]",
-  adjudicate: "--run directory --input decisions.json --reviewer name [options]",
+  rescore: "--run run [options]",
+  finalize: "--run run [--interactive] [options]",
+  adjudicate: "--run run --input decisions.json --reviewer name [options]",
   compare: "(--baseline run | --baseline-name name) --candidate run [options]",
-  "baseline promote": "--run directory --name name --reviewer name [options]",
+  "baseline promote": "--run run --name name --reviewer name [options]",
   "baseline list": "[--config file] [--suite name]",
-  "reference promote": "--run directory --name name --reviewer name [options]",
+  "reference promote": "--run run --name name --reviewer name [options]",
   "reference list": "[--config file] [--suite name]",
 };
 
@@ -142,29 +272,21 @@ export function commandHelp(
     baseline: ["promote", "list"],
     reference: ["promote", "list"],
     privacy: ["lint"],
+    runs: ["list", "prune"],
+    skills: ["install"],
   };
   if (!positional && groups[command])
     return `Usage: aek ${command} <${groups[command].join("|")}>\n\nCommands:\n${groups[command].map((subcommand) => `  aek ${command} ${subcommand} ${commandUsage(`${command} ${subcommand}`)}`).join("\n")}\n\nUse aek ${command} <command> --help for exact options.`;
-  const key = command === "init" || !positional ? command : `${command} ${positional}`;
+  const key =
+    ["init", "check"].includes(command) || !positional ? command : `${command} ${positional}`;
   const lines = flags.map((flag) => {
-    let description = descriptions[flag];
+    const description = contextual[`${key} --${flag}`] ?? descriptions[flag];
     if (!description) throw new Error(`Missing CLI help for --${flag}`);
-    if (key === "image compare" && flag === "candidate") description = "Candidate image file.";
-    if (key === "author init" && flag === "mode")
-      description = "Authoring scope: project (default) or feature.";
-    if (key === "improve stop" && flag === "reason")
-      description = "Reason for ending this session and restoring its best checkpoint.";
-    if (key === "improve start" && flag === "output")
-      description =
-        "New session directory outside the source checkout; owns its candidate Git worktree.";
-    if (command === "campaign" && flag === "resume")
-      description =
-        "Continue only unstarted repetitions; only --json and --debug may accompany it. Retains failures and thresholds.";
-    if (["auth", "author"].includes(command) && flag === "json")
-      description = "Print the result as JSON.";
-    if (command === "image" && flag === "json")
-      description = "Print the execution preview as JSON; requires --dry-run.";
-    return `  ${(`--${flag}${booleans.has(flag) ? "" : " <value>"}`).padEnd(34)} ${description}`;
+    const placeholder = booleans.has(flag)
+      ? ""
+      : ` <${(key === "skills install" && flag === "agent" ? "agent" : placeholders[flag]) ?? ""}>`;
+    if (placeholder === " <>") throw new Error(`Missing CLI placeholder for --${flag}`);
+    return `  ${`--${flag}${placeholder}`.padEnd(30)} ${description}`;
   });
   const exit =
     command === "improve"

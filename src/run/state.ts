@@ -89,12 +89,14 @@ export function processIsAlive(pid: number): boolean {
   }
 }
 
+export const RUN_LOCK_ACQUISITION_DIRECTORY = ".run.lock-acquisition";
+
 function acquireRunLock(runDir: string, recoverStale: boolean): () => void {
   // Serialize acquisition, including stale-owner recovery. Without this guard,
   // a contender that read an old lock can unlink another contender's new lock.
   // Never reclaim this guard automatically: a crash during this very short
   // section requires explicit cleanup, rather than another stale-lock race.
-  const guard = path.join(runDir, ".run.lock-acquisition");
+  const guard = path.join(runDir, RUN_LOCK_ACQUISITION_DIRECTORY);
   try {
     fs.mkdirSync(guard, { mode: 0o700 });
   } catch (error) {

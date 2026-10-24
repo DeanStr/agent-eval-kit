@@ -18,7 +18,7 @@ The requested GPT-6.1 Sol review/fix loop completed six rounds. Seven actionable
 findings were reproduced and fixed, with none dismissed; the final review found
 no actionable regressions. All 784 tests, type checking, the build, lint,
 formatting and installed-package smoke passed. The
-[review and pilot record](review-loop-image-batch-2026-10-21.md) describes the
+[review and pilot record](history/review-loop-image-batch-2026-10-21.md) describes the
 findings and their validation.
 
 A four-pair live Codex pilot used Chromium captures of the packaged dashboard
@@ -178,7 +178,7 @@ actionable findings. No distinct findings were dismissed as non-actionable.
 
 Validation passed all 515 tests with concurrency limited to four, the final
 reviewer's 40 targeted tests, type checking, lint, formatting, whitespace checks,
-and production-package smoke. The [review record](review-loop-authoring-images-2026-09-08.md)
+and production-package smoke. The [review record](history/review-loop-authoring-images-2026-09-08.md)
 contains each finding, disposition, fix rationale, and regression result.
 
 ## Uncommitted-change review (2026-09-08)
@@ -252,7 +252,7 @@ blocking in an unfinished scenario.
 Final validation passed all 420 tests with concurrency limited to four, type
 checking, build, lint, formatting, whitespace checks and production-package smoke
 on Node 20.19.0. The final reviewer independently passed 92 targeted tests. The
-[review record](review-loop-agentmail-2026-09-06.md) captures every finding,
+[review record](history/review-loop-agentmail-2026-09-06.md) captures every finding,
 decision, regression and intermediate failure. No live AgentMail inbox was used.
 
 ## Fail-fast browser evidence
@@ -384,7 +384,7 @@ Validated locally on 2026-09-05: all 278 tests passed, plus type checking, build
 
 ## Codex review/fix loop (0.2.0)
 
-Validated locally on 2026-09-05 through four `codex exec review --uncommitted` rounds using `gpt-6-astra` at medium reasoning effort. Fixed three actionable findings: Chromium provenance now uses the configured launch mode, browser probing respects split and scenario selection, and skipped/dependency-blocked area evidence is sealed before visual grading. The final review reported no actionable regressions; no findings were dismissed. All 242 tests, type checking, build, and production-package smoke passed. See [the per-round findings and decisions](review-loop-2026-09-05.md).
+Validated locally on 2026-09-05 through four `codex exec review --uncommitted` rounds using `gpt-6-astra` at medium reasoning effort. Fixed three actionable findings: Chromium provenance now uses the configured launch mode, browser probing respects split and scenario selection, and skipped/dependency-blocked area evidence is sealed before visual grading. The final review reported no actionable regressions; no findings were dismissed. All 242 tests, type checking, build, and production-package smoke passed. See [the per-round findings and decisions](history/review-loop-2026-09-05.md).
 
 ## Fail-fast visual contracts (0.2.0)
 

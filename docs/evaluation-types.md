@@ -11,7 +11,7 @@ The use cases below are combinations of those capabilities, not separate product
 | --- | --- | --- |
 | Can a user complete this story or job? | Browser scenario instructions plus rubric acceptance criteria, usually with an independent `llm` judge. | [Story example below](#turn-a-user-story-into-an-evaluation), [multi-step workflows](workflows.md) |
 | Does the code match its documented contract? | A `workspace` scenario collects source evidence for an `llm` rubric. | [Repository starter](onboarding.md#choose-a-starter), [repository example](../examples/repository/specs/quality.yaml) |
-| Does a command produce the expected result? | A `command` grader executes your checker and reads an explicit JSON or exit-code result. | [Grader contract](../README.md#grader-types), [offline walkthrough](first-run.md) |
+| Does a command produce the expected result? | A `command` grader executes your checker and reads an explicit JSON or exit-code result. | [Grader contract](graders.md#command), [offline walkthrough](first-run.md) |
 | Is this image preferable to, or at least as good as, a reference? | Use `aek image compare` for two files, or a `pairwise` rubric for collected images. | [Two-file comparison](image-comparison.md), [blind image grading](visual-evaluation.md#blind-pairwise-grading) |
 | Does this image satisfy an absolute requirement? | Collect the image and use an ordinary `llm` rubric, such as a readability gate. | [Absolute image quality](visual-evaluation.md#absolute-quality-and-relative-preference), [chart example](../examples/artifact/specs/chart.yaml) |
 | Is rendering reproducible, sufficiently different, or within measured bounds? | Use `capture`, `image-distinctness`, or `image-regression` checks. | [Controlled capture](visual-evaluation.md#controlled-browser-capture), [image health](visual-evaluation.md#image-health), [distinctness](visual-evaluation.md#scoped-image-distinctness), [baseline statistics](visual-evaluation.md#image-statistic-baseline-checks) |
@@ -25,8 +25,8 @@ the collection and judging setup automatically. Add `--absolute-criterion` for a
 separate candidate-only quality gate. Direct text graders need no collection scenario.
 
 Use `manual` for declared human checks or `hybrid` for weighted automatic and
-human shares. See [grader types](../README.md#grader-types) and
-[finalization](../README.md#run-resume-rescore-finalize). Human
+human shares. See [grader types](graders.md) and
+[finalization](runs.md#finalize-manual-checks). Human
 [adjudication](adjudication.md) is a separate way to resolve eligible automatic
 abstentions after reviewing evidence.
 
@@ -79,16 +79,16 @@ evidence. Calibrate against a known-good target and a deliberate defect.
 
 ## Capabilities shared across evaluation types
 
-- [Case matrices and splits](../README.md#case-matrices-strata-and-splits) vary
+- [Case matrices and splits](specs.md#case-matrices-strata-and-splits) vary
   scenarios across users, inputs, or states. [Text datasets](text-evaluation.md#datasets-grouped-cases-and-reusable-templates)
   provide grouped text cases and reusable templates.
 - [Repeated judging](visual-evaluation.md#repeated-rubric-judging) samples model
-  decisions over fixed evidence. [Campaigns](../README.md#repeated-run-campaigns)
+  decisions over fixed evidence. [Campaigns](comparisons.md#repeated-run-campaigns)
   repeat whole evaluations to examine stability.
 - [Separate collection and judging](evidence-workflows.md) lets you evaluate
   different judging methods against the same sealed observations.
-- [Comparisons](../README.md#compare-runs), [promotion policies](evidence-workflows.md#baseline-promotion-policy),
-  and [CI gates](../README.md#ci-thresholds) support regression and release decisions.
+- [Comparisons](comparisons.md#compare-runs), [promotion policies](evidence-workflows.md#baseline-promotion-policy),
+  and [CI gates](runs.md#ci-thresholds) support regression and release decisions.
 
 Score measures performance on judged evidence; coverage measures how much could
 be judged. Missing evidence and valid abstentions do not become fabricated scores.

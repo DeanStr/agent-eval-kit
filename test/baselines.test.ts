@@ -102,6 +102,29 @@ test("baseline promotion preserves immutable snapshots behind an atomic named po
   const sourceReport = report();
   sourceReport.target.url = "https://private.example.test/app?token=report-secret";
   sourceReport.receipt.target.url = "https://private.example.test/app?token=receipt-secret";
+  const tally = { attempted: 1, judgeable: 1, counts: { pass: 1 }, decision: "pass" };
+  sourceReport.areas[0]!.items = [
+    {
+      id: "R1",
+      verdict: "pass",
+      confidence: "high",
+      reasoning: "Repeated judge: pass",
+      evidenceRefs: [],
+      source: "llm",
+      score: { earned: 1, judgeable: 1, total: 1, scorePct: 100, coveragePct: 100 },
+      votes: {
+        ...tally,
+        ballots: [
+          {
+            verdict: "pass",
+            confidence: "high",
+            outcome: "pass",
+            reasoning: "vote-reasoning-secret",
+          },
+        ],
+      },
+    },
+  ];
   fs.writeFileSync(path.join(runDir, "report.json"), `${JSON.stringify(sourceReport, null, 2)}\n`);
   writeArtifactIndex(runDir);
   const config = {
@@ -148,9 +171,13 @@ test("baseline promotion preserves immutable snapshots behind an atomic named po
   assert.equal(loadedFirst.report.target.url, undefined);
   assert.equal(loadedFirst.report.receipt.target.url, undefined);
   assert.equal(loadedFirst.promotion.target.url, undefined);
+  assert.deepEqual(loadedFirst.report.areas[0]!.items[0]!.votes, tally, "ballots carry reasoning");
   for (const file of fs.readdirSync(first.directory)) {
     const contents = fs.readFileSync(path.join(first.directory, file), "utf8");
-    assert.doesNotMatch(contents, /private\.example\.test|report-secret|receipt-secret/);
+    assert.doesNotMatch(
+      contents,
+      /private\.example\.test|report-secret|receipt-secret|vote-reasoning-secret/,
+    );
   }
   const second = promoteBaseline({
     config,

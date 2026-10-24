@@ -19,11 +19,20 @@ import { installImprovementSkill } from "../src/improvement/install.js";
 import { loadConfig } from "../src/config.js";
 import { evaluatePromotion } from "../src/promotion.js";
 import { withRunLock } from "../src/run/state.js";
-import { caseRegressionFailures } from "../src/improvement/cases.js";
-import type { JudgedCase } from "../src/types.js";
+import { assertArtifactIntegrity, writeArtifactIndex } from "../src/integrity.js";
+import { aggregateAreaMeasurements } from "../src/score-slice.js";
+import { caseRegressionFailures, reproducedRegressionFailures } from "../src/improvement/cases.js";
+import type { JudgedCase, RunReport, Verdict } from "../src/types.js";
 import type { Session, StartOptions } from "../src/improvement/contracts.js";
 
 const kit = path.resolve(import.meta.dirname, "..");
+
+/** Single-run sessions retain one best run directory, relative to the session. */
+function bestRun(state: Session): string {
+  const best = state.best;
+  assert.ok(best && "run" in best, "Expected a single-run best");
+  return best.run.directory;
+}
 
 test("dataset case regressions remain protected when a parent rubric's aggregate improves", () => {
   function entry(
@@ -74,6 +83,34 @@ test("dataset case regressions remain protected when a parent rubric's aggregate
   );
 });
 
+test("repeated-run item and case regressions must be reproduced in every repetition", () => {
+  const run = (verdict: Verdict, points: number) =>
+    ({
+      areas: [
+        {
+          id: "copy",
+          items: [{ id: "quality", verdict, score: { total: 1, judgeable: 1, earned: points } }],
+          caseResults: [{ areaId: "copy", rubricId: "quality", caseId: "a", verdict, points }],
+        },
+      ],
+    }) as unknown as RunReport;
+  const pass = run("pass", 1),
+    partial = run("partial", 0.5),
+    fail = run("fail", 0);
+  // Overlapping outcomes are unconfirmed noise, including a baseline that already failed once.
+  assert.deepEqual(reproducedRegressionFailures([pass, pass], [pass, fail]), []);
+  assert.deepEqual(reproducedRegressionFailures([pass, partial], [partial, fail]), []);
+  assert.deepEqual(reproducedRegressionFailures([pass, fail], [fail, fail]), []);
+  assert.deepEqual(reproducedRegressionFailures([pass, pass], [partial, fail]), [
+    "Protected item copy/quality regressed in every repetition (pass, pass → partial, fail)",
+    "Protected case copy/quality/a regressed in every repetition (pass, pass → partial, fail)",
+  ]);
+  assert.deepEqual(reproducedRegressionFailures([pass], [fail]), [
+    "Protected item copy/quality regressed (pass → fail)",
+    "Protected case copy/quality/a regressed (pass → fail)",
+  ]);
+});
+
 function fixture(t: TestContext) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "aek-improve-"));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
@@ -105,7 +142,16 @@ if (product.wait) {
   fs.writeFileSync('generated/wait.pid', String(process.pid));
   await new Promise(r => setTimeout(r, 30000));
 }
-const verdict = product[process.argv[2]];
+let verdict = product[process.argv[2]];
+// A list models a noisy check: successive evaluations take successive verdicts.
+if (Array.isArray(verdict)) {
+  const file = ${JSON.stringify(path.join(directory, "counters.json"))};
+  const counts = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+  const index = counts[process.argv[2]] ?? 0;
+  counts[process.argv[2]] = index + 1;
+  fs.writeFileSync(file, JSON.stringify(counts));
+  verdict = verdict[index % verdict.length];
+}
 if (verdict === 'error') throw new Error('Fixture checker failed');
 console.log(JSON.stringify({verdict, reasoning: 'Measured ' + process.argv[2]}));
 `,
@@ -186,7 +232,7 @@ console.log(JSON.stringify({verdict, reasoning: 'Measured ' + process.argv[2]}))
       goal: "Improve quality while protecting all existing behavior",
       ...options,
     });
-  const edit = (values: Record<string, string | boolean>) => {
+  const edit = (values: Record<string, string | boolean | string[]>) => {
     const file = path.join(workspace, "product.json");
     fs.writeFileSync(
       file,
@@ -203,8 +249,11 @@ test("improvement evaluates the full suite, accepts a gain, rejects net gains wi
   const baseline = await f.start();
   assert.equal(baseline.status, "ready");
   assert.equal(baseline.best?.accepted, false);
+  // Omitting --repetitions keeps single-run acceptance without campaigns.
+  assert.equal(baseline.repetitions, 1);
+  assert.equal(fs.existsSync(path.join(f.session, "baseline-campaign")), false);
   const report = JSON.parse(
-    fs.readFileSync(path.join(f.session, baseline.best!.run.directory, "report.json"), "utf8"),
+    fs.readFileSync(path.join(f.session, bestRun(baseline), "report.json"), "utf8"),
   );
   assert.equal(report.receipt.inputs.selection.split ?? "all", "all");
   assert.equal(report.areas.length, 2);
@@ -213,6 +262,8 @@ test("improvement evaluates the full suite, accepts a gain, rejects net gains wi
   f.edit({ quality: "partial" });
   const first = await evaluateAttempt(f.session);
   assert.equal(first.attempts[0]?.status, "accepted");
+  assert.equal(first.attempts[0]?.campaign, undefined);
+  assert.ok(fs.existsSync(path.join(f.session, "attempts/1/comparison/comparison.json")));
   const best = first.best!.checkpoint;
   assert.equal(git(f.workspace, ["rev-parse", "HEAD"]), best);
   assert.equal(first.best?.accepted, true);
@@ -397,11 +448,11 @@ test("incremental improvements preserve the recorded promotion policy and full-s
         );
         assert.equal(state.best?.accepted, true);
         const report = JSON.parse(
-          fs.readFileSync(path.join(f.session, state.best!.run.directory, "report.json"), "utf8"),
+          fs.readFileSync(path.join(f.session, bestRun(state), "report.json"), "utf8"),
         );
         const recordedConfig = YAML.parse(
           fs.readFileSync(
-            path.join(f.session, state.best!.run.directory, "inputs/config.resolved.yaml"),
+            path.join(f.session, bestRun(state), "inputs/config.resolved.yaml"),
             "utf8",
           ),
         );
@@ -610,6 +661,20 @@ test("checker failures remain errors when the deadline expires during service sh
       config.target.start = "exec node service.mjs";
       config.target.ready = { command: "test -f generated/service.pid", intervalMs: 10 };
       fs.writeFileSync(configFile, YAML.stringify(config));
+      const checkerFile = path.join(f.source, "check.mjs");
+      // Allow CLI startup under suite contention, then fail two seconds before expiry.
+      // Shutdown must span the deadline; startup speed is not the behavior under test.
+      fs.writeFileSync(
+        checkerFile,
+        fs.readFileSync(checkerFile, "utf8").replace(
+          "if (verdict === 'error') throw",
+          `if (verdict === 'error') {
+  const deadline = Date.parse(JSON.parse(fs.readFileSync('../session.json', 'utf8')).deadline);
+  await new Promise(resolve => setTimeout(resolve, Math.max(0, deadline - Date.now() - 2000)));
+}
+if (verdict === 'error') throw`,
+        ),
+      );
       fs.writeFileSync(
         path.join(f.source, "service.mjs"),
         `import fs from 'node:fs';
@@ -642,7 +707,7 @@ process.once('SIGTERM', () => {
         f.edit({ quality: "error" });
         fs.unlinkSync(path.join(f.workspace, "generated/service.pid"));
         const state = f.saved();
-        state.deadline = new Date(Date.now() + 3000).toISOString();
+        state.deadline = new Date(Date.now() + 10_000).toISOString();
         fs.writeFileSync(path.join(f.session, "session.json"), JSON.stringify(state));
       }
       const failure = cli(
@@ -655,7 +720,7 @@ process.once('SIGTERM', () => {
               "--output",
               f.session,
               "--budget-seconds",
-              "3",
+              "10",
             ]
           : ["evaluate", "--session", f.session],
         1,
@@ -781,7 +846,7 @@ test("start refuses dirty source and overlapping outputs; baseline uncertainty s
 test("retained best-run tampering cannot be used as an acceptance baseline", async (t) => {
   const f = fixture(t);
   const state = await f.start();
-  const report = path.join(f.session, state.best!.run.directory, "report.json");
+  const report = path.join(f.session, bestRun(state), "report.json");
   fs.appendFileSync(report, " ");
   await assert.rejects(
     beginAttempt(f.session, "Use altered evidence"),
@@ -905,7 +970,7 @@ test("error JSON retains the saved session state when its baseline artifacts are
   const f = fixture(t);
   const baseline = await f.start();
   await beginAttempt(f.session, "Exercise a terminal integrity failure");
-  fs.appendFileSync(path.join(f.session, baseline.best!.run.directory, "report.json"), "\n");
+  fs.appendFileSync(path.join(f.session, bestRun(baseline), "report.json"), "\n");
   const failure = cli(f.source, ["evaluate", "--session", f.session], 1);
   assert.match(failure.error.message, /Artifact integrity verification failed/);
   assert.deepEqual(failure.context.session, {
@@ -1263,4 +1328,387 @@ test("failed process cleanup stops the session before restoring source under a s
   const status = improvementStatus(f.session);
   assert.equal(status.cleanupBlockedReason, null);
   assert.equal(status.cleanup?.length, 2);
+});
+
+/**
+ * Adds a judged area to the fixture. Its rubric items cite a scenario, so each
+ * yields a scored case; a fake Claude judge reads verdicts from the candidate,
+ * taking successive entries of a list like the fixture checker.
+ */
+function judgedFixture(t: TestContext) {
+  const f = fixture(t);
+  const bin = path.join(f.directory, "bin");
+  fs.mkdirSync(bin);
+  fs.writeFileSync(
+    path.join(bin, "claude"),
+    `#!/usr/bin/env node
+const fs = require('node:fs');
+if (process.argv.includes('--version')) { console.log('fixture-claude 1.0.0'); process.exit(0); }
+const prompt = fs.readFileSync(0, 'utf8');
+const section = (label, next) =>
+  JSON.parse(prompt.slice(prompt.indexOf(label + ':') + label.length + 1, prompt.indexOf('\\n\\n' + next + ':')));
+const rubric = section('RUBRIC_JSON', 'CASE_REQUESTS_JSON');
+const requests = section('CASE_REQUESTS_JSON', 'EVIDENCE_JSON');
+const product = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(f.workspace, "product.json"))}, 'utf8'));
+const file = ${JSON.stringify(path.join(f.directory, "counters.json"))};
+const counts = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+const verdicts = {};
+for (const item of rubric) {
+  const value = product[item.id];
+  if (!Array.isArray(value)) verdicts[item.id] = value;
+  else {
+    const index = counts[item.id] ?? 0;
+    counts[item.id] = index + 1;
+    verdicts[item.id] = value[index % value.length];
+  }
+}
+fs.writeFileSync(file, JSON.stringify(counts));
+const judged = (verdict, scenario) =>
+  ({verdict, confidence: 'high', reasoning: 'Fixture judgement', evidenceRefs: [scenario + '/evidence.json']});
+const structured = {
+  items: rubric.map((item) => ({id: item.id, ...judged(verdicts[item.id], item.scenarios[0])})),
+  cases: requests.map((request) => ({
+    rubricId: request.rubricId,
+    caseId: request.caseId,
+    ...judged(verdicts[request.rubricId], request.scenarioIds[0]),
+  })),
+  defects: [],
+  notes: 'Fixture judge.',
+};
+console.log(JSON.stringify({type: 'result', structured_output: structured, result: JSON.stringify(structured)}));
+`,
+    { mode: 0o755 },
+  );
+  const environment = { PATH: process.env.PATH, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR };
+  process.env.PATH = `${bin}${path.delimiter}${environment.PATH ?? ""}`;
+  // Never stage a developer's real Claude credentials for the fixture judge.
+  process.env.CLAUDE_CONFIG_DIR = path.join(f.directory, "claude-config");
+  t.after(() => {
+    for (const [name, value] of Object.entries(environment)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+  const configFile = path.join(f.source, "evalkit.yaml");
+  const config = YAML.parse(fs.readFileSync(configFile, "utf8"));
+  config.judge = { provider: "claude" };
+  fs.writeFileSync(configFile, YAML.stringify(config));
+  const coreFile = path.join(f.source, "specs/core.yaml");
+  fs.writeFileSync(
+    coreFile,
+    YAML.stringify({ ...YAML.parse(fs.readFileSync(coreFile, "utf8")), weight: 50 }),
+  );
+  fs.writeFileSync(
+    path.join(f.source, "specs/judged.yaml"),
+    YAML.stringify({
+      id: "judged",
+      title: "Judged",
+      description: "Judged product qualities",
+      weight: 50,
+      scenarios: [
+        {
+          id: "JUDGED",
+          name: "Judged inspection",
+          kind: "workspace",
+          instructions: "Inspect the candidate.",
+        },
+      ],
+      rubric: ["c1", "c2", "c3", "c4", "c5"].map((id) => ({
+        id,
+        weight: 1,
+        criterion: `Judged ${id}`,
+        passCriteria: `Expected ${id}`,
+        scenarios: ["JUDGED"],
+        grader: { type: "llm" },
+      })),
+    }),
+  );
+  fs.writeFileSync(
+    path.join(f.source, "product.json"),
+    JSON.stringify({ ...f.product, c1: "fail", c2: "fail", c3: "fail", c4: "pass", c5: "pass" }),
+  );
+  f.commit();
+  return f;
+}
+
+function bestCampaign(state: Session): string {
+  const best = state.best;
+  assert.ok(best && "campaign" in best, "Expected a repeated-run best");
+  return best.campaign.directory;
+}
+
+const campaignComparison = (f: ReturnType<typeof fixture>, attempt: Session["attempts"][number]) =>
+  JSON.parse(
+    fs.readFileSync(path.join(f.session, attempt.comparison!, "campaign-comparison.json"), "utf8"),
+  );
+
+test("repeated sessions reject altered and reindexed baseline reports", async (t) => {
+  for (const stage of ["initial baseline", "accepted best", "open attempt"] as const) {
+    await t.test(stage, async (t) => {
+      const f = judgedFixture(t);
+      let state = await f.start({ repetitions: 2 });
+      if (stage !== "initial baseline") {
+        await beginAttempt(f.session, "Repair three judged qualities");
+        f.edit({ c1: "pass", c2: "pass", c3: "pass" });
+        if (stage === "accepted best") {
+          state = await evaluateAttempt(f.session);
+          assert.equal(state.attempts[0]?.status, "accepted");
+        }
+      }
+      const campaign = JSON.parse(
+        fs.readFileSync(path.join(f.session, bestCampaign(state), "campaign.json"), "utf8"),
+      );
+      const runDir = campaign.runs[0].runDir;
+      const reportFile = path.join(runDir, "report.json");
+      const report: RunReport = JSON.parse(fs.readFileSync(reportFile, "utf8"));
+      const score = aggregateAreaMeasurements(report.areas).scorePct;
+      report.areas[0]!.weight = 1234;
+      assert.notEqual(
+        aggregateAreaMeasurements(report.areas).scorePct,
+        score,
+        "the altered weight changes the baseline measurement used by acceptance",
+      );
+      fs.writeFileSync(reportFile, JSON.stringify(report));
+      writeArtifactIndex(runDir);
+      assert.doesNotThrow(() => assertArtifactIntegrity(runDir, { require: true }));
+      assert.throws(
+        () => improvementStatus(f.session),
+        /Improvement report changed after the decision/,
+      );
+      if (stage === "open attempt") {
+        await assert.rejects(
+          evaluateAttempt(f.session),
+          /Improvement report changed after the decision/,
+        );
+        const failed = f.saved();
+        assert.equal(failed.stopReason, "execution_error");
+        assert.equal(failed.attempts[0]?.status, "execution_error");
+        assert.equal(failed.attempts[0]?.scoreGain, undefined);
+      } else {
+        await assert.rejects(
+          beginAttempt(f.session, "Use an altered baseline"),
+          /Improvement report changed after the decision/,
+        );
+        assert.equal(f.saved().attempts.length, stage === "accepted best" ? 1 : 0);
+      }
+    });
+  }
+});
+
+test("campaign reports must match their original checkpoints before a baseline decision", async (t) => {
+  const f = judgedFixture(t);
+  await assert.rejects(
+    startImprovement(
+      {
+        config: path.join(f.source, "evalkit.yaml"),
+        output: f.session,
+        goal: "Preserve the original campaign measurements",
+        repetitions: 2,
+      },
+      (message) => {
+        if (!message.startsWith("Campaign complete:")) return;
+        // Reproduce a report update after campaign execution, before the session snapshots hashes.
+        const campaign = JSON.parse(
+          fs.readFileSync(path.join(f.session, "baseline-campaign/campaign.json"), "utf8"),
+        );
+        const runDir = campaign.runs[0].runDir;
+        const file = path.join(runDir, "report.json");
+        const report: RunReport = JSON.parse(fs.readFileSync(file, "utf8"));
+        report.areas[0]!.weight = 1234;
+        fs.writeFileSync(file, JSON.stringify(report));
+        writeArtifactIndex(runDir);
+      },
+    ),
+    /Campaign repetition 1 artifacts changed before the decision/,
+  );
+  assert.equal(f.saved().stopReason, "execution_error");
+  assert.equal(f.saved().best, undefined);
+});
+
+test("repeated-run acceptance accepts a broad gain, chains its campaign as best, and rejects a gate pass-rate drop", async (t) => {
+  const f = judgedFixture(t);
+  const baseline = await f.start({ repetitions: 2 });
+  assert.equal(baseline.status, "ready");
+  assert.equal(baseline.repetitions, 2);
+  assert.equal(bestCampaign(baseline), "baseline-campaign");
+  const campaign = JSON.parse(
+    fs.readFileSync(path.join(f.session, "baseline-campaign/campaign.json"), "utf8"),
+  );
+  assert.equal(campaign.coverage.completedRuns, 2);
+
+  await beginAttempt(f.session, "Repair three judged qualities");
+  f.edit({ c1: "pass", c2: "pass", c3: "pass" });
+  const accepted = await evaluateAttempt(f.session);
+  const first = accepted.attempts[0]!;
+  assert.equal(first.status, "accepted", first.reasons.join(" "));
+  assert.equal(first.campaign?.directory, "attempts/1/attempt-1-campaign");
+  assert.equal(first.run, undefined);
+  assert.ok(first.scoreGain! > 0);
+  assert.deepEqual(accepted.best, {
+    checkpoint: first.checkpoint,
+    campaign: first.campaign,
+    accepted: true,
+  });
+  const comparison = campaignComparison(f, first);
+  assert.equal(comparison.baseline.campaignId, "baseline-campaign");
+  assert.ok(comparison.pairedCases.confidenceInterval95.lower > 0);
+  assert.equal(fs.existsSync(path.join(f.session, first.comparison!, "comparison.json")), false);
+  assert.equal(fs.readdirSync(path.join(f.session, "runs")).length, 4);
+
+  await beginAttempt(f.session, "Raise core quality although the critical gate becomes flaky");
+  // The gate passes in the first candidate repetition and fails in the second.
+  f.edit({ quality: "pass", gate: ["pass", "fail"] });
+  const rejected = await evaluateAttempt(f.session);
+  const second = rejected.attempts[1]!;
+  assert.equal(second.status, "rejected");
+  assert.match(second.reasons.join(" "), /critical-gate pass rate dropped 0\.5/);
+  // A failure in one of two repetitions is not a reproduced item regression.
+  assert.doesNotMatch(second.reasons.join(" "), /regressed/);
+  assert.ok(second.scoreGain! > 0);
+  assert.equal(campaignComparison(f, second).baseline.campaignId, "attempt-1-campaign");
+  assert.deepEqual(rejected.best, accepted.best);
+  assert.equal(git(f.workspace, ["rev-parse", "HEAD"]), first.checkpoint);
+  assert.equal(improvementStatus(f.session).repetitions, 2);
+  const decision = JSON.parse(
+    fs.readFileSync(path.join(f.session, "attempts/2/decision.json"), "utf8"),
+  );
+  assert.equal(decision.campaign.directory, "attempts/2/attempt-2-campaign");
+});
+
+test("repeated acceptance protects each gate when another gate already fails every run", async (t) => {
+  const f = judgedFixture(t);
+  const coreFile = path.join(f.source, "specs/core.yaml");
+  const core = YAML.parse(fs.readFileSync(coreFile, "utf8"));
+  core.rubric.find((item: { id: string }) => item.id === "extra").gate = true;
+  fs.writeFileSync(coreFile, YAML.stringify(core));
+  f.commit();
+  const baseline = await f.start({ repetitions: 2 });
+  await beginAttempt(
+    f.session,
+    "Improve three qualities while a previously passing gate becomes flaky",
+  );
+  f.edit({ c1: "pass", c2: "pass", c3: "pass", gate: ["pass", "fail"] });
+  const rejected = await evaluateAttempt(f.session);
+  const attempt = rejected.attempts[0]!;
+  assert.equal(attempt.status, "rejected");
+  assert.ok(attempt.scoreGain! > 0);
+  assert.deepEqual(attempt.reasons, ["Critical gate core/gate pass rate dropped (2/2 → 1/2)"]);
+  const comparison = campaignComparison(f, attempt);
+  assert.equal(comparison.overall.criticalGatePassRate.baseline, 0);
+  assert.equal(comparison.overall.criticalGatePassRate.candidate, 0);
+  assert.ok(comparison.pairedCases.confidenceInterval95.lower > 0);
+  assert.deepEqual(rejected.best, baseline.best);
+  assert.equal(git(f.workspace, ["rev-parse", "HEAD"]), baseline.initial);
+
+  await beginAttempt(f.session, "Keep the gate reliable while improving the same qualities");
+  f.edit({ c1: "pass", c2: "pass", c3: "pass" });
+  const accepted = await evaluateAttempt(f.session);
+  assert.equal(accepted.attempts[1]?.status, "accepted");
+});
+
+test("a positive repeated-run gain whose paired-case interval includes zero is inconclusive, while one run keeps a lucky judgement", async (t) => {
+  for (const repetitions of [2, undefined]) {
+    await t.test(repetitions ? "repeated" : "single run", async (t) => {
+      const f = judgedFixture(t);
+      await f.start(repetitions ? { repetitions } : {});
+      await beginAttempt(f.session, "Repair c1 while c4 is judged inconsistently");
+      // c4 passes in the first candidate evaluation and fails in the second.
+      f.edit({ c1: "pass", c4: ["pass", "fail"] });
+      const state = await evaluateAttempt(f.session);
+      const attempt = state.attempts[0]!;
+      if (!repetitions) {
+        assert.equal(state.repetitions, 1);
+        assert.equal(attempt.status, "accepted", attempt.reasons.join(" "));
+        assert.ok(fs.existsSync(path.join(f.session, attempt.comparison!, "comparison.json")));
+        return;
+      }
+      assert.equal(attempt.status, "inconclusive", attempt.reasons.join(" "));
+      assert.match(
+        attempt.reasons.join(" "),
+        /paired-case 95% bootstrap interval \[-[\d.]+, [\d.]+\] does not exclude zero/,
+      );
+      assert.ok(attempt.scoreGain! > 0);
+      const comparison = campaignComparison(f, attempt);
+      const interval = comparison.pairedCases.confidenceInterval95;
+      assert.ok(interval.lower < 0 && interval.upper > 0);
+      // The campaign comparison reports c4's mean decrease; acceptance does not treat it as reproduced.
+      assert.equal(comparison.summary.regressed, 1);
+      assert.equal(state.status, "ready");
+      assert.equal(bestCampaign(state), "baseline-campaign");
+      assert.equal(git(f.workspace, ["rev-parse", "HEAD"]), state.initial);
+    });
+  }
+});
+
+test("repeated-run sessions validate the repetition count and require scored cases for the paired interval", async (t) => {
+  const f = fixture(t);
+  const help = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      import.meta.resolve("tsx"),
+      path.join(kit, "src/cli.ts"),
+      "improve",
+      "start",
+      "--help",
+    ],
+    { encoding: "utf8", timeout: 30_000 },
+  );
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(
+    help.stdout,
+    /--repetitions <n> +Evaluate baseline and candidates as 2–20-run campaigns/,
+  );
+  for (const value of ["1", "21", "2.5"]) {
+    const failure = cli(
+      f.source,
+      ["start", "--goal", "Raise quality", "--output", f.session, "--repetitions", value],
+      1,
+    );
+    assert.match(failure.error.message, /--repetitions must be an integer from 2 to 20/);
+    assert.equal(fs.existsSync(f.session), false);
+  }
+  await assert.rejects(f.start({ repetitions: 2 }), /at least two scored cases .* produced 0/);
+  const state = f.saved();
+  assert.equal(state.stopReason, "execution_error");
+  assert.equal(state.repetitions, 2);
+  assert.equal(bestCampaign(state), "baseline-campaign");
+});
+
+test("repeated-run budget stops and failed repetitions remain unscored", async (t) => {
+  for (const outcome of ["budget", "error"] as const) {
+    await t.test(outcome, async (t) => {
+      const f = judgedFixture(t);
+      await f.start({ repetitions: 2 });
+      const best = f.saved().best;
+      await beginAttempt(f.session, "Exercise an unscored repeated evaluation");
+      if (outcome === "budget") {
+        f.edit({ quality: "pass", wait: true });
+        const state = f.saved();
+        state.deadline = new Date(Date.now() + 1000).toISOString();
+        fs.writeFileSync(path.join(f.session, "session.json"), JSON.stringify(state));
+        const stopped = await evaluateAttempt(f.session);
+        assert.equal(stopped.stopReason, "budget_exhausted");
+        assert.equal(stopped.attempts[0]?.status, "stopped");
+        assert.equal(stopped.error, undefined);
+      } else {
+        // The first repetition completes; the second candidate repetition fails.
+        f.edit({ quality: ["pass", "error"] });
+        await assert.rejects(
+          evaluateAttempt(f.session),
+          /Repetition 2 failed: .*Fixture checker failed/s,
+        );
+        const state = f.saved();
+        assert.equal(state.status, "ready");
+        assert.equal(state.attempts[0]?.status, "execution_error");
+        assert.equal(process.exitCode, undefined);
+      }
+      const state = f.saved();
+      assert.equal(state.attempts[0]?.scoreGain, undefined);
+      assert.equal(state.attempts[0]?.campaign, undefined);
+      assert.equal(state.attempts[0]?.evaluationDirectory, "attempts/1/attempt-1-campaign");
+      assert.deepEqual(state.best, best);
+      assert.equal(git(f.workspace, ["rev-parse", "HEAD"]), state.initial);
+    });
+  }
 });

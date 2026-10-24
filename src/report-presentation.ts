@@ -122,8 +122,16 @@ export function evidenceHtml(
     .join("")}</ul>`;
 }
 
-export function reportDocument(title: string, body: string, script = ""): string {
+/**
+ * Shared layout for generated reports: a centred column. Prose breaks long words only when they
+ * would overflow (break-word keeps table min-content widths intact); code and preformatted
+ * evidence may break anywhere.
+ */
+const documentStyles =
+  "body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;color:#1f2328;background:#fff;max-width:1120px;margin:2rem auto;padding:0 1rem;overflow-wrap:break-word}h1{margin-bottom:0}.subtitle{color:#57606a;font-size:1.1rem;margin:.1rem 0 .4rem}.meta{color:#57606a;margin-top:0}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #d0d7de;padding:.45rem .65rem;text-align:left;vertical-align:top}th{background:#f6f8fa}.headline{font-size:1.6rem;font-weight:750;margin:.8rem 0}.verdict{font-size:1.15rem;font-weight:700}.good{color:#1a7f37;font-weight:650}.bad{color:#cf222e;font-weight:650}.muted{color:#57606a;font-weight:650}.warn{background:#fff8c5;border:1px solid #d4a72c;border-radius:6px;padding:.6rem 1rem}.error{background:#ffebe9;border:1px solid #ff8182;border-radius:6px;padding:.6rem 1rem}.error .headline{color:#cf222e}.error ul,.warn ul{margin:.3rem 0;padding-left:1.2rem}code{font-size:.9em;overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f8fa;padding:.7rem;max-height:24rem;overflow:auto}details{margin:.55rem 0}summary{cursor:pointer}.evidence{padding-left:1.2rem}.evidence img{max-width:100%;max-height:320px;display:block;margin:.5rem 0}.ballots{padding-left:1.4rem}.ballots li{margin:.4rem 0}.decisions{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem}.decision{min-width:0;border:1px solid #d0d7de;border-radius:6px;padding:1rem}.reasoning{white-space:pre-wrap}section{margin:1.5rem 0}.filters{display:flex;gap:1rem;flex-wrap:wrap;margin:1rem 0}.table-scroll{overflow-x:auto}[hidden]{display:none!important}";
+
+export function reportDocument(title: string, body: string, script = "", styles = ""): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(title)}</title><style>
-body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;color:#1f2328;max-width:1280px;margin:2rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #d0d7de;padding:.45rem .65rem;text-align:left;vertical-align:top}th{background:#f6f8fa}.headline{font-size:1.6rem;font-weight:750}.good{color:#1a7f37;font-weight:650}.bad{color:#cf222e;font-weight:650}.warn{background:#fff8c5;border:1px solid #d4a72c;border-radius:6px;padding:.6rem 1rem}code{font-size:.9em;overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f8fa;padding:.7rem;max-height:24rem;overflow:auto}.evidence{padding-left:1.2rem}.evidence img{max-width:100%;max-height:320px;display:block;margin:.5rem 0}.decisions{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem}.decision{min-width:0;border:1px solid #d0d7de;border-radius:6px;padding:1rem}.reasoning{white-space:pre-wrap}section{margin:1.5rem 0}.filters{display:flex;gap:1rem;flex-wrap:wrap;margin:1rem 0}.table-scroll{overflow-x:auto}[hidden]{display:none!important}
+${documentStyles}${styles}
 </style></head><body>${body}${script ? `<script>${script}</script>` : ""}</body></html>`;
 }

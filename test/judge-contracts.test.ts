@@ -387,6 +387,63 @@ test("invalid repeated judgements are not journaled and can be retried with expl
   );
 });
 
+test("repeated judging keeps reasoning concise and retains every ballot", async (t) => {
+  const f = fixture(t);
+  f.config.judge.voting = {
+    minimumVotes: 3,
+    maximumVotes: 3,
+    agreement: 0.6,
+    minimumConfidence: 0.5,
+  };
+  fs.writeFileSync(
+    path.join(f.root, "receipt.json"),
+    JSON.stringify({ evaluationFingerprint: "fixed" }),
+  );
+  const ballots = [
+    ["pass", "high", "First vote reasoning"],
+    ["pass", "high", "Second vote reasoning"],
+    ["partial", "low", "Third vote reasoning"],
+  ];
+  const answers = ballots.map(([verdict, confidence, reasoning]) => {
+    const answer = f.answer("S/evidence.json", verdict);
+    for (const result of [...answer.items, ...answer.cases])
+      Object.assign(result, { confidence, reasoning });
+    return answer;
+  });
+  const counter = path.join(f.root, "vote-counter");
+  const script = `#!/usr/bin/env node
+const fs = require('node:fs');
+const answers = ${JSON.stringify(answers)};
+const index = fs.existsSync(${JSON.stringify(counter)}) ? Number(fs.readFileSync(${JSON.stringify(counter)}, 'utf8')) : 0;
+fs.writeFileSync(${JSON.stringify(counter)}, String(index + 1));
+const structured = answers[index];
+console.log(JSON.stringify({type:'result',structured_output:structured,result:JSON.stringify(structured)}));
+`;
+  fs.writeFileSync(path.join(f.root, "bin", "claude"), script, { mode: 0o755 });
+  const result = await f.grade("ballots");
+  const expected = {
+    attempted: 3,
+    judgeable: 2,
+    counts: { pass: 2, abstain: 1 },
+    decision: "pass",
+    ballots: ballots.map(([verdict, confidence, reasoning], index) => ({
+      verdict,
+      confidence,
+      outcome: index === 2 ? "abstain" : verdict,
+      reasoning,
+    })),
+  };
+  for (const judged of [result.items[0], result.cases[0]]) {
+    const value = requireDefined(judged, "repeated judgement");
+    assert.equal(value.verdict, "pass");
+    assert.equal(
+      value.reasoning,
+      "Repeated judge: pass; 2/3 judgeable votes (pass 2, abstain 1). Representative vote: First vote reasoning",
+    );
+    assert.deepEqual(value.votes, expected);
+  }
+});
+
 test("single and repeated rubric judges share case aggregation, including unavailable evidence", async (t) => {
   const f = fixture(t);
   requireDefined(f.evidence[0], "f.evidence[0]").caseId = "a";

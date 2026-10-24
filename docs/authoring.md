@@ -11,16 +11,15 @@ rubric-link checks, and verification of recorded trials.
 From a project with AEK installed:
 
 ```sh
-npx aek author install
+npx aek skills install
 ```
 
-This installs `aek-author` into `.agents/skills/`, including its instructions,
-references, and a copy of the package documentation. For an agent using another
-skill directory, pass it explicitly:
-
-```sh
-npx aek author install --directory .claude/skills
-```
+This installs `aek-author`, with its instructions, references, and a copy of the
+package documentation, together with the [`aek-improve`](improvement.md) skill.
+It uses `.claude/skills/` when the project has a `.claude/` directory and no
+`.agents/` directory, and `.agents/skills/` otherwise; `--agent claude|codex|cursor|grok`
+or `--directory` chooses explicitly. To install only the authoring skill, use
+`npx aek author install [--directory .claude/skills]`.
 
 Installation refuses to overwrite an existing skill. To update, install into a
 separate directory, review the differences, and replace your old copy when ready.
@@ -62,7 +61,7 @@ text, image, or integration checks as appropriate. It reuses existing tests when
 their assertions establish the requirement, adding checks only for missing behavior.
 Tests are connected explicitly through command graders. A small result adapter may
 be needed to distinguish assertion failures from runner errors without duplicating
-the tests; see [command grader contracts](../README.md#grader-types) and the
+the tests; see [command grader contracts](graders.md#command) and the
 [worked test adapter](existing-tests.md).
 
 It validates each area as it goes, preserves existing checks, and records remaining
@@ -209,7 +208,7 @@ measuring how well an agent conducts an interview. Real authoring still requires
 reviewing that the generated criteria preserve the user's intent.
 
 For an optional live exercise from the source checkout, see
-[the marketing improvement exercise and results](marketing-improvement-exercise-2026-09-10.md).
+[the marketing improvement exercise and results](history/marketing-improvement-exercise-2026-09-10.md).
 Its runnable files are in `examples/improvement-exercise/`; they require Playwright
 Chromium and a Codex subscription and are not included in the package or run by
 the default test command. The exercise checks valid wording, seeded regressions,

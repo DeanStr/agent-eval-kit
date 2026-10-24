@@ -1,9 +1,73 @@
 # Configuration reference
 
 This reference describes `evalkit.yaml`. Scenario and rubric YAML lives in the
-files selected by `paths.specs`; see [spec definitions](../README.md#specs) and
+files selected by `paths.specs`; see [spec definitions](specs.md) and
 the [evaluation-type guides](evaluation-types.md). Run `aek validate` to check
 configuration, specs, fixtures, and declared input files. Unknown fields fail.
+
+## Example
+
+`evalkit.yaml` is deliberately project-owned:
+
+```yaml
+version: 1
+project:
+  name: Acme Store
+  root: .
+
+target:
+  kind: web                    # web | repository | command
+  url: http://127.0.0.1:3000
+  allowedOrigins:
+    - http://127.0.0.1:3000
+    # Wildcards are opt-in: https://*.acme.test
+  setup:
+    command: pnpm install --frozen-lockfile
+    timeoutSeconds: 600
+  start:
+    command: pnpm dev
+    env: { NODE_ENV: test }
+  ready:
+    url: http://127.0.0.1:3000/health
+    timeoutSeconds: 120
+    intervalMs: 500
+
+agent:
+  provider: codex
+  model: gpt-5.6-sol           # optional; omit to use the CLI default
+  effort: high
+  maxTurns: 60 # Claude/Grok provider turns; Codex MCP interactions
+  timeoutSeconds: 1800
+  extraArgs: []
+
+judge:
+  provider: claude
+  model: opus                  # optional provider-specific id or alias
+  effort: high
+  timeoutSeconds: 900
+
+paths:
+  specs: evals/specs
+  fixtures: evals/fixtures.yaml
+  runs: .agent-eval/runs
+  auth: .agent-eval/auth
+  baselines: evals/baselines     # compact promoted snapshots; safe to review and commit
+
+browser:
+  headless: true
+  viewport: { width: 1280, height: 800 }
+  actionTimeoutMs: 10000
+
+scoring:
+  partialCredit: 0.5
+  minimumCoverage: 60
+
+variables:
+  tenantName: Evaluation tenant
+instructions: Test equivalent functionality regardless of product terminology.
+```
+
+The sections below describe every field, default, limit, and override rule.
 
 ## Editor support
 
@@ -93,9 +157,16 @@ Readiness fields:
 | `target.ready.timeoutSeconds` | Positive number, `120` | Overall readiness deadline. |
 | `target.ready.intervalMs` | Positive integer, `500` | Delay between probes. |
 
-Setup receives `AEK_PROJECT_ROOT` and `AEK_RUN_DIR`. Managed processes and their
-descendants are stopped on completion, failure, or cancellation. Application data
-reset remains project-owned. See [target lifecycle](../README.md#local-target-lifecycle).
+### Target lifecycle
+
+`target.setup` runs once per new run (including every campaign repetition) and must exit successfully. It receives `AEK_PROJECT_ROOT` and `AEK_RUN_DIR`; `lifecycle/setup.json` records the command, timing, and result. A resumed run skips setup only when that successful record is sealed. Failed or interrupted preparation is retried. `target.start` remains alive for the run and is terminated as a process group before final artifacts are sealed, including stubborn descendants and failure paths. `target.ready` polls an HTTP URL (any status below 500 is ready) or a shell command, whether or not AEK started the target. The run receipt is refreshed after setup, readiness, and each command grader, so generated or mutated target files record the state that was actually evaluated.
+
+For a deployed web app, omit `setup` and `start`; `ready` is optional but useful for failing early when the deployment is unavailable.
+
+Interrupting `run` or `campaign` with Ctrl+C (`SIGINT`) or `SIGTERM` stops active provider, grader, setup, readiness, and managed target processes before returning exit status 130 or 143. The interrupted run is marked failed and its lock is released. Campaigns retain the interrupted repetition and do not start further repetitions. Timeout cleanup waits for the entire process group, including descendants that outlive the original command.
+
+Application data reset remains project-owned; see
+[preparing state for repeated runs](evidence-workflows.md#preparing-state-for-repeated-runs).
 
 ## Agent and judge
 
@@ -152,7 +223,7 @@ and invalid responses are execution errors. See [judging contracts](judging-cont
 | `paths.references` | `evals/text-references` | Promoted text snapshots; must remain within the project root. |
 
 Campaigns, public exports, and their default directories are described in
-[artifact layout](../README.md#artifact-layout). Commands that accept `--output`
+[artifact layout](runs.md#artifact-layout). Commands that accept `--output`
 can choose their documented destination. Keep private evidence and authentication
 out of source control.
 
@@ -202,6 +273,8 @@ are written before acceptance failure exits 2. Execution errors exit 1.
 | `instructions` | Optional string | Global evaluation guidance. |
 | `suite` | Optional nonempty string | Default selected suite. |
 | `suites` | Optional map of suite names to overrides | Requires explicit `--suite` or a configured default; no implicit first suite. |
+
+Do not put passwords or tokens in `variables`: prompts and evidence are intentionally retained for reproducibility. Use captured browser sessions for authenticated web flows; see [authentication](authentication.md).
 
 Suite overrides accept only `agent`, `judge`, `paths`, `scoring`, and
 `instructions`. Object sections merge one level; nested objects such as
@@ -262,4 +335,4 @@ invoking a provider. See [execution previews](cli.md#execution-previews) for the
 versioned JSON contract and its limits. Use `aek <command> --help` for the exact
 options accepted by that command or subcommand.
 
-Cursor uses the `cursor-agent` executable with saved file credentials. It supports `model` and `timeoutSeconds`; `effort`, `maxTurns`, and `extraArgs` are rejected. See [Cursor setup](../README.md#provider-behavior).
+Cursor uses the `cursor-agent` executable with saved file credentials. It supports `model` and `timeoutSeconds`; `effort`, `maxTurns`, and `extraArgs` are rejected. See [Cursor setup](providers.md#cursor).

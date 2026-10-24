@@ -13,13 +13,13 @@ original product beyond its starting behavior. No harness runtime changes were
 needed. The original `docs/marketing/index.html` remained byte-for-byte unchanged.
 
 **Target and scope.** The target was the existing interactive page in
-[docs/marketing](marketing/README.md), not a newly invented toy application. Its
+[docs/marketing](../marketing/README.md), not a newly invented toy application. Its
 documented behavior supplies the contracts for accepted scores, pending results,
 pause/resume, and the interpretation of missing evidence. The scope was selected
 by Codex under the user's instruction to perform a practical exercise. It does
 not cover every aspect of the page, or claim that a human reviewed this inventory.
 
-The [runnable suite and preparation instructions](../examples/improvement-exercise/README.md)
+The [runnable suite and preparation instructions](../../examples/improvement-exercise/README.md)
 are retained in the repository. Private run bundles, target variants, expectations,
 and the run journal are under
 `../.agent-eval/experiments/marketing-improvement/`. That directory is ignored by
@@ -52,15 +52,15 @@ scenario data; they were not independent human labels.
 
 | Target | BEST | PENDING | GUIDANCE | Score | Exit |
 | --- | --- | --- | --- | --- | --- |
-| [Original](../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-26-47/report.html) | Pass | Pass | Pass | 100% | 0 |
-| [Equivalent wording](../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-27-43/report.html) | Pass | Pass | Pass | 100% | 0 |
-| [Incorrect guidance](../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-28-13/report.html) | Pass | Pass | Fail | 66.667% | 2 |
-| [Incorrect acceptance tracking](../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-29-07/report.html) | Fail | Fail | Pass | 33.333% | 2 |
-| [Premature result display](../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-29-42/report.html) | Pass | Fail | Pass | 66.667% | 2 |
-| [Combined defects](../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-29-55/report.html) | Fail | Fail | Fail | 0% | 2 |
-| [First repair](../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-30-37/report.html) | Pass | Pass | Fail | 66.667% | 2 |
-| [Final repair](../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-31-26/report.html) | Pass | Pass | Pass | 100% | 0 |
-| [Final repair repeated](../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-32-00/report.html) | Pass | Pass | Pass | 100% | 0 |
+| [Original](../../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-26-47/report.html) | Pass | Pass | Pass | 100% | 0 |
+| [Equivalent wording](../../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-27-43/report.html) | Pass | Pass | Pass | 100% | 0 |
+| [Incorrect guidance](../../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-28-13/report.html) | Pass | Pass | Fail | 66.667% | 2 |
+| [Incorrect acceptance tracking](../../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-29-07/report.html) | Fail | Fail | Pass | 33.333% | 2 |
+| [Premature result display](../../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-29-42/report.html) | Pass | Fail | Pass | 66.667% | 2 |
+| [Combined defects](../../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-29-55/report.html) | Fail | Fail | Fail | 0% | 2 |
+| [First repair](../../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-30-37/report.html) | Pass | Pass | Fail | 66.667% | 2 |
+| [Final repair](../../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-31-26/report.html) | Pass | Pass | Pass | 100% | 0 |
+| [Final repair repeated](../../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-32-00/report.html) | Pass | Pass | Pass | 100% | 0 |
 
 All six planned variants matched the previously recorded expected verdicts.
 Exit 2 represents observed critical-gate failure, not a broken evaluation.
@@ -74,7 +74,7 @@ The bad variation left the UNVERIFIED badge, missing score, 58% coverage, and
 explanation of the outage intact. Only its next-action guidance recommended
 keeping the new candidate and shipping immediately, with evidence collected
 later. The judge rejected the contradictory recommendation and cited the
-[actual inspector screenshot](../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-28-13/DEMO/screenshots/unverified.png)
+[actual inspector screenshot](../../.agent-eval/experiments/marketing-improvement/runs/2026-09-10T05-28-13/DEMO/screenshots/unverified.png)
 and collected text. Correct surrounding labels did not hide the wrong advice.
 
 **How the feedback guided repair.** The combined run reported the wrong accepted
@@ -92,7 +92,7 @@ The second repair rewrote the next action to continue with the accepted revision
 restore the receipt service, and decide about the candidate only after collecting
 the missing evidence. It used different wording from both the original and valid
 variation. The full suite passed, and a fresh repeat also passed. The
-[combined-to-repaired comparison](../.agent-eval/experiments/marketing-improvement/comparison/comparison.html)
+[combined-to-repaired comparison](../../.agent-eval/experiments/marketing-improvement/comparison/comparison.html)
 reports +100 score points, unchanged coverage, and no incompatible-method override.
 
 Codex in the same authoring session made these repairs. It had previously seen

@@ -1,6 +1,7 @@
 import { requireDefined } from "./invariants.js";
 import fs from "node:fs";
 import path from "node:path";
+import { formatNumber, formatPct } from "./format.js";
 import { campaignRunSchema } from "./artifact-schemas.js";
 import { createTimestampedDirectory, writeJson } from "./io.js";
 import type { EvalConfig, RunReport, Verdict } from "./types.js";
@@ -476,7 +477,7 @@ const escapeHtml = (value: string) =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const metricText = (measurement: Measurement<Distribution>) =>
   measurement.state === "observed"
-    ? `${measurement.value.mean}% mean · ${measurement.value.minimum}–${measurement.value.maximum}% range · σ ${measurement.value.standardDeviation}${measurement.value.confidenceInterval95 ? ` · 95% bootstrap ${measurement.value.confidenceInterval95.lower}–${measurement.value.confidenceInterval95.upper}%` : ""}`
+    ? `${formatPct(measurement.value.mean)} mean · ${formatPct(measurement.value.minimum)}–${formatPct(measurement.value.maximum)} range · σ ${formatNumber(measurement.value.standardDeviation)}${measurement.value.confidenceInterval95 ? ` · 95% bootstrap ${formatPct(measurement.value.confidenceInterval95.lower)}–${formatPct(measurement.value.confidenceInterval95.upper)}` : ""}`
     : `Unavailable: ${measurement.reason}`;
 
 export function writeCampaignArtifacts(
@@ -489,14 +490,14 @@ export function writeCampaignArtifacts(
   const runRows = report.runs
     .map((run) =>
       run.status === "complete"
-        ? `<tr><td>${run.ordinal}</td><td>complete</td><td>${escapeHtml(run.runId)}</td><td>${run.scoreWithheld ? "withheld" : (run.scorePct ?? "—")}</td><td>${run.coveragePct}</td><td>${run.gatesPassed === undefined ? "—" : run.gatesPassed ? "pass" : "fail"}</td><td></td></tr>`
+        ? `<tr><td>${run.ordinal}</td><td>complete</td><td>${escapeHtml(run.runId)}</td><td>${run.scoreWithheld ? "withheld" : formatPct(run.scorePct)}</td><td>${formatPct(run.coveragePct)}</td><td>${run.gatesPassed === undefined ? "—" : run.gatesPassed ? "pass" : "fail"}</td><td></td></tr>`
         : `<tr><td>${run.ordinal}</td><td>failed</td><td>—</td><td>—</td><td>—</td><td>—</td><td>${escapeHtml(run.error)}</td></tr>`,
     )
     .join("");
   const itemRows = report.itemStability
     .map(
       (item) =>
-        `<tr><td>${escapeHtml(item.areaId)}</td><td>${escapeHtml(item.itemId)}</td><td>${item.fullPassRate * 100}%</td><td>${Object.entries(
+        `<tr><td>${escapeHtml(item.areaId)}</td><td>${escapeHtml(item.itemId)}</td><td>${formatPct(item.fullPassRate * 100)}</td><td>${Object.entries(
           item.verdicts,
         )
           .map(([verdict, count]) => `${escapeHtml(verdict)} ${count}`)
@@ -506,18 +507,18 @@ export function writeCampaignArtifacts(
   const caseRows = report.caseStability
     .map(
       (item) =>
-        `<tr><td>${escapeHtml(item.areaId)}</td><td>${escapeHtml(item.rubricId)}</td><td>${escapeHtml(item.caseId)}</td><td>${escapeHtml(item.strata.join(", ") || "—")}</td><td>${item.fullPassRate * 100}%</td><td>${item.observedRuns}</td></tr>`,
+        `<tr><td>${escapeHtml(item.areaId)}</td><td>${escapeHtml(item.rubricId)}</td><td>${escapeHtml(item.caseId)}</td><td>${escapeHtml(item.strata.join(", ") || "—")}</td><td>${formatPct(item.fullPassRate * 100)}</td><td>${item.observedRuns}</td></tr>`,
     )
     .join("");
   const stratumRows = report.stratumStability
     .map(
       (item) =>
-        `<tr><td>${escapeHtml(item.stratum)}</td><td>${item.fullPassRate * 100}%</td><td>${item.observations}</td></tr>`,
+        `<tr><td>${escapeHtml(item.stratum)}</td><td>${formatPct(item.fullPassRate * 100)}</td><td>${item.observations}</td></tr>`,
     )
     .join("");
   fs.writeFileSync(
     html,
-    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(report.project)} campaign</title><style>body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;color:#1f2328;max-width:1100px;margin:2rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #d0d7de;padding:.45rem .65rem;text-align:left}th{background:#f6f8fa}.warn{color:#cf222e;font-weight:650}code{font-size:.9em}</style></head><body><h1>${escapeHtml(report.project)} repeated evaluation campaign</h1><p><code>${escapeHtml(report.campaignId)}</code> · ${report.coverage.completedRuns}/${report.plannedRepetitions} completed · evaluator and target inputs <strong class="${report.compatibility.status === "compatible" ? "" : "warn"}">${report.compatibility.status}</strong></p><h2>Score</h2><p>${escapeHtml(metricText(report.scorePct))}</p><h2>Evidence coverage</h2><p>${escapeHtml(metricText(report.evidenceCoveragePct))}</p><p><strong>Critical-gate pass rate:</strong> ${report.criticalGatePassRate.state === "observed" ? `${report.criticalGatePassRate.value * 100}%` : escapeHtml(report.criticalGatePassRate.reason)}</p><h2>Runs</h2><table><thead><tr><th>#</th><th>Status</th><th>Run</th><th>Score</th><th>Coverage</th><th>Gates</th><th>Error</th></tr></thead><tbody>${runRows}</tbody></table><h2>Case stability</h2>${caseRows ? `<table><thead><tr><th>Area</th><th>Rubric</th><th>Case</th><th>Strata</th><th>Full-pass rate</th><th>Runs</th></tr></thead><tbody>${caseRows}</tbody></table>` : "<p>No case-level judgements were available.</p>"}<h2>Strata</h2>${stratumRows ? `<table><thead><tr><th>Stratum</th><th>Full-pass rate</th><th>Observations</th></tr></thead><tbody>${stratumRows}</tbody></table>` : "<p>No strata were configured.</p>"}<h2>Rubric stability</h2><table><thead><tr><th>Area</th><th>Item</th><th>Full-pass rate</th><th>Verdicts</th></tr></thead><tbody>${itemRows}</tbody></table><h2>Limitations</h2><ul>${report.limitations.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></body></html>`,
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(report.project)} campaign</title><style>body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;color:#1f2328;max-width:1100px;margin:2rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #d0d7de;padding:.45rem .65rem;text-align:left}th{background:#f6f8fa}.warn{color:#cf222e;font-weight:650}code{font-size:.9em}</style></head><body><h1>${escapeHtml(report.project)} repeated evaluation campaign</h1><p><code>${escapeHtml(report.campaignId)}</code> · ${report.coverage.completedRuns}/${report.plannedRepetitions} completed · evaluator and target inputs <strong class="${report.compatibility.status === "compatible" ? "" : "warn"}">${report.compatibility.status}</strong></p><h2>Score</h2><p>${escapeHtml(metricText(report.scorePct))}</p><h2>Evidence coverage</h2><p>${escapeHtml(metricText(report.evidenceCoveragePct))}</p><p><strong>Critical-gate pass rate:</strong> ${report.criticalGatePassRate.state === "observed" ? formatPct(report.criticalGatePassRate.value * 100) : escapeHtml(report.criticalGatePassRate.reason)}</p><h2>Runs</h2><table><thead><tr><th>#</th><th>Status</th><th>Run</th><th>Score</th><th>Coverage</th><th>Gates</th><th>Error</th></tr></thead><tbody>${runRows}</tbody></table><h2>Case stability</h2>${caseRows ? `<table><thead><tr><th>Area</th><th>Rubric</th><th>Case</th><th>Strata</th><th>Full-pass rate</th><th>Runs</th></tr></thead><tbody>${caseRows}</tbody></table>` : "<p>No case-level judgements were available.</p>"}<h2>Strata</h2>${stratumRows ? `<table><thead><tr><th>Stratum</th><th>Full-pass rate</th><th>Observations</th></tr></thead><tbody>${stratumRows}</tbody></table>` : "<p>No strata were configured.</p>"}<h2>Rubric stability</h2><table><thead><tr><th>Area</th><th>Item</th><th>Full-pass rate</th><th>Verdicts</th></tr></thead><tbody>${itemRows}</tbody></table><h2>Limitations</h2><ul>${report.limitations.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></body></html>`,
   );
   return { json, html };
 }

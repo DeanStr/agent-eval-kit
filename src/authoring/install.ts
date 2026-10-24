@@ -18,9 +18,13 @@ export function installAuthoringSkill(directory: string): string {
   try {
     fs.cpSync(source, staged, { recursive: true, dereference: true });
     // The installed skill must not depend on a source checkout or node_modules path.
+    // Historical engineering records and marketing assets are not authoring references.
+    const excluded = ["history", "marketing"].map((name) => path.join(docs, name));
     fs.cpSync(docs, path.join(staged, "references", "docs"), {
       recursive: true,
       dereference: true,
+      filter: (file) =>
+        !excluded.some((root) => file === root || file.startsWith(`${root}${path.sep}`)),
     });
     fs.copyFileSync(
       path.join(packageRoot, "README.md"),

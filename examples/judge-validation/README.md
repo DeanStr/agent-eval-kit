@@ -64,7 +64,7 @@ The [21 October retained results](results-pilot-2026-10-21.json) record both
 configurations catching all three seeded defects and abstaining on all three
 withheld cases. Both also abstained on two working persistence cases, giving
 7/12 decisive judgments. These labels remain agent assessments. See the
-[pilot review](../../docs/review-loop-reliability-onboarding-2026-10-21.md)
+[pilot review](../../docs/history/review-loop-reliability-onboarding-2026-10-21.md)
 for evidence-source analysis, the isolated real-source ProgramCue exercise and
 its real browser follow-up. The latter kept the existing publication criteria
 fixed: the current app passed, a seeded query leaked a draft title and failed,

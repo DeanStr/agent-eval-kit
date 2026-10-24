@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { campaignRunSchema, scoreSliceSchema } from "../src/artifact-schemas.js";
+import { campaignRunSchema, judgedVotesSchema, scoreSliceSchema } from "../src/artifact-schemas.js";
 
 test("score slices reject contradictory percentages and zero-denominator scores", () => {
   for (const value of [
@@ -64,4 +64,33 @@ test("campaign case points enforce fixed verdict values while permitting configu
     });
     assert.equal(result.success, valid, `${verdict}/${points}`);
   }
+});
+
+test("recorded vote ballots must reproduce the tally they summarise", () => {
+  const ballot = (verdict: string, outcome: string) => ({
+    verdict,
+    confidence: outcome === "abstain" ? "low" : "high",
+    outcome,
+    reasoning: `${verdict} reasoning`,
+  });
+  const votes = {
+    attempted: 3,
+    judgeable: 2,
+    counts: { pass: 2, abstain: 1 },
+    decision: "pass",
+    ballots: [ballot("pass", "pass"), ballot("pass", "pass"), ballot("partial", "abstain")],
+  };
+  assert.equal(judgedVotesSchema.safeParse(votes).success, true);
+  const { ballots: _ballots, ...tallyOnly } = votes;
+  assert.equal(
+    judgedVotesSchema.safeParse(tallyOnly).success,
+    true,
+    "pairwise tallies have no ballots",
+  );
+  for (const ballots of [
+    votes.ballots.slice(1),
+    [ballot("pass", "pass"), ballot("pass", "pass"), ballot("fail", "fail")],
+    [...votes.ballots.slice(0, 2), { ...ballot("partial", "abstain"), extra: true }],
+  ])
+    assert.equal(judgedVotesSchema.safeParse({ ...votes, ballots }).success, false);
 });

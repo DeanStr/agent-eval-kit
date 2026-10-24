@@ -1,3 +1,4 @@
+import { formatPct } from "./format.js";
 import type {
   ValidationDataset,
   ValidationLabels,
@@ -64,7 +65,7 @@ export function judgeValidationHtml(
         )
           .map((name) => {
             const metric = row.metrics[name as keyof typeof metricNames];
-            return `<td>${metric.count}/${metric.denominator} (${metric.rate === null ? "unavailable" : `${Math.round(metric.rate * 10000) / 100}%`})</td>`;
+            return `<td>${metric.count}/${metric.denominator} (${metric.rate === null ? "unavailable" : formatPct(metric.rate * 100)})</td>`;
           })
           .join("")}</tr>`,
     )

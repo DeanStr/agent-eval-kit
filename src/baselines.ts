@@ -6,7 +6,7 @@ import { loadComparisonInput } from "./compare.js";
 import { artifactIndexRoot, assertArtifactIntegrity, type ArtifactIndex } from "./integrity.js";
 import { isPortablePathComponent, sha256, stableJson, writeJson } from "./io.js";
 import { loadRunState } from "./run/state.js";
-import type { EvalConfig, RunReceipt, RunReport } from "./types.js";
+import type { EvalConfig, JudgedVotes, RunReceipt, RunReport } from "./types.js";
 
 export interface BaselinePromotion {
   schemaVersion: 1;
@@ -56,6 +56,13 @@ export function baselinesRoot(config: EvalConfig): string {
   );
 }
 
+/** Ballots carry per-vote grader reasoning, which snapshots omit like the item reasoning. */
+function withoutBallots<T extends { votes?: JudgedVotes }>(value: T): T {
+  if (!value.votes?.ballots) return value;
+  const { ballots: _ballots, ...votes } = value.votes;
+  return { ...value, votes };
+}
+
 function compactBaselineReport(report: RunReport): RunReport {
   const { url: _reportUrl, ...target } = report.target;
   const { url: _receiptUrl, ...receiptTarget } = report.receipt.target;
@@ -69,7 +76,7 @@ function compactBaselineReport(report: RunReport): RunReport {
     areas: report.areas.map((area) => ({
       ...area,
       items: area.items.map(({ comparisons: _comparisons, adjudication, ...item }) => ({
-        ...item,
+        ...withoutBallots(item),
         ...(adjudication
           ? {
               adjudicationReceipt: {
@@ -85,7 +92,7 @@ function compactBaselineReport(report: RunReport): RunReport {
       notes: "",
       scenarios: [],
       caseResults: area.caseResults.map((item) => ({
-        ...item,
+        ...withoutBallots(item),
         reasoning: "Promoted baseline case snapshot.",
         evidenceRefs: [],
       })),

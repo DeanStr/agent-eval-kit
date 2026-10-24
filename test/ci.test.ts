@@ -51,7 +51,7 @@ test("critical rubric gates fail CI even without numeric thresholds", () => {
     },
   } as RunReport;
   assert.deepEqual(evaluateCiThresholds(gated, {}), [
-    "critical gates not satisfied: core/CORE-01 (failed: fail)",
+    "critical gates not satisfied: core/CORE-01 failed (critical workflow failed)",
   ]);
 });
 

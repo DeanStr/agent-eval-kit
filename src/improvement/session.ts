@@ -1,6 +1,15 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { z } from "zod";
+import {
+  compareCampaigns,
+  campaignComparisonFailures,
+  loadCampaign,
+  writeCampaignComparisonArtifacts,
+} from "../campaign-compare.js";
+import { loadCampaignState, runCampaign } from "../campaign-run.js";
+import { campaignRunRecord, type CampaignReport } from "../campaign.js";
 import { cancellationSignal, CliInterruptionError, withCancellation } from "../cancellation.js";
 import { shellQuote } from "../cli-recovery.js";
 import { collectorInputs } from "../collectors/inputs.js";
@@ -40,7 +49,11 @@ import {
   type ImprovementSessionContext,
 } from "./contracts.js";
 import { assertClean, assertNoSubmodules, checkpoint, git, restore, workingTree } from "./git.js";
-import { caseRegressionFailures } from "./cases.js";
+import {
+  caseRegressionFailures,
+  gatePassRateFailures,
+  reproducedRegressionFailures,
+} from "./cases.js";
 
 /** Only failures raised while executing a candidate, after invariant validation. */
 class CandidateExecutionError extends Error {
@@ -250,7 +263,7 @@ function assertPinned(directory: string, state: Session): void {
     );
 }
 
-function readRun(directory: string, run: NonNullable<Session["best"]>["run"]): RunReport {
+function readRun(directory: string, run: Reference): RunReport {
   const location = path.join(directory, run.directory);
   if (!isWithin(path.join(directory, "runs"), fs.realpathSync(location)))
     throw new Error("Improvement run escapes its retained run directory");
@@ -260,6 +273,62 @@ function readRun(directory: string, run: NonNullable<Session["best"]>["run"]): R
   if (sha256(fs.readFileSync(path.join(location, "report.json"))) !== run.reportHash)
     throw new Error("Improvement report changed after the decision");
   return loadComparisonInput(location).report;
+}
+
+type Reference = NonNullable<Attempt["run"]>;
+type CampaignReference = NonNullable<Attempt["campaign"]>;
+/** One sealed run, or an n-repetition campaign with each repetition's sealed report. */
+type Measurement =
+  | { run: Reference; report: RunReport }
+  | { campaign: CampaignReference; report: CampaignReport; reports: RunReport[] };
+
+const reference = (measurement: Measurement) =>
+  "campaign" in measurement ? { campaign: measurement.campaign } : { run: measurement.run };
+const runReports = (measurement: Measurement) =>
+  "campaign" in measurement ? measurement.reports : [measurement.report];
+
+function readCampaign(directory: string, campaign: CampaignReference): Measurement {
+  const location = path.join(directory, campaign.directory);
+  const real = fs.realpathSync(location);
+  if (!isWithin(directory, real) || isWithin(workspace(directory), real))
+    throw new Error("Improvement campaign escapes its session directory");
+  if (sha256(fs.readFileSync(path.join(location, "campaign.json"))) !== campaign.reportHash)
+    throw new Error("Improvement campaign changed after the decision");
+  const { report } = loadCampaign(location);
+  if (
+    report.status !== "complete" ||
+    report.compatibility.status !== "compatible" ||
+    report.coverage.completedRuns !== report.plannedRepetitions
+  )
+    throw new Error(
+      `Improvement requires every repetition to complete with identical evaluation inputs; ${campaign.directory} has ${report.coverage.completedRuns}/${report.plannedRepetitions} complete runs and ${report.compatibility.status} inputs`,
+    );
+  if (
+    campaign.runs.length !== report.plannedRepetitions ||
+    campaign.runs.length !== report.runs.length
+  )
+    throw new Error(
+      "Improvement campaign repetition inventory does not match its retained campaign",
+    );
+  const reports = report.runs.map((record, index) => {
+    if (record.status !== "complete") throw new Error("Improvement requires complete repetitions");
+    const run = campaign.runs[index]!;
+    if (path.resolve(directory, run.directory) !== path.resolve(record.runDir))
+      throw new Error(
+        `Campaign repetition ${record.ordinal} does not match its retained report reference`,
+      );
+    const result = readRun(directory, run);
+    if (stableJson(campaignRunRecord(record.ordinal, record.runDir, result)) !== stableJson(record))
+      throw new Error(`Campaign repetition ${record.ordinal} does not match its retained report`);
+    return result;
+  });
+  return { campaign, report, reports };
+}
+
+function readBest(directory: string, best: NonNullable<Session["best"]>): Measurement {
+  return "campaign" in best
+    ? readCampaign(directory, best.campaign)
+    : { run: best.run, report: readRun(directory, best.run) };
 }
 
 function stop(state: Session, reason: StopReason): void {
@@ -317,12 +386,26 @@ function completeAttempt(directory: string, state: Session, attempt: Attempt): v
   save(directory, state);
 }
 
+// A failed run can contain new diagnostics and service shutdown logs. Its
+// sealed inputs, reports and evidence must remain intact before more work.
+function assertFailedRunIntact(runDir: string): void {
+  assertArtifactIntegrity(runDir, {
+    allowUnindexed: true,
+    allowChangedPaths: ["lifecycle/start.stdout.log", "lifecycle/start.stderr.log"],
+  });
+}
+
+const campaignDirectory = (directory: string, attempt?: Attempt) =>
+  attempt
+    ? path.join(directory, "attempts", String(attempt.number), `attempt-${attempt.number}-campaign`)
+    : path.join(directory, "baseline-campaign");
+
 async function evaluate(
   directory: string,
   state: Session,
   onProgress: (message: string) => void,
   attempt?: Attempt,
-) {
+): Promise<Measurement> {
   assertPinned(directory, state);
   const root = workspace(directory);
   const tree = workingTree(root, directory);
@@ -344,24 +427,33 @@ async function evaluate(
           "Candidate source changed during evaluation. Keep setup outputs ignored and do not edit while evaluating.",
         );
     };
-    let result: Awaited<ReturnType<typeof runEvaluation>> | undefined;
+    const record = (location: string) => {
+      if (attempt) {
+        attempt.evaluationDirectory = path.relative(directory, location);
+        save(directory, state);
+      }
+    };
+    const execute = async () => {
+      if (state.repetitions === 1)
+        return { single: await runEvaluation({ ...options, onProgress, onRunCreated: record }) };
+      const exitCode = process.exitCode;
+      const campaign = await runCampaign({
+        ...options,
+        repetitions: state.repetitions,
+        output: campaignDirectory(directory, attempt),
+        thresholds: {},
+        onProgress,
+        onCampaignCreated: record,
+      });
+      // Campaigns report CI outcomes through the exit code; this decision owns it.
+      process.exitCode = exitCode;
+      return { campaign };
+    };
+    let result: Awaited<ReturnType<typeof execute>> | undefined;
     let executionFailure: Error | undefined;
     const processFile = path.join(directory, "process-groups.json");
     try {
-      result = await withProcessRegistry(processFile, () =>
-        withCancellation(signal, () =>
-          runEvaluation({
-            ...options,
-            onProgress,
-            onRunCreated: (runDir) => {
-              if (attempt) {
-                attempt.evaluationDirectory = path.relative(directory, runDir);
-                save(directory, state);
-              }
-            },
-          }),
-        ),
-      );
+      result = await withProcessRegistry(processFile, () => withCancellation(signal, execute));
     } catch (error) {
       executionFailure = error instanceof Error ? error : new Error(String(error));
     }
@@ -392,23 +484,57 @@ async function evaluate(
       }
     }
     if (executionFailure) {
-      if (!attempt?.evaluationDirectory) throw executionFailure;
-      if (state.best) readRun(directory, state.best.run);
+      // A campaign records repetition failures itself; anything it throws is not
+      // attributable to one candidate run.
+      if (state.repetitions > 1 || !attempt?.evaluationDirectory) throw executionFailure;
+      if (state.best) readBest(directory, state.best);
       const failedRun = path.join(directory, attempt.evaluationDirectory);
       if (loadRunState(failedRun).status !== "failed") throw executionFailure;
-      // A failed run can contain new diagnostics and service shutdown logs. Its
-      // sealed inputs, reports and evidence must remain intact before more work.
-      assertArtifactIntegrity(failedRun, {
-        allowUnindexed: true,
-        allowChangedPaths: ["lifecycle/start.stdout.log", "lifecycle/start.stderr.log"],
-      });
+      assertFailedRunIntact(failedRun);
       throw new CandidateExecutionError(executionFailure);
     }
     signal.throwIfAborted();
-    if (!result?.report) throw new Error("Full evaluation completed without a report");
+    if (result?.campaign) {
+      const { campaignDir, campaign } = result.campaign;
+      const failed = campaign.runs.filter((run) => run.status === "failed");
+      if (failed.length) {
+        const failure = new Error(
+          failed.map((run) => `Repetition ${run.ordinal} failed: ${run.error}`).join("\n"),
+        );
+        if (!attempt) throw failure;
+        if (state.best) readBest(directory, state.best);
+        for (const run of failed) {
+          if (!run.runDir || loadRunState(run.runDir).status !== "failed") throw failure;
+          assertFailedRunIntact(run.runDir);
+        }
+        throw new CandidateExecutionError(failure);
+      }
+      const checkpoint = loadCampaignState(campaignDir);
+      if (stableJson(checkpoint.runs) !== stableJson(campaign.runs))
+        throw new Error("Improvement campaign checkpoint does not match its retained campaign");
+      return readCampaign(directory, {
+        directory: path.relative(directory, campaignDir),
+        reportHash: sha256(fs.readFileSync(path.join(campaignDir, "campaign.json"))),
+        runs: campaign.runs.map((record) => {
+          if (record.status !== "complete")
+            throw new Error("Improvement requires complete repetitions");
+          const index = assertArtifactIntegrity(record.runDir, { require: true })!;
+          if (index.rootSha256 !== checkpoint.artifactRoots[String(record.ordinal)])
+            throw new Error(
+              `Campaign repetition ${record.ordinal} artifacts changed before the decision`,
+            );
+          return {
+            directory: path.relative(directory, record.runDir),
+            reportHash: sha256(fs.readFileSync(path.join(record.runDir, "report.json"))),
+          };
+        }),
+      });
+    }
+    const single = result?.single;
+    if (!single?.report) throw new Error("Full evaluation completed without a report");
     const run = {
-      directory: path.relative(directory, result.runDir),
-      reportHash: sha256(fs.readFileSync(path.join(result.runDir, "report.json"))),
+      directory: path.relative(directory, single.runDir),
+      reportHash: sha256(fs.readFileSync(path.join(single.runDir, "report.json"))),
     };
     return { run, report: readRun(directory, run) };
   } finally {
@@ -422,7 +548,10 @@ export async function startImprovement(
   onProgress = (_message: string) => {},
 ): Promise<Session> {
   assertEvaluationPlatform();
-  const options = startSchema.parse(input);
+  const parsed = startSchema.safeParse(input);
+  if (!parsed.success)
+    throw new Error(`Invalid improvement settings:\n${z.prettifyError(parsed.error)}`);
+  const options = parsed.data;
   const configFile = fs.realpathSync(path.resolve(options.config));
   const sourceConfig = loadConfig(configFile, options.suite ? { suite: options.suite } : {});
   const source = fs.realpathSync(sourceConfig.project.root);
@@ -459,7 +588,7 @@ export async function startImprovement(
       git(source, ["worktree", "add", "--detach", workspace(directory), initial]);
       const root = workspace(directory);
       const state: Session = {
-        version: 1,
+        version: 2,
         id: crypto.randomUUID(),
         source,
         gitCommonDir: git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
@@ -472,6 +601,7 @@ export async function startImprovement(
         maxAttempts: options.maxAttempts,
         maxStalls: options.maxStalls,
         minimumGain: options.minimumGain,
+        repetitions: options.repetitions ?? 1,
         status: "initializing",
         initial,
         pinnedFiles: {},
@@ -484,9 +614,26 @@ export async function startImprovement(
       try {
         state.pinnedFiles = pinnedInputs(directory, state);
         save(directory, state);
-        const { run, report } = await evaluate(directory, state, onProgress);
-        state.best = { checkpoint: initial, run, accepted: false };
-        if (insufficientEvidence(report)) stop(state, "insufficient_evidence");
+        const measurement = await evaluate(directory, state, onProgress);
+        state.best = { checkpoint: initial, ...reference(measurement), accepted: false };
+        const reports = runReports(measurement);
+        if (state.repetitions > 1) {
+          const cases = new Set(
+            reports.flatMap((report) =>
+              report.areas.flatMap((area) =>
+                area.caseResults.map((item) =>
+                  JSON.stringify([area.id, item.rubricId, item.caseId]),
+                ),
+              ),
+            ),
+          );
+          // The paired bootstrap resamples matched cases; it is undefined for fewer than two.
+          if (cases.size < 2)
+            throw new Error(
+              `Repeated-run acceptance needs at least two scored cases for its paired-case interval, but the suite produced ${cases.size}. Cases come from LLM-judged rubric items linked to scenarios, text datasets, and scenario templates; command, capture, and visual checks produce none. Start a new session without --repetitions for single-run acceptance.`,
+            );
+        }
+        if (reports.some(insufficientEvidence)) stop(state, "insufficient_evidence");
         else state.status = "ready";
         save(directory, state);
         return state;
@@ -519,7 +666,7 @@ export async function beginAttempt(directoryInput: string, hypothesis: string): 
         state.stopReason &&
         state.stopReason !== "execution_error"
       ) {
-        if (state.best) readRun(directory, state.best.run);
+        if (state.best) readBest(directory, state.best);
         return state;
       }
       if (state.status !== "ready" || !state.best)
@@ -527,7 +674,7 @@ export async function beginAttempt(directoryInput: string, hypothesis: string): 
       assertClean(root);
       if (git(root, ["rev-parse", "HEAD"]) !== state.best.checkpoint)
         throw new Error("Workspace no longer matches the best checkpoint");
-      readRun(directory, state.best.run);
+      readBest(directory, state.best);
       assertPinned(directory, state);
       const reason = budgetReason(state);
       if (reason) stop(state, reason);
@@ -546,6 +693,127 @@ export async function beginAttempt(directoryInput: string, hypothesis: string): 
     },
     { recoverStale: false },
   );
+}
+
+type SingleRun = Extract<Measurement, { run: Reference }>;
+type Campaign = Extract<Measurement, { campaign: CampaignReference }>;
+type Decision = Extract<Attempt["status"], "accepted" | "rejected" | "inconclusive">;
+
+const gainFails = (state: Session, gain: number | null) =>
+  gain === null || gain <= 0 || belowPercentageThreshold(gain, state.minimumGain);
+const gainReason = (state: Session, subject: string, gain: number | null) =>
+  `${subject} ${gain ?? "unavailable"} does not meet the required positive improvement${state.minimumGain ? ` of at least ${state.minimumGain} points` : ""}`;
+
+/** Strict single-run acceptance: one baseline run against one candidate run. */
+function singleRunDecision(
+  directory: string,
+  state: Session,
+  attempt: Attempt,
+  baseline: SingleRun,
+  candidate: SingleRun,
+  comparisonDir: string,
+): Decision {
+  const { report } = candidate;
+  const comparison = compareReports(baseline.report, report);
+  writeComparisonArtifacts(comparisonDir, comparison, {
+    baselineFile: path.join(directory, baseline.run.directory, "report.json"),
+    candidateFile: path.join(directory, candidate.run.directory, "report.json"),
+  });
+  attempt.comparison = path.relative(directory, comparisonDir);
+  if (comparison.compatibility.status !== "compatible")
+    throw new Error(`Evaluator changed: ${comparison.compatibility.differences.join(" ")}`);
+  if (insufficientEvidence(report)) {
+    attempt.reasons = [
+      "The full suite has insufficient evidence; this is not a product quality score.",
+    ];
+    return "inconclusive";
+  }
+  attempt.reasons = [
+    ...evaluateSuiteCompleteness(configuration(directory, state).config, report, {
+      split: "all",
+      includeOptional: true,
+    }).failures,
+    ...comparisonFailures(comparison, { requireCompatible: true, failOnRegression: true }),
+    ...caseRegressionFailures(
+      baseline.report.areas.flatMap((area) => area.caseResults),
+      report.areas.flatMap((area) => area.caseResults),
+    ),
+  ];
+  const before = aggregateAreaMeasurements(baseline.report.areas).scorePct;
+  const after = aggregateAreaMeasurements(report.areas).scorePct;
+  const gain = before === null || after === null ? null : after - before;
+  if (gain !== null) attempt.scoreGain = gain;
+  if (gainFails(state, gain)) attempt.reasons.push(gainReason(state, "Score gain", gain));
+  return attempt.reasons.length ? "rejected" : "accepted";
+}
+
+/** Full-precision mean of the repetitions' headline scores. */
+function meanScore(reports: RunReport[]): number | null {
+  const scores = reports.map((report) => aggregateAreaMeasurements(report.areas).scorePct);
+  if (scores.some((score) => score === null)) return null;
+  return scores.reduce<number>((sum, score) => sum + score!, 0) / scores.length;
+}
+
+/**
+ * Repeated-run acceptance compares n-repetition campaigns. Every aggregate
+ * campaign regression, including any critical-gate pass-rate drop, rejects.
+ * Per-case mean decreases are not used directly: under noisy judging an
+ * unchanged case decreases by chance about half the time. Items and cases
+ * reject only when they regressed in every repetition. A sufficient mean gain
+ * whose paired-case interval does not exclude zero is inconclusive.
+ */
+function repeatedRunDecision(
+  directory: string,
+  state: Session,
+  attempt: Attempt,
+  baseline: Campaign,
+  candidate: Campaign,
+  comparisonDir: string,
+): Decision {
+  const comparison = compareCampaigns(baseline.report, candidate.report);
+  writeCampaignComparisonArtifacts(comparisonDir, comparison);
+  attempt.comparison = path.relative(directory, comparisonDir);
+  if (comparison.compatibility.status !== "compatible")
+    throw new Error(`Evaluator changed: ${comparison.compatibility.reasons.join(" ")}`);
+  const { reports } = candidate;
+  if (reports.some(insufficientEvidence)) {
+    attempt.reasons = [
+      `At least one of ${reports.length} repetitions has insufficient evidence; this is not a product quality score.`,
+    ];
+    return "inconclusive";
+  }
+  const config = configuration(directory, state).config;
+  attempt.reasons = [
+    ...new Set(
+      reports.flatMap(
+        (report) =>
+          evaluateSuiteCompleteness(config, report, { split: "all", includeOptional: true })
+            .failures,
+      ),
+    ),
+    // Mean-level case decreases are replaced by the reproduced-regression rule below.
+    ...campaignComparisonFailures(
+      { ...comparison, summary: { ...comparison.summary, regressed: 0 } },
+      { requireCompatible: true, failOnRegression: true },
+    ),
+    ...reproducedRegressionFailures(baseline.reports, reports),
+    ...gatePassRateFailures(baseline.reports, reports),
+  ];
+  const before = meanScore(baseline.reports);
+  const after = meanScore(reports);
+  const gain = before === null || after === null ? null : after - before;
+  if (gain !== null) attempt.scoreGain = gain;
+  if (gainFails(state, gain))
+    attempt.reasons.push(gainReason(state, `Mean score gain over ${reports.length} runs`, gain));
+  const interval = comparison.pairedCases.confidenceInterval95;
+  if (attempt.reasons.length) return "rejected";
+  if (!interval || interval.lower <= 0) {
+    attempt.reasons = [
+      `Mean score gain ${gain} over ${reports.length} runs is sufficient, but the paired-case 95% bootstrap interval ${interval ? `[${interval.lower}, ${interval.upper}]` : `is unavailable for ${comparison.pairedCases.judgeable} matched case(s)`} does not exclude zero; the improvement is not established.`,
+    ];
+    return "inconclusive";
+  }
+  return "accepted";
 }
 
 /** Guidance is retained for repair context only. Acceptance uses a new full evaluation. */
@@ -585,54 +853,38 @@ export async function evaluateAttempt(
       const previousBest = state.best;
       let failure: Error | undefined;
       try {
-        const baseline = readRun(directory, state.best.run);
+        const baseline = readBest(directory, state.best);
         restoreBest(directory, state, attempt.checkpoint);
-        const { run, report } = await evaluate(directory, state, onProgress, attempt);
-        attempt.run = run;
-        readRun(directory, previousBest.run);
-        const comparison = compareReports(baseline, report);
+        const candidate = await evaluate(directory, state, onProgress, attempt);
+        Object.assign(attempt, reference(candidate));
+        readBest(directory, previousBest);
         const comparisonDir = path.join(
           directory,
           "attempts",
           String(attempt.number),
           "comparison",
         );
-        writeComparisonArtifacts(comparisonDir, comparison, {
-          baselineFile: path.join(directory, previousBest.run.directory, "report.json"),
-          candidateFile: path.join(directory, run.directory, "report.json"),
-        });
-        attempt.comparison = path.relative(directory, comparisonDir);
-        if (comparison.compatibility.status !== "compatible")
-          throw new Error(`Evaluator changed: ${comparison.compatibility.differences.join(" ")}`);
-        if (insufficientEvidence(report)) {
-          attempt.status = "inconclusive";
-          attempt.reasons = [
-            "The full suite has insufficient evidence; this is not a product quality score.",
-          ];
-        } else {
-          attempt.reasons = [
-            ...evaluateSuiteCompleteness(configuration(directory, state).config, report, {
-              split: "all",
-              includeOptional: true,
-            }).failures,
-            ...comparisonFailures(comparison, { requireCompatible: true, failOnRegression: true }),
-            ...caseRegressionFailures(
-              baseline.areas.flatMap((area) => area.caseResults),
-              report.areas.flatMap((area) => area.caseResults),
-            ),
-          ];
-          const before = aggregateAreaMeasurements(baseline.areas).scorePct;
-          const after = aggregateAreaMeasurements(report.areas).scorePct;
-          const gain = before === null || after === null ? null : after - before;
-          if (gain !== null) attempt.scoreGain = gain;
-          if (gain === null || gain <= 0 || belowPercentageThreshold(gain, state.minimumGain))
-            attempt.reasons.push(
-              `Score gain ${gain ?? "unavailable"} does not meet the required positive improvement${state.minimumGain ? ` of at least ${state.minimumGain} points` : ""}`,
-            );
-          attempt.status = attempt.reasons.length ? "rejected" : "accepted";
-          if (attempt.status === "accepted")
-            state.best = { checkpoint: attempt.checkpoint, run, accepted: true };
-        }
+        if ("campaign" in baseline && "campaign" in candidate)
+          attempt.status = repeatedRunDecision(
+            directory,
+            state,
+            attempt,
+            baseline,
+            candidate,
+            comparisonDir,
+          );
+        else if ("run" in baseline && "run" in candidate)
+          attempt.status = singleRunDecision(
+            directory,
+            state,
+            attempt,
+            baseline,
+            candidate,
+            comparisonDir,
+          );
+        else throw new Error("Improvement baseline and candidate evaluation modes differ");
+        if (attempt.status === "accepted")
+          state.best = { checkpoint: attempt.checkpoint, ...reference(candidate), accepted: true };
         finishAttempt(state);
         restoreBest(directory, state, state.best.checkpoint);
       } catch (error) {
@@ -723,7 +975,7 @@ export function improvementStatus(directoryInput: string) {
   const state = load(directory);
   ownedWorkspace(directory, state);
   assertDetached(workspace(directory));
-  if (state.best) readRun(directory, state.best.run);
+  if (state.best) readBest(directory, state.best);
   const source = shellQuote(state.source);
   let cleanupBlockedReason: string | null = null;
   if (state.status === "stopped") {

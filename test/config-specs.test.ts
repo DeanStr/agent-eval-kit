@@ -349,7 +349,7 @@ target: { kind: repository }
 scorng: { minimumCoverage: 80 }
 `,
   );
-  assert.throws(() => loadConfig(file), /Unrecognized key.*scorng/);
+  assert.throws(() => loadConfig(file), /Unknown key "scorng"\. Did you mean "scoring"\?/);
 });
 
 test("authenticated scenarios require a persona and browser execution", () => {
